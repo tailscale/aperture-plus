@@ -7,6 +7,12 @@ ifeq (, $(shell which $(XCPRETTIFIER)))
         XCPRETTIFIER := cat
 endif
 
+# xcodebuild is piped through $(XCPRETTIFIER); without pipefail, make would see
+# the prettifier's (xcpretty/cat) exit status and treat a failed xcodebuild as
+# success, leaving a hollow .framework and a confusing create-xcframework error.
+# GNU make 3.81 (the default on macOS) predates .SHELLFLAGS, so set pipefail inline.
+XCB = set -o pipefail; xcodebuild
+
 # The xcodebuild schemes will run the Makefile in the root directory to build
 # the libtailscale.a and libtailscale_ios.a dependencies.
 
@@ -19,7 +25,7 @@ macos:  ## Builds TailscaleKit for macos to swift/build/Build/Products/Release (
 	@echo "::: Building TailscaleKit.framework for macOS :::"
 	cd .. && make c-archive
 	mkdir -p build
-	xcodebuild build -scheme "TailscaleKit (macOS)" \
+	$(XCB) build -scheme "TailscaleKit (macOS)" \
 	 -derivedDataPath build \
 	 -configuration Release \
 	 -destination 'platform=macOS,arch=arm64' \
@@ -31,7 +37,7 @@ ios:  ## Builds TailscaleKit for iOS to swift/build/Build/Products/Release-iphon
 	@echo "::: Building TailscaleKit.framework for iOS :::"
 	cd .. && make c-archive-ios
 	mkdir -p build
-	xcodebuild build -scheme "TailscaleKit (iOS)" \
+	$(XCB) build -scheme "TailscaleKit (iOS)" \
 	 -derivedDataPath build \
 	 -configuration Release \
 	 -destination 'generic/platform=iOS' \
@@ -43,7 +49,7 @@ ios-sim:  ## Builds TailscaleKit for iOS to swift/build/Build/Products/Release-i
 	@echo "::: Building TailscaleKit.framework for iOS Simulator :::"
 	cd .. && make c-archive-ios-sim
 	mkdir -p build
-	xcodebuild build -scheme "TailscaleKit (Simulator)" \
+	$(XCB) build -scheme "TailscaleKit (Simulator)" \
 	 -derivedDataPath build \
 	 -configuration Release \
 	 -destination 'generic/platform=iOS Simulator' \
