@@ -85,17 +85,14 @@ final class BrowserViewModel: ObservableObject {
         navError = nil
         navTask = Task { [weak self] in
             guard let self else { return }
-            var iterator = nav.makeAsyncIterator()
             do {
-                while let event = try await iterator.next() {
+                for try await event in nav {
                     if Task.isCancelled { return }
                     logger.log("Event: \(event)")
                 }
             } catch {
                 if Task.isCancelled { return }
-                await MainActor.run {
-                    navigationError(error, for: url)
-                }
+                navigationError(error, for: url)
             }
         }
     }
