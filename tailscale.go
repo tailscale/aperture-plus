@@ -29,6 +29,28 @@ import (
 
 func main() {}
 
+// netmapCacheEnvOnce ensures we configure the netmap-caching environment
+// variables exactly once, before the first tsnet server is created.
+//
+// TS_FORCE_CACHE_NETMAP forces tailscale to write the full netmap to its
+// on-disk cache even when the control server has not granted the
+// cache-network-maps node capability. TS_USE_CACHED_NETMAP (which already
+// defaults to true) allows a previously cached netmap to be loaded at
+// startup so tsnet can come up with a usable netmap before the control
+// plane is reached.
+//
+// Both are read lazily by tailscale.com/envknob during tsnet startup (in
+// LocalBackend.startLocked/setNetMapLocked), so setting them here, before
+// the server is started, takes effect in time.
+var netmapCacheEnvOnce sync.Once
+
+func setupNetmapCacheEnv() {
+	netmapCacheEnvOnce.Do(func() {
+		os.Setenv("TS_FORCE_CACHE_NETMAP", "1")
+		os.Setenv("TS_USE_CACHED_NETMAP", "1")
+	})
+}
+
 // servers tracks all the allocated *tsnet.Server objects.
 var servers struct {
 	mu   sync.Mutex
@@ -85,6 +107,8 @@ func (s *server) recErr(err error) C.int {
 
 //export TsnetNewServer
 func TsnetNewServer() C.int {
+	setupNetmapCacheEnv()
+
 	servers.mu.Lock()
 	defer servers.mu.Unlock()
 
