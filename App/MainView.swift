@@ -37,6 +37,7 @@ struct MainView: View {
                 Group {
                     if manager.model.state == .Running {
                         BookmarkListItem(bookmark: HomePage.standard.bookmark, onSelect: handleTap)
+                            .accessibilityIdentifier("home-page-bookmark")
                         BookMarkList(onSelect: handleTap)
                     }
                 }

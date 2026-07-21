@@ -125,6 +125,59 @@ final class TailBrowserUITests: XCTestCase {
         )
     }
 
+    // MARK: - Tests requiring a connected Tailnet
+
+    /// Loads the app, waits until the tailnet is connected (signaled by the
+    /// "Home Page" bookmark appearing — it only renders when `state == .Running`),
+    /// taps it, and confirms the home page loads in the browser view.
+    ///
+    /// REQUIRES a simulator that is already logged into a Tailnet. Run on the
+    /// iPad sim where login persists:
+    ///
+    ///   xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+    ///     -configuration Debug \
+    ///     -destination 'platform=iOS Simulator,name=iPad (A16)' \
+    ///     -derivedDataPath build/DerivedData \
+    ///     -only-testing:TailBrowserUITests/TailBrowserUITests/testHomePageLoadsWhenConnected
+    ///
+    func testHomePageLoadsWhenConnected() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // The Home Page bookmark only appears when State == .Running, so waiting
+        // for it IS waiting for the tailnet to connect. Use a generous timeout —
+        // the node can take a while to come up from a cold start.
+        let homePageButton = app.buttons["home-page-bookmark"]
+        guard homePageButton.waitForExistence(timeout: 90) else {
+            attachScreenshot(app, named: "not-connected")
+            XCTFail("Tailnet did not reach Running state within 90s — the Home Page " +
+                    "bookmark never appeared. Is this sim logged into a Tailnet?")
+            return
+        }
+
+        // Tap it → pushes BrowserView with the home page URL.
+        homePageButton.tap()
+
+        // The browser view hosts a WKWebView. Wait for it to appear.
+        let webView = app.webViews.firstMatch
+        guard webView.waitForExistence(timeout: 30) else {
+            attachScreenshot(app, named: "no-webview")
+            XCTFail("Browser view / WKWebView did not appear after tapping Home Page")
+            return
+        }
+
+        // Confirm the page actually loaded (not just that the view appeared).
+        // We poll several native signals: the WKWebView's identifier/label, and
+        // the URL text field in the browser's nav bar (which updates to the
+        // current URL when the page finishes loading).
+        let pageLoaded = waitForPageLoaded(in: app, contains: "tailscale.com", timeout: 60)
+        attachScreenshot(app, named: pageLoaded ? "page-loaded" : "page-load-failed")
+        XCTAssertTrue(pageLoaded,
+                      "Home page (https://tailscale.com) did not load within 60s. " +
+                      "Check libtailscale logs: xcrun simctl spawn booted log stream " +
+                      "--predicate 'subsystem == \"io.tailscale.TailBrowse\"'")
+    }
+
     // MARK: - Helpers
 
     /// Attach a screenshot of `app` to the current test. Call from inside a
@@ -142,6 +195,30 @@ final class TailBrowserUITests: XCTestCase {
     private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate(format: "isHittable == YES")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        return result == .completed
+    }
+
+    /// Waits for the browser page to load by polling several native signals:
+    /// the WKWebView's identifier/label, and the URL text field in the nav bar
+    /// (which updates to the loaded URL via `BrowserNavigator.onChange`).
+    /// Returns true if any signal contained `substring` in time.
+    @discardableResult
+    private func waitForPageLoaded(in app: XCUIApplication, contains substring: String,
+                                   timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            // Primary: the nav-bar URL text field value.
+            let urlField = app.textFields["Enter URL"]
+            if let val = urlField.value as? String, val.contains(substring) { return true }
+            // Secondary: the WKWebView's identifier/label sometimes carries the URL.
+            let webView = app.webViews.firstMatch
+            if webView.exists {
+                if webView.identifier.contains(substring) || webView.label.contains(substring) { return true }
+            }
+            return false
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
         let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
         return result == .completed
     }
