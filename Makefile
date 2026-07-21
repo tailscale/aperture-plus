@@ -1,4 +1,4 @@
-# Top-level Makefile for TailBrowser.
+# Top-level Makefile for Aperture.
 #
 #   make            build everything from scratch (libtailscale + app for sim)
 #   make test       build, then run the UI tests on the simulator
@@ -10,8 +10,8 @@
 # libtailscale build if the xcframework already exists.
 
 # ----- config -----
-PROJECT      := TailBrowser.xcodeproj
-SCHEME       := TailBrowser
+PROJECT      := Aperture.xcodeproj
+SCHEME       := Aperture
 CONFIG       := Debug
 SIM_NAME     ?= iPhone 17
 DERIVED      := build/DerivedData
@@ -44,9 +44,9 @@ $(XCFRAMEWORK):
 
 # ----- app -----
 .PHONY: app
-app: framework  ## Build the TailBrowser app for the simulator
+app: framework  ## Build the Aperture app for the simulator
 	@echo
-	@echo "::: Building TailBrowser for $(SIM_NAME) simulator :::"
+	@echo "::: Building Aperture for $(SIM_NAME) simulator :::"
 	$(XCB) build \
 		-project $(PROJECT) -scheme $(SCHEME) \
 		-configuration $(CONFIG) \

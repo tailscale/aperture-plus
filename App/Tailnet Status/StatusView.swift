@@ -1,6 +1,6 @@
 //
 //  StatusViewModel.swift
-//  TailBrowser
+//  Aperture
 //
 //  Created by Jonathan Nobels on 2025-12-16.
 //

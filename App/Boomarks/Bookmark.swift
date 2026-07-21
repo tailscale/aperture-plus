@@ -18,6 +18,10 @@ final class Bookmark {
 }
 
 final class HomePage {
+    /// The default home page loaded when the user hasn't set one. Points at
+    /// the Aperture chat UI on the tailnet.
+    static let defaultURL = "http://ai/chat"
+
     let key: String
 
     static var standard = HomePage(key: "default_homepage")
@@ -28,7 +32,7 @@ final class HomePage {
 
     var url: String {
         get {
-            UserDefaults.standard.string(forKey: "homepage") ?? "https://tailscale.com"
+            UserDefaults.standard.string(forKey: "homepage") ?? HomePage.defaultURL
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "homepage")

@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# run-uitests.sh — build & run the TailBrowser UI tests on the iOS simulator,
+# run-uitests.sh — build & run the Aperture UI tests on the iOS simulator,
 # while capturing libtailscale/tsnet logs two ways:
 #
 #   1. The app's stdout (print("tsnet: ...")) — captured by the OS unified
 #      log, surfaced via `simctl log stream` into unified.log. (It does NOT
 #      appear in the UI-test runner's own stdout, so combined.log usually has
 #      no `tsnet:` lines; unified.log is the authoritative source.)
-#   2. Apple's unified logging system (OSLog, subsystem io.tailscale.TailBrowse)
+#   2. Apple's unified logging system (OSLog, subsystem io.tailscale.Aperture)
 #      — streamed live via `simctl log stream`.
 #
 # Usage:
@@ -60,9 +60,9 @@ echo "▶ Destination: $DEST"
 
 # --- Start the unified-log stream in the background -------------------------
 UNIFIED_LOG="$LOG_DIR/unified.log"
-echo "▶ Streaming unified logs (subsystem == io.tailscale.TailBrowse) → $UNIFIED_LOG"
+echo "▶ Streaming unified logs (subsystem == io.tailscale.Aperture) → $UNIFIED_LOG"
 xcrun simctl spawn "$UDID" log stream \
-    --predicate 'subsystem == "io.tailscale.TailBrowse"' \
+    --predicate 'subsystem == "io.tailscale.Aperture"' \
     --level debug --style compact >"$UNIFIED_LOG" 2>&1 &
 LOG_PID=$!
 sleep 1   # let the stream attach
@@ -80,7 +80,7 @@ COMBINED="$LOG_DIR/combined.log"
 if [[ "$BUILD" -eq 1 ]]; then
     echo "▶ Building for testing…"
     xcodebuild build-for-testing \
-        -project TailBrowser.xcodeproj -scheme TailBrowser \
+        -project Aperture.xcodeproj -scheme Aperture \
         -configuration Debug -destination "$DEST" \
         -derivedDataPath "$DERIVED" 2>&1 | tee "$COMBINED"
 fi
@@ -88,7 +88,7 @@ fi
 echo "▶ Running tests…"
 set +e
 xcodebuild test-without-building \
-    -project TailBrowser.xcodeproj -scheme TailBrowser \
+    -project Aperture.xcodeproj -scheme Aperture \
     -configuration Debug -destination "$DEST" \
     -derivedDataPath "$DERIVED" 2>&1 | tee -a "$COMBINED"
 TEST_RC=${PIPESTATUS[0]}

@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "C20F24732EF19A5900F57D67"
-               BuildableName = "TailBrowser.app"
-               BlueprintName = "TailBrowser"
-               ReferencedContainer = "container:TailBrowser.xcodeproj">
+               BuildableName = "Aperture.app"
+               BlueprintName = "Aperture"
+               ReferencedContainer = "container:Aperture.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -35,9 +35,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "F10000060000000000000006"
-               BuildableName = "TailBrowserUITests.xctest"
-               BlueprintName = "TailBrowserUITests"
-               ReferencedContainer = "container:TailBrowser.xcodeproj">
+               BuildableName = "ApertureUITests.xctest"
+               BlueprintName = "ApertureUITests"
+               ReferencedContainer = "container:Aperture.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -59,9 +59,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C20F24732EF19A5900F57D67"
-            BuildableName = "TailBrowser.app"
-            BlueprintName = "TailBrowser"
-            ReferencedContainer = "container:TailBrowser.xcodeproj">
+            BuildableName = "Aperture.app"
+            BlueprintName = "Aperture"
+            ReferencedContainer = "container:Aperture.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -76,9 +76,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C20F24732EF19A5900F57D67"
-            BuildableName = "TailBrowser.app"
-            BlueprintName = "TailBrowser"
-            ReferencedContainer = "container:TailBrowser.xcodeproj">
+            BuildableName = "Aperture.app"
+            BlueprintName = "Aperture"
+            ReferencedContainer = "container:Aperture.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

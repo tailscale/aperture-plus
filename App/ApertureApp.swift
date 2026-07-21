@@ -1,6 +1,6 @@
 //
-//  TailBrowseApp.swift
-//  TailBrowse
+//  ApertureApp.swift
+//  Aperture
 //
 //  Created by Jonathan Nobels on 2025-12-16.
 //
@@ -10,7 +10,7 @@ import SwiftData
 import TailscaleKit
 
 @main
-struct TailBrowseApp: App {
+struct ApertureApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @State var manager = TSNetManager()
@@ -20,7 +20,7 @@ struct TailBrowseApp: App {
         // isn't polluted by whatever a prior run left in UserDefaults. Harmless
         // in normal use — the launch argument is never set outside UI tests.
         if ProcessInfo.processInfo.arguments.contains("-UITestResetHomePage") {
-            HomePage.standard.url = "https://tailscale.com"
+            HomePage.standard.url = HomePage.defaultURL
         }
     }
 

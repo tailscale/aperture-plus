@@ -8,7 +8,7 @@ non-obvious things that are easy to get wrong.
 
 An iOS-only SwiftUI browser (WebKit) that routes traffic through an embedded
 userspace Tailscale node (`TailscaleKit` / `libtailscale`). Single Xcode target,
-single scheme, both named **`TailBrowser`**. Bundle ID `io.tailscale.TailBrowse`.
+single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
 
 ## Hard constraints (will break the build if ignored)
 
@@ -35,10 +35,10 @@ single scheme, both named **`TailBrowser`**. Bundle ID `io.tailscale.TailBrowse`
 
 `App/` and `TSNet/` are Xcode **synchronized folder groups**
 (`PBXFileSystemSynchronizedRootGroup`). New `.swift` files dropped into either
-directory are automatically compiled into the `TailBrowser` target — no
+directory are automatically compiled into the `Aperture` target — no
 `project.pbxproj` editing required (verified: an unlisted `.swift` file in `TSNet/`
 is picked up and compiled). The `UITests/` directory is the same kind of
-synchronized folder group, but for the `TailBrowserUITests` target.
+synchronized folder group, but for the `ApertureUITests` target.
 
 The `TSNet/` group has a `membershipExceptions` list in `project.pbxproj` naming its
 current four files; in this project's configuration that list does **not** gate
@@ -51,7 +51,7 @@ require project edits if you add/relocate them.
 
 ## UI automation & agent tooling
 
-There is a UI test target (`TailBrowserUITests`; sources in `UITests/`, another
+There is a UI test target (`ApertureUITests`; sources in `UITests/`, another
 synchronized folder group) plus helpers for running tests, capturing libtailscale
 logs, letting a non-vision agent "see" the app, and the optional Xcode MCP server.
 All of that — setup steps, the run-destination matrix (simulator vs "My Mac"),
@@ -76,7 +76,7 @@ tests with log capture, `make look Q="…"` screenshots + vision-describes.
 
 Raw `xcodebuild` (what `make` runs) — simulator (no signing needed):
 ```bash
-xcodebuild build -project TailBrowser.xcodeproj -scheme TailBrowser \
+xcodebuild build -project Aperture.xcodeproj -scheme Aperture \
   -configuration Debug \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -derivedDataPath build/DerivedData
@@ -98,19 +98,19 @@ Prefer `-derivedDataPath build/DerivedData` to keep DerivedData inside the
 ## Other gotchas
 
 - **libtailscale logs** go through `TSNet/Logging.swift` to `os_log` under subsystem
-  `io.tailscale.TailBrowse` / category `tsnet` (and `print("tsnet: …")`). Stream
-  them with `xcrun simctl spawn booted log stream --predicate 'subsystem == "io.tailscale.TailBrowse"'`.
+  `io.tailscale.Aperture` / category `tsnet` (and `print("tsnet: …")`). Stream
+  them with `xcrun simctl spawn booted log stream --predicate 'subsystem == "io.tailscale.Aperture"'`.
   See `README.ui-automation.md` for the full log-capture workflow and the critical
   state transitions (`State: NeedsLogin`, `Authenticate at: …`).
 
 - The bookmarks directory is spelled **`Boomarks`** (missing 'k') throughout the
   codebase — match the existing spelling if you reference it; don't "fix" it
   casually without renaming everything.
-- `TailBrowser/Info.plist` sets `NSAllowsArbitraryLoads` / `NSAllowsArbitraryLoadsInWebContent`
+- `Aperture/Info.plist` sets `NSAllowsArbitraryLoads` / `NSAllowsArbitraryLoadsInWebContent`
   in the ATS dictionary. This is intentional — the browser must load plain-HTTP and
   self-signed tailnet nodes. Don't remove it.
 - SwiftData is used for bookmarks (`App/Boomarks/Bookmark.swift`); the
-  `ModelContainer` is created in `TailBrowseApp.swift` and injected via
+  `ModelContainer` is created in `ApertureApp.swift` and injected via
   `.modelContainer`.
 - `build/` (including `build/DerivedData`) is gitignored, as is the submodule's
   `swift/build/`. Don't commit build artifacts.

@@ -34,10 +34,16 @@ final class TSNetManager {
     init() {
         let temp = Self.getDocumentDirectoryPath().path()
 
-        // Load persisted hostname, default to "TailBrowser"
-        let savedHostName = UserDefaults.standard.string(forKey: DefaultsKeys.tailnetHostName) ?? "TailBrowser"
+        // Load persisted hostname, or generate a fresh
+        // `aperture-<6-digit>` default and persist it so the node name is
+        // stable across launches (rather than regenerating every cold start).
+        let savedHostName = UserDefaults.standard.string(forKey: DefaultsKeys.tailnetHostName)
+        let hostName = savedHostName ?? Self.generateDefaultHostName()
+        if savedHostName == nil {
+            UserDefaults.standard.set(hostName, forKey: DefaultsKeys.tailnetHostName)
+        }
 
-        self.config = Configuration(hostName:  savedHostName,
+        self.config = Configuration(hostName:  hostName,
                                     path: temp,
                                     authKey: nil,
                                     controlURL: kDefaultControlURL,
@@ -58,8 +64,15 @@ final class TSNetManager {
     }
 
     static func getDocumentDirectoryPath() -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory().appending("tailbrowser"))
+        let url = URL(fileURLWithPath: NSTemporaryDirectory().appending("aperture"))
         return url
+    }
+
+    /// A fresh default tailnet hostname: `aperture-` + a random 6-digit number
+    /// (100000–999999, always exactly six digits with no leading zeros).
+    nonisolated static func generateDefaultHostName() -> String {
+        let number = Int.random(in: 100_000..<1_000_000)
+        return "aperture-\(number)"
     }
 
     nonisolated private func startTailscale() async {

@@ -16,8 +16,8 @@
 			isa = PBXContainerItemProxy;
 			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = C20F24732EF19A5900F57D67 /* TailBrowser */;
-			remoteInfo = TailBrowser;
+			remoteGlobalIDString = C20F24732EF19A5900F57D67;
+			remoteInfo = Aperture;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -36,14 +36,14 @@
 
 /* Begin PBXFileReference section */
 		C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TailscaleKit.xcframework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework"; sourceTree = "<group>"; };
-		C20F24742EF19A5900F57D67 /* TailBrowser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TailBrowser.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F10000020000000000000002 /* TailBrowserUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TailBrowserUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = TailBrowser/Info.plist; sourceTree = "<group>"; };
+		C20F24742EF19A5900F57D67 /* Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = Aperture/Info.plist; sourceTree = "<group>"; };
 		C25B4D752EF5F507000539A5 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		F10000020000000000000002 /* ApertureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C20F24982EF1B4A700F57D67 /* Exceptions for "TSNet" folder in "TailBrowser" target */ = {
+		C20F24982EF1B4A700F57D67 /* Exceptions for "TSNet" folder in "Aperture" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				AuthManager.swift,
@@ -51,7 +51,7 @@
 				TSNetManager.swift,
 				TSNetModel.swift,
 			);
-			target = C20F24732EF19A5900F57D67 /* TailBrowser */;
+			target = C20F24732EF19A5900F57D67 /* Aperture */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -64,17 +64,17 @@
 		C20F24932EF1B4A700F57D67 /* TSNet */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				C20F24982EF1B4A700F57D67 /* Exceptions for "TSNet" folder in "TailBrowser" target */,
+				C20F24982EF1B4A700F57D67 /* Exceptions for "TSNet" folder in "Aperture" target */,
 			);
 			path = TSNet;
 			sourceTree = "<group>";
 		};
-
 		F10000010000000000000001 /* UITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = UITests;
 			sourceTree = "<group>";
-		};/* End PBXFileSystemSynchronizedRootGroup section */
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		C20F24712EF19A5900F57D67 /* Frameworks */ = {
@@ -85,14 +85,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-
 		F10000040000000000000004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};/* End PBXFrameworksBuildPhase section */
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		C20F248A2EF1A0D300F57D67 /* Frameworks */ = {
@@ -112,24 +112,33 @@
 				C213B98C2EE8BF80002D0531 /* Products */,
 				C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */,
 				C20F248A2EF1A0D300F57D67 /* Frameworks */,
+				C3F3B102300FBE9600CF6CB4 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
 		C213B98C2EE8BF80002D0531 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C20F24742EF19A5900F57D67 /* TailBrowser.app */,
-			F10000020000000000000002 /* TailBrowserUITests.xctest */,
+				C20F24742EF19A5900F57D67 /* Aperture.app */,
+				F10000020000000000000002 /* ApertureUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C3F3B102300FBE9600CF6CB4 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				F10000010000000000000001 /* UITests */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C20F24732EF19A5900F57D67 /* TailBrowser */ = {
+		C20F24732EF19A5900F57D67 /* Aperture */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "TailBrowser" */;
+			buildConfigurationList = C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "Aperture" */;
 			buildPhases = (
 				C20F24702EF19A5900F57D67 /* Sources */,
 				C20F24712EF19A5900F57D67 /* Frameworks */,
@@ -143,17 +152,16 @@
 			fileSystemSynchronizedGroups = (
 				C20F24752EF19A5900F57D67 /* App */,
 			);
-			name = TailBrowser;
+			name = Aperture;
 			packageProductDependencies = (
 			);
-			productName = TailBrowse;
-			productReference = C20F24742EF19A5900F57D67 /* TailBrowser.app */;
+			productName = Aperture;
+			productReference = C20F24742EF19A5900F57D67 /* Aperture.app */;
 			productType = "com.apple.product-type.application";
 		};
-
-		F10000060000000000000006 /* TailBrowserUITests */ = {
+		F10000060000000000000006 /* ApertureUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F10000090000000000000009 /* Build configuration list for PBXNativeTarget "TailBrowserUITests" */;
+			buildConfigurationList = F10000090000000000000009 /* Build configuration list for PBXNativeTarget "ApertureUITests" */;
 			buildPhases = (
 				F10000030000000000000003 /* Sources */,
 				F10000040000000000000004 /* Frameworks */,
@@ -167,13 +175,14 @@
 			fileSystemSynchronizedGroups = (
 				F10000010000000000000001 /* UITests */,
 			);
-			name = TailBrowserUITests;
+			name = ApertureUITests;
 			packageProductDependencies = (
 			);
-			productName = TailBrowserUITests;
-			productReference = F10000020000000000000002 /* TailBrowserUITests.xctest */;
+			productName = ApertureUITests;
+			productReference = F10000020000000000000002 /* ApertureUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
-		};/* End PBXNativeTarget section */
+		};
+/* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		C213B9832EE8BF80002D0531 /* Project object */ = {
@@ -188,7 +197,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C213B9862EE8BF80002D0531 /* Build configuration list for PBXProject "TailBrowser" */;
+			buildConfigurationList = C213B9862EE8BF80002D0531 /* Build configuration list for PBXProject "Aperture" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -202,8 +211,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C20F24732EF19A5900F57D67 /* TailBrowser */,
-				F10000060000000000000006 /* TailBrowserUITests */,
+				C20F24732EF19A5900F57D67 /* Aperture */,
+				F10000060000000000000006 /* ApertureUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -216,14 +225,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-
 		F10000050000000000000005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};/* End PBXResourcesBuildPhase section */
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C20F24702EF19A5900F57D67 /* Sources */ = {
@@ -233,19 +242,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-
 		F10000030000000000000003 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};/* End PBXSourcesBuildPhase section */
+		};
+/* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		F10000080000000000000008 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C20F24732EF19A5900F57D67 /* TailBrowser */;
+			target = C20F24732EF19A5900F57D67 /* Aperture */;
 			targetProxy = F10000070000000000000007 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -266,7 +275,7 @@
 					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release-iphoneos",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = TailBrowser/Info.plist;
+				INFOPLIST_FILE = Aperture/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -277,7 +286,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -304,7 +313,7 @@
 					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release-iphoneos",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = TailBrowser/Info.plist;
+				INFOPLIST_FILE = Aperture/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -315,7 +324,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -450,7 +459,6 @@
 			};
 			name = Release;
 		};
-
 		F100000A000000000000000A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -460,12 +468,12 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.UITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = TailBrowser;
+				TEST_TARGET_NAME = Aperture;
 			};
 			name = Debug;
 		};
@@ -478,18 +486,19 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.UITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = TailBrowser;
+				TEST_TARGET_NAME = Aperture;
 			};
 			name = Release;
-		};/* End XCBuildConfiguration section */
+		};
+/* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "TailBrowser" */ = {
+		C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "Aperture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C20F247F2EF19A5C00F57D67 /* Debug */,
@@ -498,7 +507,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C213B9862EE8BF80002D0531 /* Build configuration list for PBXProject "TailBrowser" */ = {
+		C213B9862EE8BF80002D0531 /* Build configuration list for PBXProject "Aperture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C213B9A12EE8BF81002D0531 /* Debug */,
@@ -507,8 +516,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-
-		F10000090000000000000009 /* Build configuration list for PBXNativeTarget "TailBrowserUITests" */ = {
+		F10000090000000000000009 /* Build configuration list for PBXNativeTarget "ApertureUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F100000A000000000000000A /* Debug */,
@@ -516,7 +524,8 @@
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
-		};/* End XCConfigurationList section */
+		};
+/* End XCConfigurationList section */
 	};
 	rootObject = C213B9832EE8BF80002D0531 /* Project object */;
 }

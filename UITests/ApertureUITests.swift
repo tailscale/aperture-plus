@@ -1,8 +1,8 @@
 //
-//  TailBrowserUITests.swift
-//  TailBrowserUITests
+//  ApertureUITests.swift
+//  ApertureUITests
 //
-//  Trivial XCUITest smoke tests for TailBrowser.
+//  Trivial XCUITest smoke tests for Aperture.
 //
 //  These tests deliberately exercise only UI that does NOT require a live
 //  Tailnet connection: launching the app, opening the Settings sheet, and
@@ -14,7 +14,7 @@
 //
 //    scripts/run-uitests.sh                # boots a sim, runs tests, captures logs
 //    # or directly:
-//    xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+//    xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
 //      -configuration Debug \
 //      -destination 'platform=iOS Simulator,name=iPhone 17' \
 //      -derivedDataPath build/DerivedData
@@ -23,7 +23,7 @@
 import XCTest
 
 @MainActor
-final class TailBrowserUITests: XCTestCase {
+final class ApertureUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Stop on the first failure so we get a clean signal.
@@ -43,8 +43,8 @@ final class TailBrowserUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.navigationBars["TailBrowser"].waitForExistence(timeout: 20),
-            "TailBrowser navigation bar should appear on launch"
+            app.navigationBars["Aperture"].waitForExistence(timeout: 20),
+            "Aperture navigation bar should appear on launch"
         )
 
         XCTAssertTrue(
@@ -58,7 +58,7 @@ final class TailBrowserUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
 
         let settingsButton = app.buttons["settings-button"]
         XCTAssertTrue(
@@ -96,7 +96,7 @@ final class TailBrowserUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
 
         let addButton = app.buttons["add-bookmark-button"]
         XCTAssertTrue(
@@ -158,7 +158,7 @@ final class TailBrowserUITests: XCTestCase {
         app.launchArguments = ["-UITestResetHomePage"]
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
 
         // --- First visit: read the current value, then change it ---
         let settingsButton = app.buttons["settings-button"]
@@ -194,7 +194,7 @@ final class TailBrowserUITests: XCTestCase {
         app.launchArguments = []   // do NOT reset — we want to see what saved
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20),
                       "App should relaunch")
 
         // --- Second visit (fresh process): the change must have persisted ---
@@ -226,11 +226,11 @@ final class TailBrowserUITests: XCTestCase {
     /// REQUIRES a simulator that is already logged into a Tailnet. Run on the
     /// iPad sim where login persists:
     ///
-    ///   xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+    ///   xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
     ///     -configuration Debug \
     ///     -destination 'platform=iOS Simulator,name=iPad (A16)' \
     ///     -derivedDataPath build/DerivedData \
-    ///     -only-testing:TailBrowserUITests/TailBrowserUITests/testHomePageLoadsWhenConnected
+    ///     -only-testing:ApertureUITests/ApertureUITests/testHomePageLoadsWhenConnected
     ///
     /// On a simulator that is NOT logged in, this test is **skipped** (not
     /// failed) — the 3 smoke tests still run green on any sim, and `make test`
@@ -275,12 +275,12 @@ final class TailBrowserUITests: XCTestCase {
         // We poll several native signals: the WKWebView's identifier/label, and
         // the URL text field in the browser's nav bar (which updates to the
         // current URL when the page finishes loading).
-        let pageLoaded = waitForPageLoaded(in: app, contains: "tailscale.com", timeout: 60)
+        let pageLoaded = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
         attachScreenshot(app, named: pageLoaded ? "page-loaded" : "page-load-failed")
         XCTAssertTrue(pageLoaded,
-                      "Home page (https://tailscale.com) did not load within 60s. " +
+                      "Home page (http://ai/chat) did not load within 60s. " +
                       "Check libtailscale logs: xcrun simctl spawn booted log stream " +
-                      "--predicate 'subsystem == \"io.tailscale.TailBrowse\"'")
+                      "--predicate 'subsystem == \"io.tailscale.Aperture\"'")
     }
 
     // MARK: - Helpers

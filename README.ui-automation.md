@@ -1,6 +1,6 @@
 # UI automation & agent tooling
 
-How to build, run, see, poke, and read logs from TailBrowser — with an emphasis
+How to build, run, see, poke, and read logs from Aperture — with an emphasis
 on what works **autonomously** (no GUI clicks, no permission prompts) versus
 what needs a human in the loop.
 
@@ -22,15 +22,15 @@ Or the raw commands (what `make` runs under the hood):
 
 ```bash
 # 1. Build for the simulator
-xcodebuild build -project TailBrowser.xcodeproj -scheme TailBrowser \
+xcodebuild build -project Aperture.xcodeproj -scheme Aperture \
   -configuration Debug \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -derivedDataPath build/DerivedData
 
 # 2. Run the app
 xcrun simctl boot 'iPhone 17' 2>/dev/null || true
-xcrun simctl install booted build/DerivedData/Build/Products/Debug-iphonesimulator/TailBrowser.app
-xcrun simctl launch booted io.tailscale.TailBrowse
+xcrun simctl install booted build/DerivedData/Build/Products/Debug-iphonesimulator/Aperture.app
+xcrun simctl launch booted io.tailscale.Aperture
 
 # 3. See it (screenshot + vision description)
 scripts/look.sh "describe the UI and the status text"
@@ -40,7 +40,7 @@ scripts/run-uitests.sh
 
 # 5. Read the libtailscale logs
 xcrun simctl spawn booted log stream \
-  --predicate 'subsystem == "io.tailscale.TailBrowse"' --level debug
+  --predicate 'subsystem == "io.tailscale.Aperture"' --level debug
 ```
 
 Or just `scripts/run-uitests.sh`, which does 1, 4, and 5 together and writes
@@ -48,7 +48,7 @@ everything to `build/uitest-logs/<timestamp>/`.
 
 ---
 
-## UI test target (`TailBrowserUITests`)
+## UI test target (`ApertureUITests`)
 
 ### What it is
 
@@ -60,9 +60,9 @@ target (it's idempotent and aborts if the target already exists).
 - Sources: `UITests/`, a `PBXFileSystemSynchronizedRootGroup` (same mechanism as
   `App/` and `TSNet/`). New `.swift` files dropped in `UITests/` are
   **auto-compiled** into the test target — no `project.pbxproj` editing.
-- Depends on the `TailBrowser` app target (`TestTargetID = TailBrowser`).
-- Wired into the `TailBrowser` scheme's Test action, so `xcodebuild test … -scheme
-  TailBrowser` picks it up.
+- Depends on the `Aperture` app target (`TestTargetID = Aperture`).
+- Wired into the `Aperture` scheme's Test action, so `xcodebuild test … -scheme
+  Aperture` picks it up.
 
 ### Running
 
@@ -78,17 +78,17 @@ scripts/run-uitests.sh --no-build
 scripts/run-uitests.sh "iPhone 17 Pro"
 
 # Raw xcodebuild (no log capture):
-xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
   -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' \
   -derivedDataPath build/DerivedData
 ```
 
 ### What the current tests cover
 
-The three tests in `UITests/TailBrowserUITests.swift` are **connection-independent
+The three tests in `UITests/ApertureUITests.swift` are **connection-independent
 smoke tests** — they do **not** need a Tailnet login:
 
-- `testAppLaunchesAndShowsStatus` — app launches; "TailBrowser" nav bar +
+- `testAppLaunchesAndShowsStatus` — app launches; "Aperture" nav bar +
   "Tailscale Status" section appear.
 - `testOpenAndCloseSettings` — tap the gear → "Settings" appears → tap Done →
   back to main (verified via the Add-Bookmark button becoming hittable again).
@@ -144,7 +144,7 @@ cd ThirdParty/libtailscale/swift && make test   # macOS-side TailscaleKitXCTests
 
 - `print("tsnet: …")` — the app's stdout (captured by `xcodebuild` for unit tests,
   but **not** surfaced by the UI-test runner, so it's unreliable for UI tests), and
-- `os_log(...)` under subsystem `io.tailscale.TailBrowse`, category `tsnet` —
+- `os_log(...)` under subsystem `io.tailscale.Aperture`, category `tsnet` —
   Apple's unified logging system, which **is** reliably captured by `log stream` /
   `log show` / Console.app. This is the authoritative source for UI tests.
 
@@ -157,7 +157,7 @@ concurrency-safe under the project's strict-concurrency setting.
 ```bash
 # While the app runs in the booted simulator:
 xcrun simctl spawn booted log stream \
-  --predicate 'subsystem == "io.tailscale.TailBrowse"' --level debug
+  --predicate 'subsystem == "io.tailscale.Aperture"' --level debug
 ```
 
 ### Read captured logs from a test run
@@ -207,7 +207,7 @@ iPad)" target is user-driven in Xcode.
 Build the Mac target from CLI (non-installable) with:
 
 ```bash
-xcodebuild build -project TailBrowser.xcodeproj -scheme TailBrowser \
+xcodebuild build -project Aperture.xcodeproj -scheme Aperture \
   -configuration Debug -destination 'name=My Mac' \
   -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO
 ```
@@ -258,7 +258,7 @@ scripts/look.sh "list the buttons and where they are"
 pi --provider aperture --model gpt-4.1-nano -p @/path/to/screenshot.png "describe the UI"
 ```
 
-Verified end-to-end: a sim screenshot was correctly read as "TailBrowser" nav bar,
+Verified end-to-end: a sim screenshot was correctly read as "Aperture" nav bar,
 "Login Required" status, a Login button, a gear icon, and Edit/+ buttons — matching
 the libtailscale `State: NeedsLogin` log line emitted at the same time.
 
@@ -333,7 +333,7 @@ Interpreting the probe:
 
 | Script | Purpose |
 |---|---|
-| `scripts/add_uitest_target.py` | One-shot: add the `TailBrowserUITests` target to `project.pbxproj` (idempotent). |
+| `scripts/add_uitest_target.py` | One-shot: add the `ApertureUITests` target to `project.pbxproj` (idempotent). |
 | `scripts/run-uitests.sh` | Build + run UI tests on the simulator, capturing libtailscale logs to `build/uitest-logs/<ts>/`. |
 | `scripts/look.sh` | Screenshot the booted simulator (or `--mac` display) + describe it with a vision sub-pi. |
 | `scripts/probe-xcode-mcp.py` | Minimal probe of the Xcode MCP server (`xcrun mcpbridge`); reports which JSON-RPC step stalls. |

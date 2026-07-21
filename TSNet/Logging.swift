@@ -4,17 +4,17 @@
 import TailscaleKit
 import os
 
-/// Unified-logging subsystem used for all TailBrowser/libtailscale messages.
+/// Unified-logging subsystem used for all Aperture/libtailscale messages.
 /// Filter for these in Console.app or with:
 ///
 ///   xcrun simctl spawn booted log stream \
-///     --predicate 'subsystem == "io.tailscale.TailBrowse"'
+///     --predicate 'subsystem == "io.tailscale.Aperture"'
 ///
 /// The members are `nonisolated` (and `OSLog` is `Sendable`) so they can be
 /// read from `Logger.log`'s nonisolated context — libtailscale calls `log`
 /// from its Go-backed threads, off the main actor.
-enum TailBrowserLog {
-    nonisolated static let subsystem = "io.tailscale.TailBrowse"
+enum ApertureLog {
+    nonisolated static let subsystem = "io.tailscale.Aperture"
     /// libtailscale / tsnet messages.
     nonisolated static let tsnet = OSLog(subsystem: subsystem, category: "tsnet")
 }
@@ -36,6 +36,6 @@ struct Logger: TailscaleKit.LogSink {
         // Also route into the unified logging system so the messages are
         // captured by `log stream` / Console.app / `log show` during UI tests
         // (where the app's stdout isn't always easy to read in real time).
-        os_log("%{public}@", log: TailBrowserLog.tsnet, type: .default, message)
+        os_log("%{public}@", log: ApertureLog.tsnet, type: .default, message)
     }
 }

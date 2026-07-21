@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  TailBrowse
+//  Aperture
 //
 //  Created by Jonathan Nobels on 2025-12-16.
 //
@@ -31,6 +31,13 @@ struct MainView: View {
     var body: some View {
         NavigationSplitView {
             List {
+                Section {
+                    ApertureBrandHeader()
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 10, trailing: 0))
+
                 Section {
                     StatusView(viewModel: statusViewModel)
                 }
@@ -79,7 +86,7 @@ struct MainView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .navigationTitle("TailBrowser")
+            .navigationTitle("Aperture")
             .sheet(isPresented: $showingAddSheet) {
                 BookmarkEditor(dismissAction: { showingAddSheet = false })
             }

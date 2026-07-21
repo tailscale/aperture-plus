@@ -1,4 +1,4 @@
-# TailBrowser
+# Aperture
 
 A small WebKit-based iOS browser that proxies all requests through an embedded,
 userspace Tailscale node ([TailscaleKit](https://github.com/tailscale/libtailscale) /
@@ -57,7 +57,7 @@ $ make test SIM_NAME="iPad (A16)"
 
 ### From Xcode
 
-Open `TailBrowser.xcodeproj` in Xcode 26.x and build the **TailBrowser** scheme
+Open `Aperture.xcodeproj` in Xcode 26.x and build the **Aperture** scheme
 (⌘B). Pick an iOS 26 simulator or a provisioned device.
 
 ### Raw xcodebuild (without make)
@@ -66,7 +66,7 @@ Simulator builds do not require code signing:
 
 ```bash
 $ xcodebuild build \
-    -project TailBrowser.xcodeproj -scheme TailBrowser \
+    -project Aperture.xcodeproj -scheme Aperture \
     -configuration Debug \
     -destination 'platform=iOS Simulator,name=iPhone 17' \
     -derivedDataPath build/DerivedData
@@ -82,7 +82,7 @@ build by passing `CODE_SIGNING_ALLOWED=NO`:
 
 ```bash
 $ xcodebuild build \
-    -project TailBrowser.xcodeproj -scheme TailBrowser \
+    -project Aperture.xcodeproj -scheme Aperture \
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -derivedDataPath build/DerivedData \
@@ -94,7 +94,7 @@ gets you a built `.app` that cannot be installed onto a device.)
 
 ## Tests & UI automation
 
-There is a **UI test target**, `TailBrowserUITests` (XCUITest), whose sources live
+There is a **UI test target**, `ApertureUITests` (XCUITest), whose sources live
 in `UITests/`. The current tests are connection-independent smoke tests (launch,
 open Settings, open the Add-Bookmark editor) — no Tailnet login needed. There is
 also a `testHomePageLoadsWhenConnected` test that **skips** on a sim that isn't
@@ -106,7 +106,7 @@ $ make test
 
 # Or directly:
 $ scripts/run-uitests.sh
-$ xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+$ xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
     -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' \
     -derivedDataPath build/DerivedData
 ```
@@ -137,7 +137,7 @@ $ make clean-all    # also the libtailscale artifacts
 
 ```
 App/                      SwiftUI app sources (synchronized folder group)
-  TailBrowseApp.swift     @main App, owns the TSNetManager + SwiftData container
+  ApertureApp.swift     @main App, owns the TSNetManager + SwiftData container
   MainView.swift          Top-level UI
   Browser/                WebKit browser view/view-model/navigator
   Boomarks/               SwiftData-backed bookmarks (note: dir is spelled "Boomarks")
@@ -148,10 +148,10 @@ TSNet/                    Wrapper layer over TailscaleKit
   TSNetModel.swift        Observable tailnet status model
   AuthManager.swift       Auth-key / interactive-login handling
   Logging.swift           Logger
-TailBrowser/Info.plist    ATS exceptions (NSAllowsArbitraryLoads) so WebKit can load
+Aperture/Info.plist    ATS exceptions (NSAllowsArbitraryLoads) so WebKit can load
                           tailnet HTTP / self-signed nodes
 Makefile                 Top-level build/test entry point (make, make test, make look, ...)
-UITests/                 XCUITest UI tests (synchronized folder group -> TailBrowserUITests)
+UITests/                 XCUITest UI tests (synchronized folder group -> ApertureUITests)
 scripts/
   add_uitest_target.py    One-shot script that added the UI test target to project.pbxproj
   run-uitests.sh          Build + run UI tests on the simulator, capturing libtailscale logs

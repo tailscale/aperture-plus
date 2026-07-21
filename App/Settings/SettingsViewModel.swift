@@ -10,7 +10,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var exitNodeEnabled: Bool = false
     @Published var exitNodeDisplayName: String = "None"
 
-    @Published var tailnetHostName: String = "TailBrowser"
+    @Published var tailnetHostName: String = ""
     @Published var homePage: String = HomePage.standard.url
 
     private let manager: TSNetManager

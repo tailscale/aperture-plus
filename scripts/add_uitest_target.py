@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add a TailBrowserUITests UI-test target to TailBrowser.xcodeproj.
+"""Add an ApertureUITests UI-test target to Aperture.xcodeproj.
 
 The project uses Xcode synchronized folder groups, so a new `UITests/`
 PBXFileSystemSynchronizedRootGroup handles compilation membership automatically
@@ -11,7 +11,7 @@ Run once:
 import sys
 from pathlib import Path
 
-PROJ = Path("TailBrowser.xcodeproj/project.pbxproj")
+PROJ = Path("Aperture.xcodeproj/project.pbxproj")
 T = "\t"
 
 # New 24-char hex object IDs (project-local, non-conflicting with existing C2... IDs).
@@ -28,7 +28,7 @@ DebugCfg          = "F100000A000000000000000A"  # XCBuildConfiguration
 ReleaseCfg        = "F100000B000000000000000B"  # XCBuildConfiguration
 
 # Existing IDs we reference.
-AppTarget  = "C20F24732EF19A5900F57D67"   # TailBrowser native target
+AppTarget  = "C20F24732EF19A5900F57D67"   # Aperture native target
 ProjObject = "C213B9832EE8BF80002D0531"   # Project object
 
 
@@ -58,24 +58,24 @@ def main():
         f"{T}{T}{T}isa = PBXContainerItemProxy;\n"
         f"{T}{T}{T}containerPortal = {ProjObject} /* Project object */;\n"
         f"{T}{T}{T}proxyType = 1;\n"
-        f"{T}{T}{T}remoteGlobalIDString = {AppTarget} /* TailBrowser */;\n"
-        f"{T}{T}{T}remoteInfo = TailBrowser;\n"
+        f"{T}{T}{T}remoteGlobalIDString = {AppTarget} /* Aperture */;\n"
+        f"{T}{T}{T}remoteInfo = Aperture;\n"
         f"{T}{T}}};\n"
         "/* End PBXContainerItemProxy section */\n\n"
     )
     content = insert_before(content, "/* Begin PBXCopyFilesBuildPhase section */", proxy)
 
-    # --- 2. PBXFileReference: add .xctest product after TailBrowser.app ---
+    # --- 2. PBXFileReference: add .xctest product after Aperture.app ---
     # NOTE: every segment is an f-string so that `{{`/`}}` map to `{`/`}`.
     # Mixing f-string and plain segments would leave doubled braces.
     app_ref = (
-        f"{T}{T}C20F24742EF19A5900F57D67 /* TailBrowser.app */ = {{isa = PBXFileReference; "
-        f"explicitFileType = wrapper.application; includeInIndex = 0; path = TailBrowser.app; "
+        f"{T}{T}C20F24742EF19A5900F57D67 /* Aperture.app */ = {{isa = PBXFileReference; "
+        f"explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; "
         f"sourceTree = BUILT_PRODUCTS_DIR; }};"
     )
     xctest_ref = (
-        f"\n{T}{T}{XctestProduct} /* TailBrowserUITests.xctest */ = {{isa = PBXFileReference; "
-        f"explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TailBrowserUITests.xctest; "
+        f"\n{T}{T}{XctestProduct} /* ApertureUITests.xctest */ = {{isa = PBXFileReference; "
+        f"explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureUITests.xctest; "
         f"sourceTree = BUILT_PRODUCTS_DIR; }};"
     )
     content = insert_after(content, app_ref, xctest_ref)
@@ -119,12 +119,12 @@ def main():
     content = content.replace(main_children_old, main_children_new, 1)
 
     products_old = (
-        f"{T}{T}{T}C20F24742EF19A5900F57D67 /* TailBrowser.app */,\n"
+        f"{T}{T}{T}C20F24742EF19A5900F57D67 /* Aperture.app */,\n"
         f"{T}{T}{T});"
     )
     products_new = (
-        f"{T}{T}{T}C20F24742EF19A5900F57D67 /* TailBrowser.app */,\n"
-        f"{T}{T}{T}{XctestProduct} /* TailBrowserUITests.xctest */,\n"
+        f"{T}{T}{T}C20F24742EF19A5900F57D67 /* Aperture.app */,\n"
+        f"{T}{T}{T}{XctestProduct} /* ApertureUITests.xctest */,\n"
         f"{T}{T}{T});"
     )
     # This children-list pattern (app, then `);`) is unique to the Products group.
@@ -132,9 +132,9 @@ def main():
 
     # --- 6. PBXNativeTarget: add the UITest target ---
     native_target = (
-        f"\n{T}{T}{NativeTarget} /* TailBrowserUITests */ = {{\n"
+        f"\n{T}{T}{NativeTarget} /* ApertureUITests */ = {{\n"
         f"{T}{T}{T}isa = PBXNativeTarget;\n"
-        f"{T}{T}{T}buildConfigurationList = {ConfigList} /* Build configuration list for PBXNativeTarget \"TailBrowserUITests\" */;\n"
+        f"{T}{T}{T}buildConfigurationList = {ConfigList} /* Build configuration list for PBXNativeTarget \"ApertureUITests\" */;\n"
         f"{T}{T}{T}buildPhases = (\n"
         f"{T}{T}{T}{T}{SourcesPhase} /* Sources */,\n"
         f"{T}{T}{T}{T}{FrameworksPhase} /* Frameworks */,\n"
@@ -148,11 +148,11 @@ def main():
         f"{T}{T}{T}fileSystemSynchronizedGroups = (\n"
         f"{T}{T}{T}{T}{UITestsGroup} /* UITests */,\n"
         f"{T}{T}{T});\n"
-        f"{T}{T}{T}name = TailBrowserUITests;\n"
+        f"{T}{T}{T}name = ApertureUITests;\n"
         f"{T}{T}{T}packageProductDependencies = (\n"
         f"{T}{T}{T});\n"
-        f"{T}{T}{T}productName = TailBrowserUITests;\n"
-        f"{T}{T}{T}productReference = {XctestProduct} /* TailBrowserUITests.xctest */;\n"
+        f"{T}{T}{T}productName = ApertureUITests;\n"
+        f"{T}{T}{T}productReference = {XctestProduct} /* ApertureUITests.xctest */;\n"
         f"{T}{T}{T}productType = \"com.apple.product-type.bundle.ui-testing\";\n"
         f"{T}{T}}};"
     )
@@ -161,13 +161,13 @@ def main():
     # --- 7. PBXProject: add target to `targets` array + TargetAttributes ---
     targets_old = (
         f"{T}{T}{T}targets = (\n"
-        f"{T}{T}{T}{T}{AppTarget} /* TailBrowser */,\n"
+        f"{T}{T}{T}{T}{AppTarget} /* Aperture */,\n"
         f"{T}{T}{T});"
     )
     targets_new = (
         f"{T}{T}{T}targets = (\n"
-        f"{T}{T}{T}{T}{AppTarget} /* TailBrowser */,\n"
-        f"{T}{T}{T}{T}{NativeTarget} /* TailBrowserUITests */,\n"
+        f"{T}{T}{T}{T}{AppTarget} /* Aperture */,\n"
+        f"{T}{T}{T}{T}{NativeTarget} /* ApertureUITests */,\n"
         f"{T}{T}{T});"
     )
     content = content.replace(targets_old, targets_new, 1)
@@ -186,7 +186,7 @@ def main():
         f"{T}{T}{T}{T}}};\n"
         f"{T}{T}{T}{T}{NativeTarget} = {{\n"
         f"{T}{T}{T}{T}{T}CreatedOnToolsVersion = 26.0;\n"
-        f"{T}{T}{T}{T}{T}TestTargetID = {AppTarget} /* TailBrowser */;\n"
+        f"{T}{T}{T}{T}{T}TestTargetID = {AppTarget} /* Aperture */;\n"
         f"{T}{T}{T}{T}}};\n"
         f"{T}{T}{T}}};"
     )
@@ -221,7 +221,7 @@ def main():
         "/* Begin PBXTargetDependency section */\n"
         f"{T}{T}{TargetDep} /* PBXTargetDependency */ = {{\n"
         f"{T}{T}{T}isa = PBXTargetDependency;\n"
-        f"{T}{T}{T}target = {AppTarget} /* TailBrowser */;\n"
+        f"{T}{T}{T}target = {AppTarget} /* Aperture */;\n"
         f"{T}{T}{T}targetProxy = {ContainerProxy} /* PBXContainerItemProxy */;\n"
         f"{T}{T}}};\n"
         "/* End PBXTargetDependency section */\n\n"
@@ -239,12 +239,12 @@ def main():
         f"{T}{T}{T}{T}ENABLE_USER_SCRIPT_SANDBOXING = NO;\n"
         f"{T}{T}{T}{T}GENERATE_INFOPLIST_FILE = YES;\n"
         f"{T}{T}{T}{T}MARKETING_VERSION = 1.0;\n"
-        f"{T}{T}{T}{T}PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;\n"
+        f"{T}{T}{T}{T}PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.UITests;\n"
         f"{T}{T}{T}{T}PRODUCT_NAME = \"$(TARGET_NAME)\";\n"
         f"{T}{T}{T}{T}SWIFT_EMIT_LOC_STRINGS = NO;\n"
         f"{T}{T}{T}{T}SWIFT_VERSION = 6.0;\n"
         f"{T}{T}{T}{T}TARGETED_DEVICE_FAMILY = \"1,2\";\n"
-        f"{T}{T}{T}{T}TEST_TARGET_NAME = TailBrowser;\n"
+        f"{T}{T}{T}{T}TEST_TARGET_NAME = Aperture;\n"
         f"{T}{T}{T}}};\n"
         f"{T}{T}{T}name = Debug;\n"
         f"{T}{T}}};"
@@ -259,12 +259,12 @@ def main():
         f"{T}{T}{T}{T}ENABLE_USER_SCRIPT_SANDBOXING = NO;\n"
         f"{T}{T}{T}{T}GENERATE_INFOPLIST_FILE = YES;\n"
         f"{T}{T}{T}{T}MARKETING_VERSION = 1.0;\n"
-        f"{T}{T}{T}{T}PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;\n"
+        f"{T}{T}{T}{T}PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.UITests;\n"
         f"{T}{T}{T}{T}PRODUCT_NAME = \"$(TARGET_NAME)\";\n"
         f"{T}{T}{T}{T}SWIFT_EMIT_LOC_STRINGS = NO;\n"
         f"{T}{T}{T}{T}SWIFT_VERSION = 6.0;\n"
         f"{T}{T}{T}{T}TARGETED_DEVICE_FAMILY = \"1,2\";\n"
-        f"{T}{T}{T}{T}TEST_TARGET_NAME = TailBrowser;\n"
+        f"{T}{T}{T}{T}TEST_TARGET_NAME = Aperture;\n"
         f"{T}{T}{T}}};\n"
         f"{T}{T}{T}name = Release;\n"
         f"{T}{T}}};"
@@ -273,7 +273,7 @@ def main():
 
     # --- 12. XCConfigurationList: add config list for UITest target ---
     cfglist = (
-        f"\n{T}{T}{ConfigList} /* Build configuration list for PBXNativeTarget \"TailBrowserUITests\" */ = {{\n"
+        f"\n{T}{T}{ConfigList} /* Build configuration list for PBXNativeTarget \"ApertureUITests\" */ = {{\n"
         f"{T}{T}{T}isa = XCConfigurationList;\n"
         f"{T}{T}{T}buildConfigurations = (\n"
         f"{T}{T}{T}{T}{DebugCfg} /* Debug */,\n"
