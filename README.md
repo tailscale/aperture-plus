@@ -7,7 +7,7 @@ Browse URLs on your Tailnet without a VPN!
 
 ## Building
 
-* Requires go 1.25.3
+* Requires go 1.26.3
 * Requires iOS 26.0
 
 Grab the tailscalekit submodule... 
