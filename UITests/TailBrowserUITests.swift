@@ -125,6 +125,98 @@ final class TailBrowserUITests: XCTestCase {
         )
     }
 
+    // MARK: - Tests
+
+    /// Editing the Home Page in Settings and then dismissing **without**
+    /// pressing Return should still persist — the value must survive a fresh
+    /// app launch, which re-seeds the field from UserDefaults (the on-disk
+    /// source of truth).
+    ///
+    /// This catches the bug where the home page was only saved inside the
+    /// TextField's `onSubmit` (the Return key). A user who typed a new URL and
+    /// tapped Done (no Return) lost the change: `HomePage.standard.url` (the
+    /// UserDefaults-backed getter) was never written, so the next launch —
+    /// and any re-presentation of Settings that builds a fresh
+    /// `SettingsViewModel` — showed the old value again.
+    ///
+    /// We verify persistence across a `terminate()` + `launch()` rather than
+    /// merely re-opening Settings within the same session: a new process
+    /// guarantees a brand-new `SettingsViewModel` reading from UserDefaults,
+    /// with no chance of a reused in-memory instance masking the bug.
+    ///
+    /// Connection-independent: Settings is always reachable from the nav bar,
+    /// and the Home Page section is always visible.
+    ///
+    /// Hermetic: it reads the original value, changes it, verifies, then
+    /// restores the original. (On a pre-fix build the change never reaches
+    /// UserDefaults, so nothing is left dirty either.)
+    func testHomePageSettingPersistsAcrossSettingsReopen() throws {
+        let app = XCUIApplication()
+        // Start from a known home page so the test isn't polluted by whatever
+        // a prior run left in UserDefaults. (Cleared before the relaunch below
+        // so we observe what actually persisted, not a freshly-reset value.)
+        app.launchArguments = ["-UITestResetHomePage"]
+        app.launch()
+
+        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20))
+
+        // --- First visit: read the current value, then change it ---
+        let settingsButton = app.buttons["settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10),
+                      "Settings gear should be reachable in the nav bar")
+        settingsButton.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10),
+                      "Settings screen should appear after tapping the gear")
+
+        let homePageField = app.textFields["home-page-field"]
+        XCTAssertTrue(homePageField.waitForExistence(timeout: 10),
+                      "Home Page text field should be present in Settings")
+        let originalValue = (homePageField.value as? String) ?? ""
+
+        // A value guaranteed to differ from whatever is currently set.
+        let marker = String(UUID().uuidString.prefix(8))
+        let newValue = "https://example.test/\(marker)"
+
+        homePageField.clearAndType(text: newValue)
+        // Sanity: the binding actually took the new value before we dismiss.
+        XCTAssertEqual(homePageField.value as? String, newValue,
+                       "Typing should update the Home Page field")
+
+        // Dismiss Settings WITHOUT pressing Return — this is exactly the
+        // scenario that was broken. (Pressing Return would trigger onSubmit,
+        // which did save; tapping Done alone did not.)
+        app.buttons["settings-done-button"].tap()
+        XCTAssertTrue(waitForHittable(app.buttons["add-bookmark-button"], timeout: 10),
+                      "Should return to the main view after Done")
+
+        // --- Kill and relaunch so a fresh SettingsViewModel reads from
+        // UserDefaults rather than a possibly-reused in-memory instance ---
+        app.launchArguments = []   // do NOT reset — we want to see what saved
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["TailBrowser"].waitForExistence(timeout: 20),
+                      "App should relaunch")
+
+        // --- Second visit (fresh process): the change must have persisted ---
+        app.buttons["settings-button"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10),
+                      "Settings screen should reappear after relaunch")
+
+        let homePageFieldAfter = app.textFields["home-page-field"]
+        XCTAssertTrue(homePageFieldAfter.waitForExistence(timeout: 10))
+        let persistedValue = (homePageFieldAfter.value as? String) ?? ""
+
+        attachScreenshot(app, named: persistedValue == newValue ? "homepage-saved" : "homepage-lost")
+        XCTAssertEqual(persistedValue, newValue,
+                       "Home Page should persist across a relaunch after " +
+                       "dismissing Settings without pressing Return. Got " +
+                       "'\(persistedValue)', expected '\(newValue)'.")
+
+        // --- Restore the original value so the test is hermetic ---
+        homePageFieldAfter.clearAndType(text: originalValue)
+        app.buttons["settings-done-button"].tap()
+    }
+
     // MARK: - Tests requiring a connected Tailnet
 
     /// Loads the app, waits until the tailnet is connected (signaled by the
@@ -234,5 +326,27 @@ final class TailBrowserUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
         let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
         return result == .completed
+    }
+}
+
+// MARK: - XCUIElement helpers
+
+private extension XCUIElement {
+    /// Clears the current text (by deleting back to empty) then types `text`.
+    ///
+    /// Each delete and each typed character drives the SwiftUI `Binding`, so
+    /// this is the right way to exercise an `.onChange`-backed field in
+    /// XCUITest (and also a `.onSubmit`-only field, where only the final
+    /// Return would persist — which we deliberately avoid in the home-page
+    /// persistence test).
+    func clearAndType(text: String) {
+        tap()
+        // Over-delete rather than deleting by `value.count`: the accessibility
+        // `value` can disagree with the true editable text length (e.g. it may
+        // report the placeholder), and pressing delete on an empty field is a
+        // no-op, so a generous fixed count reliably clears the field.
+        let deletes = String(repeating: XCUIKeyboardKey.delete.rawValue, count: 100)
+        typeText(deletes)
+        typeText(text)
     }
 }

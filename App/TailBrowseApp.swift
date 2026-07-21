@@ -15,6 +15,15 @@ struct TailBrowseApp: App {
 
     @State var manager = TSNetManager()
 
+    init() {
+        // UI-test hook: start from a known home page so the persistence test
+        // isn't polluted by whatever a prior run left in UserDefaults. Harmless
+        // in normal use — the launch argument is never set outside UI tests.
+        if ProcessInfo.processInfo.arguments.contains("-UITestResetHomePage") {
+            HomePage.standard.url = "https://tailscale.com"
+        }
+    }
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Bookmark.self,

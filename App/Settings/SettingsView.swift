@@ -28,8 +28,15 @@ struct SettingsView: View {
                     TextField("Home Page", text: $viewModel.homePage)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .onSubmit {
-                            viewModel.setHomePage(viewModel.homePage)
+                        .accessibilityIdentifier("home-page-field")
+                        // Persist on every change — not only on Submit (Return).
+                        // A fresh SettingsViewModel is built each time the
+                        // settings cover is presented, and it seeds `homePage`
+                        // from UserDefaults, so a value that was never written
+                        // back (e.g. the user typed a URL then tapped Done
+                        // without pressing Return) would be lost on reopen.
+                        .onChange(of: viewModel.homePage) { _, newValue in
+                            viewModel.setHomePage(newValue)
                         }
                 }
 
