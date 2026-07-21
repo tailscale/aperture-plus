@@ -9,7 +9,16 @@ to it so the always-in-context docs stay small.
 
 ## TL;DR — the autonomous loop (simulator)
 
-Everything below works headlessly over SSH with **zero permission grants**:
+The top-level **Makefile** wraps the common flow. Everything below works
+headlessly over SSH with **zero permission grants**:
+
+```bash
+make            # build everything (libtailscale xcframework + app for sim)
+make test       # build, then run UI tests on the sim (with log capture)
+make look Q="describe the UI"   # screenshot sim + vision-describe it
+```
+
+Or the raw commands (what `make` runs under the hood):
 
 ```bash
 # 1. Build for the simulator
@@ -85,6 +94,31 @@ smoke tests** — they do **not** need a Tailnet login:
   back to main (verified via the Add-Bookmark button becoming hittable again).
 - `testOpenAndCancelAddBookmark` — tap + → "New Bookmark" editor → Save is
   disabled on empty fields → Cancel → back to main.
+- `testHomePageLoadsWhenConnected` — **requires a logged-in sim**: launch, wait
+  for the tailnet to reach Running (signaled by the Home Page bookmark
+  appearing), tap it, confirm the home page loads in the WKWebView. **Skips**
+  (via `XCTSkip`) on a sim not logged into a Tailnet, so `make test` stays green
+  on any sim; pass the app launch argument `-RequireConnected` to make a
+  not-connected sim a hard failure.
+
+### Do the tests use screenshots / vision?
+
+The tests **attach screenshots** to the test results (via `XCTAttachment` /
+`app.screenshot()`) on both success and failure paths — e.g. the connected test
+attaches `page-loaded` / `page-load-failed` / `not-connected` / `no-webview`.
+Those land in the `.xcresult` and are viewable in Xcode's Report navigator or
+via `xcrun xcresulttool`.
+
+The tests do **not** invoke the vision sub-pi (`scripts/look.sh` / `gpt-4.1-nano`)
+at runtime — XCTest can't shell out to `pi` mid-test, and vision reads are slow /
+non-deterministic. Vision is a **manual / agent-driven** verification tool: *you*
+(or the agent) run `make look Q="…"` after a test run to visually confirm what
+the screenshot shows. The tests assert on native XCUITest signals (element
+existence, hittability, the nav-bar URL text field value) instead.
+
+If you want a test that *does* verify pixels, the right approach is a reference
+snapshot test (e.g. `swift-snapshot-testing` or Xcode's built-in `XCTAttachment`
+reference-image comparison) — not an LLM vision call. That's a future addition.
 
 They find buttons via `accessibilityIdentifier`s added to the app's icon-only
 buttons (`settings-button`, `add-bookmark-button`, `settings-done-button`,

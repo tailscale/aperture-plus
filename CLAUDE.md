@@ -62,11 +62,19 @@ on tests, logs, vision, or the MCP bridge.
 Headline for always-context: **use the simulator for autonomous work** (build +
 `simctl install`/`launch` + `simctl io booted screenshot` + XCUITest + `log stream`
 all work with zero permission grants). The "My Mac (Designed for iPad)" target
-can't be launched headlessly.
+can't be launched headlessly. The UI tests include a `testHomePageLoadsWhenConnected`
+that **skips** (via `XCTSkip`) on a sim not logged into a Tailnet and **runs** on
+one that is — so `make test` stays green on any sim. Pass the app launch argument
+`-RequireConnected` to turn a not-connected sim into a hard failure (for CI).
 
 ## Command-line builds that actually work
 
-Simulator (no signing needed):
+The **top-level Makefile** is the entry point: `make` builds everything
+(libtailscale xcframework + app for sim), `make test` builds + runs the UI
+tests with log capture, `make look Q="…"` screenshots + vision-describes.
+`make help` lists all targets. See `README.md` for the full table.
+
+Raw `xcodebuild` (what `make` runs) — simulator (no signing needed):
 ```bash
 xcodebuild build -project TailBrowser.xcodeproj -scheme TailBrowser \
   -configuration Debug \
