@@ -11,6 +11,16 @@
 		C20F248D2EF1A0DF00F57D67 /* TailscaleKit.xcframework in CopyFiles */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		F10000070000000000000007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C20F24732EF19A5900F57D67 /* TailBrowser */;
+			remoteInfo = TailBrowser;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		C20F248C2EF1A0D900F57D67 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -27,6 +37,7 @@
 /* Begin PBXFileReference section */
 		C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TailscaleKit.xcframework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework"; sourceTree = "<group>"; };
 		C20F24742EF19A5900F57D67 /* TailBrowser.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TailBrowser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000020000000000000002 /* TailBrowserUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TailBrowserUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = TailBrowser/Info.plist; sourceTree = "<group>"; };
 		C25B4D752EF5F507000539A5 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -58,7 +69,12 @@
 			path = TSNet;
 			sourceTree = "<group>";
 		};
-/* End PBXFileSystemSynchronizedRootGroup section */
+
+		F10000010000000000000001 /* UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = UITests;
+			sourceTree = "<group>";
+		};/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		C20F24712EF19A5900F57D67 /* Frameworks */ = {
@@ -69,7 +85,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXFrameworksBuildPhase section */
+
+		F10000040000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		C20F248A2EF1A0D300F57D67 /* Frameworks */ = {
@@ -96,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				C20F24742EF19A5900F57D67 /* TailBrowser.app */,
+			F10000020000000000000002 /* TailBrowserUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -126,7 +150,30 @@
 			productReference = C20F24742EF19A5900F57D67 /* TailBrowser.app */;
 			productType = "com.apple.product-type.application";
 		};
-/* End PBXNativeTarget section */
+
+		F10000060000000000000006 /* TailBrowserUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000090000000000000009 /* Build configuration list for PBXNativeTarget "TailBrowserUITests" */;
+			buildPhases = (
+				F10000030000000000000003 /* Sources */,
+				F10000040000000000000004 /* Frameworks */,
+				F10000050000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F10000080000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F10000010000000000000001 /* UITests */,
+			);
+			name = TailBrowserUITests;
+			packageProductDependencies = (
+			);
+			productName = TailBrowserUITests;
+			productReference = F10000020000000000000002 /* TailBrowserUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};/* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		C213B9832EE8BF80002D0531 /* Project object */ = {
@@ -156,6 +203,7 @@
 			projectRoot = "";
 			targets = (
 				C20F24732EF19A5900F57D67 /* TailBrowser */,
+				F10000060000000000000006 /* TailBrowserUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -168,7 +216,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXResourcesBuildPhase section */
+
+		F10000050000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C20F24702EF19A5900F57D67 /* Sources */ = {
@@ -178,7 +233,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXSourcesBuildPhase section */
+
+		F10000030000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F10000080000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C20F24732EF19A5900F57D67 /* TailBrowser */;
+			targetProxy = F10000070000000000000007 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C20F247F2EF19A5C00F57D67 /* Debug */ = {
@@ -380,7 +450,43 @@
 			};
 			name = Release;
 		};
-/* End XCBuildConfiguration section */
+
+		F100000A000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TailBrowser;
+			};
+			name = Debug;
+		};
+		F100000B000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.TailBrowse.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = TailBrowser;
+			};
+			name = Release;
+		};/* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "TailBrowser" */ = {
@@ -401,7 +507,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-/* End XCConfigurationList section */
+
+		F10000090000000000000009 /* Build configuration list for PBXNativeTarget "TailBrowserUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F100000A000000000000000A /* Debug */,
+				F100000B000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};/* End XCConfigurationList section */
 	};
 	rootObject = C213B9832EE8BF80002D0531 /* Project object */;
 }

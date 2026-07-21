@@ -70,6 +70,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismissAction() }
+                        .accessibilityIdentifier("settings-done-button")
                 }
             }
             .alert("Logout", isPresented: $showLogoutAlert) {

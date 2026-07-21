@@ -83,15 +83,33 @@ $ xcodebuild build \
 (Note: a real device install still requires signing; `CODE_SIGNING_ALLOWED=NO` only
 gets you a built `.app` that cannot be installed onto a device.)
 
-## Tests
+## Tests & UI automation
 
-There is **no test target in this project** — `xcodebuild test` has nothing to run
-here. The only tests live in the `libtailscale` submodule and cover `TailscaleKit`:
+There is a **UI test target**, `TailBrowserUITests` (XCUITest), whose sources live
+in `UITests/`. The current tests are connection-independent smoke tests (launch,
+open Settings, open the Add-Bookmark editor) — no Tailnet login needed.
+
+```bash
+# Build + run UI tests on the simulator, capturing libtailscale logs:
+$ scripts/run-uitests.sh
+
+# Or directly:
+$ xcodebuild test -project TailBrowser.xcodeproj -scheme TailBrowser \
+    -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -derivedDataPath build/DerivedData
+```
+
+The `libtailscale` submodule has its own separate tests:
 
 ```bash
 $ cd ThirdParty/libtailscale/swift
 $ make test        # macOS-side TailscaleKitXCTests
 ```
+
+Capturing libtailscale logs, letting a non-vision agent "see" the app via a
+vision sub-pi (`scripts/look.sh`), the run-destination matrix (simulator vs
+"My Mac (Designed for iPad)"), the optional Xcode MCP server, and a full scripts
+reference are all documented in **[README.ui-automation.md](README.ui-automation.md)**.
 
 ## Cleaning up
 
@@ -122,6 +140,12 @@ TSNet/                    Wrapper layer over TailscaleKit
   Logging.swift           Logger
 TailBrowser/Info.plist    ATS exceptions (NSAllowsArbitraryLoads) so WebKit can load
                           tailnet HTTP / self-signed nodes
+UITests/                 XCUITest UI tests (synchronized folder group -> TailBrowserUITests)
+scripts/
+  add_uitest_target.py    One-shot script that added the UI test target to project.pbxproj
+  run-uitests.sh          Build + run UI tests on the simulator, capturing libtailscale logs
+  probe-xcode-mcp.py      Minimal probe of the Xcode MCP server (xcrun mcpbridge)
+  look.sh                 Screenshot the sim/Mac + describe it with a vision sub-pi
 ThirdParty/libtailscale/  git submodule -> github.com/tailscale/libtailscale
   swift/build/...         Generated TailscaleKit.xcframework (NOT in git; build it)
 ```

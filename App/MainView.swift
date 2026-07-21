@@ -63,6 +63,7 @@ struct MainView: View {
                     Button(action: { showingAddSheet = true }) {
                         Label("Add Bookmark", systemImage: "plus")
                     }
+                    .accessibilityIdentifier("add-bookmark-button")
                     Spacer()
                 }
 
@@ -73,6 +74,7 @@ struct MainView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityIdentifier("settings-button")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

@@ -37,7 +37,8 @@ single scheme, both named **`TailBrowser`**. Bundle ID `io.tailscale.TailBrowse`
 (`PBXFileSystemSynchronizedRootGroup`). New `.swift` files dropped into either
 directory are automatically compiled into the `TailBrowser` target — no
 `project.pbxproj` editing required (verified: an unlisted `.swift` file in `TSNet/`
-is picked up and compiled).
+is picked up and compiled). The `UITests/` directory is the same kind of
+synchronized folder group, but for the `TailBrowserUITests` target.
 
 The `TSNet/` group has a `membershipExceptions` list in `project.pbxproj` naming its
 current four files; in this project's configuration that list does **not** gate
@@ -48,11 +49,20 @@ thing to check.
 Other files (Info.plist, README.md, assets) are normal pbxproj references and do
 require project edits if you add/relocate them.
 
-## There is no test target here
+## UI automation & agent tooling
 
-`xcodebuild test` / `xcodebuild build-for-testing` on `TailBrowser.xcodeproj` has
-nothing to run. Don't claim tests pass/fail for the app. The only tests are in the
-submodule: `cd ThirdParty/libtailscale/swift && make test`.
+There is a UI test target (`TailBrowserUITests`; sources in `UITests/`, another
+synchronized folder group) plus helpers for running tests, capturing libtailscale
+logs, letting a non-vision agent "see" the app, and the optional Xcode MCP server.
+All of that — setup steps, the run-destination matrix (simulator vs "My Mac"),
+vision-model config, CLI-vs-MCP guidance, and a scripts reference — is documented
+in **[`README.ui-automation.md`](README.ui-automation.md)**. Read that when working
+on tests, logs, vision, or the MCP bridge.
+
+Headline for always-context: **use the simulator for autonomous work** (build +
+`simctl install`/`launch` + `simctl io booted screenshot` + XCUITest + `log stream`
+all work with zero permission grants). The "My Mac (Designed for iPad)" target
+can't be launched headlessly.
 
 ## Command-line builds that actually work
 
@@ -75,7 +85,15 @@ provisioning profile and an unlocked keychain.
 Prefer `-derivedDataPath build/DerivedData` to keep DerivedData inside the
 `.gitignore`d `build/` directory.
 
+
+
 ## Other gotchas
+
+- **libtailscale logs** go through `TSNet/Logging.swift` to `os_log` under subsystem
+  `io.tailscale.TailBrowse` / category `tsnet` (and `print("tsnet: …")`). Stream
+  them with `xcrun simctl spawn booted log stream --predicate 'subsystem == "io.tailscale.TailBrowse"'`.
+  See `README.ui-automation.md` for the full log-capture workflow and the critical
+  state transitions (`State: NeedsLogin`, `Authenticate at: …`).
 
 - The bookmarks directory is spelled **`Boomarks`** (missing 'k') throughout the
   codebase — match the existing spelling if you reference it; don't "fix" it
@@ -88,3 +106,5 @@ Prefer `-derivedDataPath build/DerivedData` to keep DerivedData inside the
   `.modelContainer`.
 - `build/` (including `build/DerivedData`) is gitignored, as is the submodule's
   `swift/build/`. Don't commit build artifacts.
+
+

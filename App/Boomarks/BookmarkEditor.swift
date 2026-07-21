@@ -38,12 +38,14 @@ struct BookmarkEditor: View {
                     Button("Cancel") {
                         dismissAction()
                     }
+                    .accessibilityIdentifier("bookmark-cancel-button")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         addItem()
                     }
                     .disabled(!canSave)
+                    .accessibilityIdentifier("bookmark-save-button")
                 }
             }
         }
