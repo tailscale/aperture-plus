@@ -15,8 +15,6 @@ struct MainView: View {
     @ObservedObject private var browserViewModel: BrowserViewModel
 
     // Navigation and alert state
-    @State private var selectedBookmark: Bookmark?
-    @State private var showConnectAlert: Bool = false
     @State private var showingAddSheet = false
     @State private var showingSettingsSheet = false
 
@@ -32,27 +30,37 @@ struct MainView: View {
         NavigationSplitView {
             List {
                 Section {
-                    ApertureBrandHeader()
+                    ApertureBrandHeader {
+                        Button {
+                            showingSettingsSheet = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("settings-button")
+                    }
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 10, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 10, trailing: 8))
 
                 Section {
                     StatusView(viewModel: statusViewModel)
                 }
                 Group {
                     if manager.model.state == .Running {
-                        BookmarkListItem(bookmark: HomePage.standard.bookmark, onSelect: handleTap)
+                        BookmarkListItem(bookmark: HomePage.standard.bookmark)
                             .accessibilityIdentifier("home-page-bookmark")
-                        BookMarkList(onSelect: handleTap)
+                        BookMarkList()
                     }
                 }
-                .transition(.opacity)
             }
-            // Drive the fade transition when the state changes.
-            .animation(.easeInOut, value: manager.model.state)
-            .navigationDestination(item: $selectedBookmark) { item in
+            // Bookmark rows are NavigationLinks carrying their Bookmark value;
+            // tapping pushes the browser here. (NavigationLink is used
+            // instead of a Button + manual selection because SwiftUI Buttons
+            // inside List rows don't reliably fire their action on tap.)
+            .navigationDestination(for: Bookmark.self) { item in
                 if let url = URL(string: item.url) {
                     BrowserView(model: browserViewModel)
                         .onAppear() { [weak browserViewModel] in
@@ -75,18 +83,13 @@ struct MainView: View {
                     Spacer()
                 }
 
-                // Leading gear icon for Settings
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingSettingsSheet = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityIdentifier("settings-button")
-                }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationTitle("Aperture")
+            // Drop the navigation bar entirely — the brand header above is
+            // the sole "Aperture" branding, so a nav-bar title would be a
+            // duplicate. The Settings gear now lives in the brand header.
+            // (Hiding the primary's nav bar doesn't affect pushed views —
+            // BrowserView shows its own nav bar with a back button.)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddSheet) {
                 BookmarkEditor(dismissAction: { showingAddSheet = false })
             }
@@ -95,24 +98,11 @@ struct MainView: View {
                              dismissAction: { showingSettingsSheet = false })
 
             }
-            .alert("Please Connect to Your Tailnet", isPresented: $showConnectAlert) {
-                Button("OK", role: .cancel) { }
-            }
-            .toolbar(.visible, for: .bottomBar)
             .toolbarBackground(.automatic, for: .bottomBar)
-            .toolbarBackground(.automatic, for: .navigationBar)
         } detail: {
             Text("Select an item")
         }
         .safeAreaPadding(.top)
-    }
-
-    private func handleTap(on item: Bookmark) {
-        if statusViewModel.tsnetState == .Running {
-            selectedBookmark = item
-        } else {
-            showConnectAlert = true
-        }
     }
 
 }

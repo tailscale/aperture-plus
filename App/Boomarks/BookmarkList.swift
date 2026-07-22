@@ -8,11 +8,9 @@ struct BookMarkList: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort:\Bookmark.timestamp, order: .reverse) private var bookmarks: [Bookmark]
 
-    let onSelect: (Bookmark) -> Void
-
     var body: some View {
         ForEach(bookmarks) { item in
-            BookmarkListItem(bookmark: item, onSelect: onSelect)
+            BookmarkListItem(bookmark: item)
         }
         .onDelete(perform: deleteItems)
     }
@@ -28,12 +26,9 @@ struct BookMarkList: View {
 
 struct BookmarkListItem: View {
     let bookmark: Bookmark
-    let onSelect: (Bookmark) -> Void
 
     var body: some View {
-        Button { 
-            onSelect(bookmark)
-        } label: {
+        NavigationLink(value: bookmark) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(bookmark.name)
                     .font(.body)
@@ -43,7 +38,5 @@ struct BookmarkListItem: View {
                     .lineLimit(1)
             }
         }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 }

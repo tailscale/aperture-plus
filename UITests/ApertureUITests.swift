@@ -37,14 +37,17 @@ final class ApertureUITests: XCTestCase {
 
     // MARK: - Tests
 
-    /// The app launches and shows its main chrome (nav title + status section).
+    /// The app launches and shows its main chrome (brand header + status section).
+    /// The main screen no longer has a navigation-bar title — the brand header
+    /// (logo lockup) is the sole "Aperture" branding — so we wait on its
+    /// accessibility identifier instead of `navigationBars["Aperture"]`.
     func testAppLaunchesAndShowsStatus() throws {
         let app = XCUIApplication()
         app.launch()
 
         XCTAssertTrue(
-            app.navigationBars["Aperture"].waitForExistence(timeout: 20),
-            "Aperture navigation bar should appear on launch"
+            waitForBrandHeader(app, timeout: 20),
+            "The Aperture brand header should appear on launch"
         )
 
         XCTAssertTrue(
@@ -58,7 +61,7 @@ final class ApertureUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
 
         let settingsButton = app.buttons["settings-button"]
         XCTAssertTrue(
@@ -96,7 +99,7 @@ final class ApertureUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
 
         let addButton = app.buttons["add-bookmark-button"]
         XCTAssertTrue(
@@ -158,7 +161,7 @@ final class ApertureUITests: XCTestCase {
         app.launchArguments = ["-UITestResetHomePage"]
         app.launch()
 
-        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
 
         // --- First visit: read the current value, then change it ---
         let settingsButton = app.buttons["settings-button"]
@@ -194,7 +197,7 @@ final class ApertureUITests: XCTestCase {
         app.launchArguments = []   // do NOT reset — we want to see what saved
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.navigationBars["Aperture"].waitForExistence(timeout: 20),
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
                       "App should relaunch")
 
         // --- Second visit (fresh process): the change must have persisted ---
@@ -241,6 +244,19 @@ final class ApertureUITests: XCTestCase {
         // Opt-in flag: when set, a not-connected sim is a hard failure instead
         // of a skip. Useful for CI runs that are known to be logged in.
         let requireConnected = app.launchArguments.contains("-RequireConnected")
+
+        // If an auth key is available, forward it to the app so a fresh
+        // (not-logged-in) simulator can authenticate non-interactively
+        // instead of showing the "Login" button — making this test fully
+        // automatable on any sim, no prior interactive login required.
+        // `APERTURE_TEST_EPHEMERAL` (default "1") controls whether the node
+        // registers as ephemeral (auto-cleanup); it must match the key's type.
+        let authKey = Self.resolvedTestAuthKey()
+        if let authKey {
+            app.launchEnvironment["APERTURE_AUTHKEY"] = authKey
+            app.launchEnvironment["APERTURE_EPHEMERAL"] = Self.resolvedTestEphemeral()
+        }
+
         app.launch()
 
         // The Home Page bookmark only appears when State == .Running, so waiting
@@ -284,6 +300,45 @@ final class ApertureUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Resolve the auth key for the connected test. `xcodebuild` does NOT
+    /// forward arbitrary parent-shell environment variables to the UI-test
+    /// runner process, so reading `APERTURE_TEST_AUTHKEY` from
+    /// `ProcessInfo.environment` alone is unreliable. Instead, prefer a key
+    /// file that `scripts/run-uitests.sh` / the Makefile write from their own
+    /// (shell) environment, which DOES see the variable. Resolution order:
+    ///   1. `APERTURE_TEST_AUTHKEY` env var (when it happens to be present).
+    ///   2. File at `APERTURE_TEST_AUTHKEY_FILE`, else `/tmp/aperture-test-authkey`.
+    static func resolvedTestAuthKey() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        if let k = env["APERTURE_TEST_AUTHKEY"], !k.isEmpty { return k }
+        let path = env["APERTURE_TEST_AUTHKEY_FILE"] ?? "/tmp/aperture-test-authkey"
+        guard let data = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Whether the test node should be ephemeral. Defaults to "1" (ephemeral
+    /// nodes auto-cleanup on close, ideal for CI). Override via
+    /// `APERTURE_TEST_EPHEMERAL` env or the same file mechanism is NOT applied
+    /// here — keep it simple; ephemeral must match the key's admin-side type.
+    static func resolvedTestEphemeral() -> String {
+        let v = ProcessInfo.processInfo.environment["APERTURE_TEST_EPHEMERAL"]
+        return (v?.isEmpty == false) ? v! : "1"
+    }
+
+    /// Waits for the main screen's brand header (the "Aperture" logo lockup)
+    /// to appear. The app no longer shows a navigation-bar title — the brand
+    /// header is the sole "Aperture" branding — so tests wait on its
+    /// accessibility identifier instead of `navigationBars["Aperture"]`.
+    /// Matches any element type via `descendants(matching: .any)` for
+    /// robustness across how SwiftUI exposes the container.
+    @discardableResult
+    private func waitForBrandHeader(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
+        let brandHeader = app.descendants(matching: .any)
+            .matching(identifier: "aperture-brand-header").firstMatch
+        return brandHeader.waitForExistence(timeout: timeout)
+    }
 
     /// Attach a screenshot of `app` to the current test. Call from inside a
     /// test method (which is `@MainActor`), e.g. on the failure path.

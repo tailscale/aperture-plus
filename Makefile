@@ -88,11 +88,18 @@ ipa: framework  ## Archive + export a dev-signed .ipa for a real iOS device
 	@echo "  xcrun devicectl device install app --device <udid-or-name> $(IPA_DIR)/Aperture.ipa"
 
 # ----- test -----
+# Pass an auth key for the connected test (automates login on a fresh sim):
+#   make test AUTHKEY=tskey-auth-...
+# Without AUTHKEY, the connected test skips on a not-logged-in sim as before.
 .PHONY: test
 test: all  ## Build, then run the UI tests on the simulator (with log capture)
 	@echo
 	@echo "::: Running UI tests on $(SIM_NAME) :::"
-	./scripts/run-uitests.sh --no-build "$(SIM_NAME)"
+	@if [ -n "$(AUTHKEY)" ]; then \
+	    APERTURE_TEST_AUTHKEY='$(AUTHKEY)' ./scripts/run-uitests.sh "$(SIM_NAME)"; \
+	else \
+	    ./scripts/run-uitests.sh "$(SIM_NAME)"; \
+	fi
 
 # ----- vision helper (manual / for debugging) -----
 .PHONY: look

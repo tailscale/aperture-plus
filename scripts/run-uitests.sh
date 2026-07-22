@@ -72,8 +72,26 @@ cleanup() {
         kill "$LOG_PID" 2>/dev/null || true
         wait "$LOG_PID" 2>/dev/null || true
     fi
+    # Remove the auth-key file we may have staged for the UI tests (see below).
+    if [[ -n "${AUTHKEY_FILE:-}" && -f "$AUTHKEY_FILE" ]]; then
+        rm -f "$AUTHKEY_FILE" 2>/dev/null || true
+    fi
 }
 trap cleanup EXIT
+
+# --- Stage the auth key for the UI tests (if provided) ---------------------
+# xcodebuild does NOT forward arbitrary parent-shell env vars to the UI-test
+# runner process, so the test can't read APERTURE_TEST_AUTHKEY from its own
+# ProcessInfo.environment. Instead, write the key to a file the test reads
+# (see ApertureUITests.resolvedTestAuthKey). The shell here DOES see the env.
+AUTHKEY_FILE="${APERTURE_TEST_AUTHKEY_FILE:-/tmp/aperture-test-authkey}"
+if [[ -n "${APERTURE_TEST_AUTHKEY:-}" ]]; then
+    printf '%s' "$APERTURE_TEST_AUTHKEY" > "$AUTHKEY_FILE"
+    echo "▶ Staged auth key for UI tests → $AUTHKEY_FILE"
+else
+    # No key staged: the connected test will skip on a not-logged-in sim.
+    rm -f "$AUTHKEY_FILE" 2>/dev/null || true
+fi
 
 # --- Build (optional) then run the tests ------------------------------------
 COMBINED="$LOG_DIR/combined.log"

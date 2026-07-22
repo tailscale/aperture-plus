@@ -85,21 +85,50 @@ xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
 
 ### What the current tests cover
 
-The three tests in `UITests/ApertureUITests.swift` are **connection-independent
-smoke tests** — they do **not** need a Tailnet login:
+The tests in `UITests/ApertureUITests.swift`:
 
-- `testAppLaunchesAndShowsStatus` — app launches; "Aperture" nav bar +
-  "Tailscale Status" section appear.
-- `testOpenAndCloseSettings` — tap the gear → "Settings" appears → tap Done →
-  back to main (verified via the Add-Bookmark button becoming hittable again).
+- `testAppLaunchesAndShowsStatus` — app launches; the **brand header** (the
+  "Aperture" logo lockup, `aperture-brand-header`) + "Tailscale Status" section
+  appear. The main screen has no navigation-bar title (the brand header is the
+  sole branding), so this waits on the brand header's accessibility
+  identifier instead of `navigationBars["Aperture"]`.
+- `testOpenAndCloseSettings` — tap the gear (in the brand header) → "Settings"
+  appears → tap Done → back to main (verified via the Add-Bookmark button
+  becoming hittable again).
 - `testOpenAndCancelAddBookmark` — tap + → "New Bookmark" editor → Save is
   disabled on empty fields → Cancel → back to main.
-- `testHomePageLoadsWhenConnected` — **requires a logged-in sim**: launch, wait
-  for the tailnet to reach Running (signaled by the Home Page bookmark
-  appearing), tap it, confirm the home page loads in the WKWebView. **Skips**
-  (via `XCTSkip`) on a sim not logged into a Tailnet, so `make test` stays green
-  on any sim; pass the app launch argument `-RequireConnected` to make a
+- `testHomePageSettingPersistsAcrossSettingsReopen` — hermetic Home-Page
+  persistence across a `terminate()` + `launch()` (see the test's doc comment).
+- `testHomePageLoadsWhenConnected` — launch, wait for the tailnet to reach
+  Running (the Home Page bookmark appears), tap it, confirm the home page
+  loads in the WKWebView. **Fully automatable on a fresh, not-logged-in sim**
+  via an auth key (see below); without one it **skips** (`XCTSkip`) so `make
+  test` stays green on any sim. Pass `-RequireConnected` to make a
   not-connected sim a hard failure.
+
+### Automating login with an auth key (`AUTHKEY`)
+
+`testHomePageLoadsWhenConnected` can log a fresh simulator into a Tailnet
+non-interactively instead of showing the "Login" button, so the whole suite
+runs green on a sim with no prior interactive login:
+
+```bash
+make test AUTHKEY=tskey-auth-...        # stages the key, runs all tests
+```
+
+The app reads the key from the `APERTURE_AUTHKEY` env var (or `-AuthKey`
+launch arg) and authenticates on `up()`; `APERTURE_EPHEMERAL`/`-Ephemeral`
+marks the node ephemeral (auto-cleanup). See `TSNetManager.launchAuthKey`.
+
+**Why a file, not just an env var:** `xcodebuild` does **not** forward
+arbitrary parent-shell env vars to the UI-test runner process, so the test
+can't read `APERTURE_TEST_AUTHKEY` from its own `ProcessInfo.environment`.
+`scripts/run-uitests.sh` (a shell script, which *does* see the env) stages the
+key to `/tmp/aperture-test-authkey` (overridable via `APERTURE_TEST_AUTHKEY_FILE`)
+and cleans it up on exit; the test reads that file
+(`ApertureUITests.resolvedTestAuthKey`) and forwards it to the app via
+`launchEnvironment`. `APERTURE_TEST_EPHEMERAL` (default `"1"`) controls
+ephemerality and must match the key's type on the admin side.
 
 ### Do the tests use screenshots / vision?
 

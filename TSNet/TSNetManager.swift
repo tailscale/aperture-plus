@@ -17,6 +17,19 @@ private enum DefaultsKeys {
     static let tailnetHostName = "TailnetHostName"
 }
 
+/// How an auth key may be supplied to the node for non-interactive (headless)
+/// login — used by UI tests and any automated run that can't show the web
+/// auth sheet. Checked once at launch, in priority order:
+///
+///   1. `APERTURE_AUTHKEY` environment variable (preferred for secrets —
+///      doesn't appear in the process argument list).
+///   2. `-AuthKey <key>` launch argument (convenient for `simctl launch`).
+///
+/// When set, the node authenticates with this key on `up()` instead of going
+/// to `NeedsLogin` and showing the "Login" button. A matching
+/// `APERTURE_EPHEMERAL`/`-Ephemeral` flag marks the node ephemeral so test
+/// nodes clean themselves up when closed.
+
 @MainActor
 final class TSNetManager {
     @MainActor var node: TailscaleNode?
@@ -43,11 +56,17 @@ final class TSNetManager {
             UserDefaults.standard.set(hostName, forKey: DefaultsKeys.tailnetHostName)
         }
 
+        let authKey = Self.launchAuthKey()
+        let ephemeral = Self.launchEphemeral()
+        if let authKey {
+            logger.log("Launching with auth key (ephemeral=\(ephemeral))")
+        }
+
         self.config = Configuration(hostName:  hostName,
                                     path: temp,
-                                    authKey: nil,
+                                    authKey: authKey,
                                     controlURL: kDefaultControlURL,
-                                    ephemeral: false)
+                                    ephemeral: ephemeral)
 
         let model = TSNetModel()
         let consumer = TSNetConsumer(logger: logger, model: model)
@@ -73,6 +92,30 @@ final class TSNetManager {
     nonisolated static func generateDefaultHostName() -> String {
         let number = Int.random(in: 100_000..<1_000_000)
         return "aperture-\(number)"
+    }
+
+    /// The auth key supplied at launch, if any. See `DefaultsKeys`-adjacent
+    /// doc comment for the resolution order. `nonisolated` so it's safe to
+    /// call from any isolation context.
+    nonisolated static func launchAuthKey() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        if let key = env["APERTURE_AUTHKEY"], !key.isEmpty {
+            return key
+        }
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-AuthKey"), i + 1 < args.count {
+            let key = args[i + 1]
+            if !key.isEmpty { return key }
+        }
+        return nil
+    }
+
+    /// Whether the node should register as ephemeral. Honors either the
+    /// `APERTURE_EPHEMERAL` env var ("1") or the `-Ephemeral` launch arg.
+    nonisolated static func launchEphemeral() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        if let v = env["APERTURE_EPHEMERAL"], v == "1" { return true }
+        return ProcessInfo.processInfo.arguments.contains("-Ephemeral")
     }
 
     nonisolated private func startTailscale() async {
