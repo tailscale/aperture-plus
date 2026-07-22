@@ -386,6 +386,49 @@ final class ApertureUITests: XCTestCase {
                       "navigation-error overlay")
     }
 
+    /// Explicitly loading **HTTPS** at a hostname whose certificate is issued
+    /// for a *different* name (the tailnet FQDN, not the bare MagicDNS name)
+    /// must fail with a certificate error — proving TLS certificate
+    /// verification is intact and NOT bypassed. This guards the design choice
+    /// (we disable WebKit's HTTP→HTTPS *upgrade*, but never bypass cert
+    /// checks): `http://ai/` loads fine over plain HTTP, while `https://ai/`
+    /// (cert mismatch) correctly errors. Requires the connected browser.
+    func testHTTPSCertMismatchShowsError() throws {
+        let app = XCUIApplication()
+        let requireConnected = app.launchArguments.contains("-RequireConnected")
+        launchConnected(app)
+
+        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+
+        // Open the URL editor (compact: tap the url-pill; regular: tap the field).
+        if app.buttons["url-pill"].waitForExistence(timeout: 5) {
+            app.buttons["url-pill"].tap()
+        }
+        let urlField = app.textFields["url-field"].firstMatch
+        if !urlField.exists {
+            app.textFields["Enter URL"].firstMatch.tap()
+        }
+        XCTAssertTrue(urlField.waitForExistence(timeout: 10),
+                      "URL field should be reachable in the browser toolbar")
+        urlField.tap()
+
+        // https://ai/ — the `ai` node's cert is for ai.<tailnet>.ts.net, so
+        // the TLS handshake must fail on hostname mismatch (-1202) before any
+        // HTTP-level redirect can occur.
+        urlField.clearAndType(text: "https://ai/")
+        urlField.typeText("\n")
+
+        let overlay = app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch
+        let appeared = overlay.waitForExistence(timeout: 30)
+        attachScreenshot(app, named: appeared ? "cert-error-shown" : "cert-error-missing")
+        XCTAssertTrue(appeared,
+                      "Loading https://ai/ (cert issued for the FQDN, not the " +
+                      "bare name) should fail with a certificate error. If this " +
+                      "load *succeeds*, TLS cert verification has been bypassed " +
+                      "— that is a security regression.")
+    }
+
     // MARK: - Helpers
 
     /// Resolve the auth key for connected tests. `xcodebuild` does NOT forward

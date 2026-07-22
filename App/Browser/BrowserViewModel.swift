@@ -32,11 +32,9 @@ final class BrowserViewModel: ObservableObject {
     init(model: TSNetModel, initialURL: URL) {
         self.tsnetModel = model
         self.initialURL = initialURL
-        // Create the initial page with our trust-the-tailnet-cert decider so
-        // any pre-proxy load attempt (and the proxied reload path) both honor
-        // it. The page is swapped again in `setPageAndProxy` when the SOCKS5
-        // proxy arrives, with the same decider.
-        self.page = WebPage(navigationDecider: ApertureNavigationDecider())
+        // Create the initial (pre-proxy) page with HTTPS-upgrade disabled
+        // (see `pageConfiguration(proxy:)`).
+        self.page = WebPage(configuration: Self.pageConfiguration())
 
         // `@Published` emits the current value to new subscribers immediately,
         // so if the proxy is already up when this tab is created (e.g. opening
@@ -50,13 +48,38 @@ final class BrowserViewModel: ObservableObject {
             }.store(in: &observers)
     }
 
+    /// Builds a `WebPage.Configuration` for this browser: the SOCKS5 proxy is
+    /// applied when available, and `upgradeKnownHostsToHTTPS` is **disabled**.
+    ///
+    /// WebKit's HTTPS Upgrade (on by default) auto-redirects `http://`
+    /// requests to `https://` for hosts it knows serve HTTPS. That breaks bare
+    /// tailnet hostnames: e.g. `http://ai/` is upgraded to `https://ai/`, but
+    /// the node's certificate is issued for the FQDN (`ai.<tailnet>.ts.net`),
+    /// not the short MagicDNS name, so the upgraded load fails with a cert
+    /// error (`NSURLErrorServerCertificateUntrusted`, -1202). Safari itself
+    /// upgrades too but falls back to HTTP on failure; a bare `WKWebView`/
+    /// `WebPage` upgrades and errors with no fallback. Disabling the upgrade
+    /// here makes `http://` URLs load exactly as typed (matching the user's
+    /// expectation and Safari's net result) without any redirect.
+    ///
+    /// HTTPS still verifies normally — we deliberately do **not** bypass
+    /// certificate checks. A navigation to `https://ai.bopp-minor.ts.net/`
+    /// (the FQDN the cert covers) validates fine; `https://ai/` (wrong host)
+    /// correctly fails. The point is just: don't silently rewrite the scheme.
+    private static func pageConfiguration(proxy: ProxyConfiguration? = nil) -> WebPage.Configuration {
+        var config = WebPage.Configuration()
+        config.upgradeKnownHostsToHTTPS = false
+        if let proxy {
+            config.websiteDataStore.proxyConfigurations = [proxy]
+        }
+        return config
+    }
+
     func setPageAndProxy(proxy: ProxyConfiguration) {
-        let config = WebPage.Configuration()
-        config.websiteDataStore.proxyConfigurations = [proxy]
         let item = page.backForwardList.currentItem
-        // Recreate the page with the proxy AND the trust-the-tailnet-cert
-        // decider (see ApertureNavigationDecider).
-        self.page = WebPage(configuration: config, navigationDecider: ApertureNavigationDecider())
+        // Recreate the page with the proxy AND HTTPS-upgrade disabled (see
+        // `pageConfiguration(proxy:)`).
+        self.page = WebPage(configuration: Self.pageConfiguration(proxy: proxy))
         if let item {
             // Reload where the user was (preserves back/forward history).
             self.page.load(item)
