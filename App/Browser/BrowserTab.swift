@@ -29,6 +29,9 @@ final class BrowserTab: Identifiable, ObservableObject {
     /// Live, UI-facing metadata (mirrored from `WebPage`; see class doc).
     @Published private(set) var displayTitle: String = "Aperture"
     @Published private(set) var displayURL: String = ""
+    /// Just the host (or a placeholder) — what the compact URL pill shows,
+    /// since the full URL isn't worth the screen real estate.
+    @Published private(set) var displayHost: String = ""
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -36,6 +39,7 @@ final class BrowserTab: Identifiable, ObservableObject {
         self.viewModel = BrowserViewModel(model: model, initialURL: initialURL)
         self.initialURL = initialURL
         self.displayURL = initialURL.absoluteString
+        self.displayHost = initialURL.host ?? initialURL.absoluteString
 
         // Re-arm the WebPage observation whenever the ViewModel swaps its page
         // (proxy arrival/change), then mirror the new page's title/url.
@@ -87,5 +91,6 @@ final class BrowserTab: Identifiable, ObservableObject {
             displayTitle = "Aperture"
         }
         displayURL = page.url?.absoluteString ?? initialURL.absoluteString
+        displayHost = page.url?.host ?? initialURL.host ?? ""
     }
 }

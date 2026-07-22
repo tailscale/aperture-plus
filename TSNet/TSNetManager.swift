@@ -43,6 +43,14 @@ final class TSNetManager {
     var localAPIClient: LocalAPIClient?
     var processor: MessageProcessor?
 
+    /// True while a start is in-flight or the node is up. Guards against the
+    /// launch double-start: `init()` kicks off a start, and the
+    /// `scenePhase == .active` notification (fired right after init on a fresh
+    /// launch) calls `willEnterForeground()`, which would start again —
+    /// producing the double `Brought Tailscale up` / double proxy reset seen
+    /// in the logs. MainActor so the check-and-set is atomic.
+    @MainActor private var startInFlight = false
+
     @MainActor
     init() {
         // UI-test hook: clear the persisted tsnet state (node credentials) so
@@ -82,6 +90,19 @@ final class TSNetManager {
         self.model = model
         self.consumer = consumer
 
+        startTailscaleIfNeeded()
+    }
+
+    /// Starts the node iff no start is already in flight. The single entry
+    /// point for both the initial launch and foreground reconnects, so the
+    /// guard lives in one place.
+    @MainActor
+    func startTailscaleIfNeeded() {
+        guard !startInFlight else {
+            logger.log("startTailscale: already in flight, skipping")
+            return
+        }
+        startInFlight = true
         Task(priority: .userInitiated) {
             await startTailscale()
         }
@@ -147,6 +168,7 @@ final class TSNetManager {
 
             try await tailscaleUp(localAPI: localAPIClient, consumer: consumer)
         } catch {
+            await MainActor.run { startInFlight = false }
             fatalError("Error setting up Tailscale: \(error)")
         }
     }
@@ -219,6 +241,7 @@ final class TSNetManager {
 
     func willEnterBackground() {
         logger.log("Background: Disconnecting...")
+        startInFlight = false
         busErrorWatcher?.cancel()
         model.proxyConfiguration = nil
         let nodeTmp = self.node
@@ -234,9 +257,7 @@ final class TSNetManager {
 
     func willEnterForeground() {
         logger.log("Foreground: Reconnecting...")
-        Task {
-            await startTailscale()
-        }
+        startTailscaleIfNeeded()
     }
 
     func setExitNodeEnabled(_ enabled: Bool) {

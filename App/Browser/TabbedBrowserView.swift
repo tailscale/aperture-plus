@@ -96,52 +96,69 @@ private struct BrowserRootContent: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button {
-                            tabManager.openChatTab()
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .accessibilityIdentifier("new-chat-tab-button")
-                        .accessibilityLabel("New Chat Tab")
+                    if hSizeClass == .regular {
+                        // iPad: keep the top action cluster + bottom URL bar.
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            Button {
+                                tabManager.openChatTab()
+                            } label: {
+                                Image(systemName: "plus")
+                            }
+                            .accessibilityIdentifier("new-chat-tab-button")
+                            .accessibilityLabel("New Chat Tab")
 
-                        // Tab-overview button (shows a count badge when >1 tab).
-                        Button {
-                            showingTabOverview = true
-                        } label: {
-                            tabOverviewIcon
-                        }
-                        .accessibilityIdentifier("tab-overview-button")
-                        .accessibilityLabel("Tabs")
+                            Button {
+                                showingTabOverview = true
+                            } label: {
+                                tabOverviewIcon
+                            }
+                            .accessibilityIdentifier("tab-overview-button")
+                            .accessibilityLabel("Tabs")
 
-                        Button {
-                            showingBookmarks = true
-                        } label: {
-                            Image(systemName: "book")
-                        }
-                        .accessibilityIdentifier("bookmarks-button")
-                        .accessibilityLabel("Bookmarks")
+                            Button {
+                                showingBookmarks = true
+                            } label: {
+                                Image(systemName: "book")
+                            }
+                            .accessibilityIdentifier("bookmarks-button")
+                            .accessibilityLabel("Bookmarks")
 
-                        Button {
-                            onSettings()
-                        } label: {
-                            Image(systemName: "gearshape")
+                            Button {
+                                onSettings()
+                            } label: {
+                                Image(systemName: "gearshape")
+                            }
+                            .accessibilityIdentifier("settings-button")
+                            .accessibilityLabel("Settings")
                         }
-                        .accessibilityIdentifier("settings-button")
-                        .accessibilityLabel("Settings")
+
+                        ToolbarItemGroup(placement: .bottomBar) {
+                            // Key by tab id so the URL field re-seeds on tab switch.
+                            BrowserNavigator(
+                                model: tab.viewModel,
+                                onAddBookmark: { showingBookmarkEditor = true }
+                            )
+                            .id(tab.id)
+                        }
                     }
-
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        // Key by tab id so the URL field re-seeds on tab switch.
-                        BrowserNavigator(
-                            model: tab.viewModel,
-                            onAddBookmark: { showingBookmarkEditor = true }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    if hSizeClass == .compact {
+                        CompactBrowserToolbar(
+                            tab: tab,
+                            tabManager: tabManager,
+                            onNewChat: { tabManager.openChatTab() },
+                            onTabOverview: { showingTabOverview = true },
+                            onBookmarks: { showingBookmarks = true },
+                            onAddBookmark: { showingBookmarkEditor = true },
+                            onSettings: onSettings
                         )
                         .id(tab.id)
                     }
                 }
-                .navigationTitle(tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle)
+                .navigationTitle(hSizeClass == .compact ? "" : (tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle))
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar(hSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
                 .overlay(alignment: .top) {
                     if statusViewModel.needsAuth {
                         LoginBanner(onLogin: { statusViewModel.showAuth() })
@@ -160,7 +177,7 @@ private struct BrowserRootContent: View {
         .sheet(isPresented: $showingBookmarks) {
             BookmarksSheet { bookmark in
                 if let url = URL(string: bookmark.url) {
-                    tab.viewModel.page.load(url)
+                    tab.viewModel.load(url: url)
                 }
             }
         }

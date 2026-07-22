@@ -276,16 +276,31 @@ final class ApertureUITests: XCTestCase {
             return
         }
 
-        // Confirm the home page actually loaded by polling the URL field in the
-        // browser's bottom toolbar (which updates to the current URL when the
-        // page finishes loading). The home page is http://ai/chat → "ai".
-        let pageLoaded = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
-        attachScreenshot(app, named: pageLoaded ? "page-loaded" : "page-load-failed")
-        XCTAssertTrue(pageLoaded,
-                      "Home page (http://ai/chat) did not load within 60s. " +
+        // Confirm the home page URL was reached AND no navigation error
+        // surfaced. We check the URL pill/host (the navigation reached the
+        // server) rather than specific page content, because the `ai` node's
+        // /chat response is flaky (sometimes the chat UI, sometimes a 404
+        // page) — and a 404 is still a *successful* load. The thing we must
+        // catch is a *navigation failure* (cert/connectivity/proxy), which
+        // surfaces the `nav-error-overlay`. So: reach the URL, then assert
+        // the error overlay did NOT appear.
+        let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
+        attachScreenshot(app, named: reached ? "page-loaded" : "page-load-failed")
+        XCTAssertTrue(reached,
+                      "Home page (http://ai/chat) URL was not reached within 60s. " +
                       "Check libtailscale logs: xcrun simctl spawn booted log stream " +
                       "--predicate 'subsystem == \"io.tailscale.Aperture\"'")
+        let errorOverlay = app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch
+        // A navigation failure (e.g. the TLS cert trust failure this fixes)
+        // surfaces the overlay quickly; give it a moment, then require absence.
+        let overlayAppeared = errorOverlay.waitForExistence(timeout: 5)
+        if overlayAppeared { attachScreenshot(app, named: "homepage-nav-error") }
+        XCTAssertFalse(overlayAppeared,
+                       "Home page load failed with a navigation error (cert/connectivity). " +
+                       "The error overlay should not appear for a successful load.")
     }
+
 
     /// Opening a new Aperture-chat tab from the "+" button works and selects
     /// the new tab. Requires the connected browser.
@@ -327,6 +342,48 @@ final class ApertureUITests: XCTestCase {
             waitForHittable(app.buttons["add-bookmark-button"], timeout: 10),
             "Should return to the browser after Done"
         )
+    }
+
+    /// Loading a URL that can't be reached surfaces the navigation-error
+    /// overlay ("Unable to Load Page"), proving the error plumbing works for
+    /// user-typed URLs. Requires the connected browser (auth key automates
+    /// login). Previously the URL bar called `page.load` without watching the
+    /// navigation's async sequence, so failures were silent.
+    func testBadURLShowsErrorOverlay() throws {
+        let app = XCUIApplication()
+        let requireConnected = app.launchArguments.contains("-RequireConnected")
+        launchConnected(app)
+
+        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+
+        // Enter the URL editor. On iPhone (compact) tap the url-pill; the
+        // editing bar's text field ("url-field") appears. (On iPad the
+        // "Enter URL" field is always present.)
+        if app.buttons["url-pill"].waitForExistence(timeout: 5) {
+            app.buttons["url-pill"].tap()
+        }
+        let urlField = app.textFields["url-field"].firstMatch
+        if !urlField.exists {
+            // Regular layout fallback.
+            app.textFields["Enter URL"].firstMatch.tap()
+        }
+        XCTAssertTrue(urlField.waitForExistence(timeout: 10),
+                      "URL field should be reachable in the browser toolbar")
+        urlField.tap()
+
+        // A host under .invalid can never resolve, so the provisional
+        // navigation through the SOCKS5 proxy must fail.
+        let badURL = "http://nonexistent-aperture-test.invalid/"
+        urlField.clearAndType(text: badURL)
+        urlField.typeText("\n")
+
+        let overlay = app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch
+        let appeared = overlay.waitForExistence(timeout: 30)
+        attachScreenshot(app, named: appeared ? "nav-error-shown" : "nav-error-missing")
+        XCTAssertTrue(appeared,
+                      "Loading an unreachable URL (\(badURL)) should show the " +
+                      "navigation-error overlay")
     }
 
     // MARK: - Helpers
@@ -385,17 +442,28 @@ final class ApertureUITests: XCTestCase {
         return result == .completed
     }
 
-    /// Waits for the browser page to load by polling the URL text field in the
-    /// bottom toolbar (which updates to the loaded URL when the page finishes
-    /// loading), with a fallback to the WKWebView's identifier/label.
+    /// Waits for the browser page to load by polling several native signals
+    /// across both layouts:
+    ///   - the compact URL pill's accessibility label ("Address: <host>") —
+    ///     iPhone non-editing,
+    ///   - the URL text field's value ("Enter URL" on iPad / "url-field" when
+    ///     editing on iPhone),
+    ///   - the WKWebView's identifier/label as a fallback.
     /// Returns true if any signal contained `substring` in time.
     @discardableResult
     private func waitForPageLoaded(in app: XCUIApplication, contains substring: String,
                                    timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate { obj, _ -> Bool in
             guard let app = obj as? XCUIApplication else { return false }
-            let urlField = app.textFields["Enter URL"]
-            if let val = urlField.value as? String, val.contains(substring) { return true }
+            // Compact URL pill (button) label: "Address: <host>".
+            let pill = app.buttons["url-pill"]
+            if pill.exists, pill.label.contains(substring) { return true }
+            // URL text fields (either layout).
+            for id in ["Enter URL", "url-field"] {
+                let f = app.textFields[id]
+                if let val = f.value as? String, val.contains(substring) { return true }
+            }
+            // Fallback: the WKWebView's identifier/label.
             let webView = app.webViews.firstMatch
             if webView.exists {
                 if webView.identifier.contains(substring) || webView.label.contains(substring) { return true }

@@ -81,12 +81,20 @@ struct BrowserNavigator: View {
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .onSubmit {
-                            // Normalize and load URL
+                            // Normalize and load URL via the watched loader so
+                            // failures surface the error overlay (a direct
+                            // `page.load` here previously failed silently).
                             let trimmed = urlFieldText.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
                             let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
                             urlFieldText = normalized
-                            model.page.load(URL(string: normalized))
+                            if let url = URL(string: normalized) {
+                                model.load(url: url)
+                            } else {
+                                // A normalized string (always has a scheme) is
+                                // essentially always parseable; guard anyway.
+                                logger.log("Could not parse URL: \(normalized)")
+                            }
                         }
                     if model.page.isLoading {
                         ProgressView(value: model.page.estimatedProgress)
@@ -183,7 +191,7 @@ struct BrowserNavigator: View {
             ?? ""
     }
 
-    private static func normalizedURLString(from input: String) -> String {
+    static func normalizedURLString(from input: String) -> String {
         if let url = URL(string: input), let scheme = url.scheme, !scheme.isEmpty {
             return input
         }
