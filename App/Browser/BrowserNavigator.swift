@@ -150,9 +150,19 @@ struct BrowserNavigator: View {
                 }
             )
             .accessibilityLabel("Add Bookmark")
+            .accessibilityIdentifier("add-bookmark-button")
         }
         .animation(.snappy, value: model.page.backForwardList.backList.count)
         .animation(.snappy, value: model.page.backForwardList.forwardList.count)
+        // Seed the URL field from the current page whenever this navigator
+        // appears (e.g. when switching tabs — the navigator is keyed by tab
+        // id, so it re-appears with the new tab's page). Without this the
+        // field would be blank until the next navigation.
+        .onAppear {
+            if !isEditingURL {
+                urlFieldText = currentURLString
+            }
+        }
         .onChange(of: model.page.backForwardList.currentItem?.url) {
             if !isEditingURL {
                 urlFieldText = model.page.backForwardList.currentItem?.url.absoluteString ?? ""
@@ -163,6 +173,14 @@ struct BrowserNavigator: View {
                 urlFieldText = url.absoluteString
             }
         }
+    }
+
+    /// The URL to show in the field when not actively editing: the current
+    /// back/forward item's URL, falling back to the failed-initial URL.
+    private var currentURLString: String {
+        model.page.backForwardList.currentItem?.url.absoluteString
+            ?? model.failedInitialURL?.absoluteString
+            ?? ""
     }
 
     private static func normalizedURLString(from input: String) -> String {

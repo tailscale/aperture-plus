@@ -45,6 +45,15 @@ final class TSNetManager {
 
     @MainActor
     init() {
+        // UI-test hook: clear the persisted tsnet state (node credentials) so
+        // the next launch starts from NeedsLogin (the connection gate) rather
+        // than silently re-using a login a prior test left in the container.
+        // Harmless in normal use — the launch argument is never set outside
+        // UI tests. Must run before the node is created from this path.
+        if ProcessInfo.processInfo.arguments.contains("-UITestResetLogin") {
+            Self.resetStateDir()
+        }
+
         let temp = Self.getDocumentDirectoryPath().path()
 
         // Load persisted hostname, or generate a fresh
@@ -82,7 +91,7 @@ final class TSNetManager {
         return model
     }
 
-    static func getDocumentDirectoryPath() -> URL {
+    nonisolated static func getDocumentDirectoryPath() -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory().appending("aperture"))
         return url
     }
@@ -92,6 +101,15 @@ final class TSNetManager {
     nonisolated static func generateDefaultHostName() -> String {
         let number = Int.random(in: 100_000..<1_000_000)
         return "aperture-\(number)"
+    }
+
+    /// Removes the on-disk tsnet state directory (node credentials, prefs) so
+    /// the next node start is a fresh, not-logged-in node. Used by the
+    /// `-UITestResetLogin` UI-test hook to keep connection-independent tests
+    /// hermetic against logins left behind by prior connected tests.
+    nonisolated static func resetStateDir() {
+        let url = Self.getDocumentDirectoryPath()
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// The auth key supplied at launch, if any. See `DefaultsKeys`-adjacent

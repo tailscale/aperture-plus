@@ -85,32 +85,42 @@ xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
 
 ### What the current tests cover
 
-The tests in `UITests/ApertureUITests.swift`:
+The app's root is a Safari-style multi-tab browser. Until the tailnet first
+reaches `Running` it shows a **connection gate** (brand header + "Tailscale
+Status" + Login); once connected it switches to the **tabbed browser**. Tests
+split accordingly:
 
-- `testAppLaunchesAndShowsStatus` — app launches; the **brand header** (the
-  "Aperture" logo lockup, `aperture-brand-header`) + "Tailscale Status" section
-  appear. The main screen has no navigation-bar title (the brand header is the
-  sole branding), so this waits on the brand header's accessibility
-  identifier instead of `navigationBars["Aperture"]`.
-- `testOpenAndCloseSettings` — tap the gear (in the brand header) → "Settings"
-  appears → tap Done → back to main (verified via the Add-Bookmark button
-  becoming hittable again).
-- `testOpenAndCancelAddBookmark` — tap + → "New Bookmark" editor → Save is
-  disabled on empty fields → Cancel → back to main.
+Connection-independent (run on any sim; use the `-UITestResetLogin` launch arg
+to clear persisted node creds so they always start at the gate, even after a
+prior connected test logged the sim in):
+
+- `testAppLaunchesAndShowsStatus` — the gate's brand header
+  (`aperture-brand-header`) + "Tailscale Status" section appear.
+- `testOpenAndCloseSettings` — tap the gear → "Settings" → Done → back at the
+  root (verified via the gear becoming hittable again — it's in both the gate
+  and the browser).
 - `testHomePageSettingPersistsAcrossSettingsReopen` — hermetic Home-Page
   persistence across a `terminate()` + `launch()` (see the test's doc comment).
-- `testHomePageLoadsWhenConnected` — launch, wait for the tailnet to reach
-  Running (the Home Page bookmark appears), tap it, confirm the home page
-  loads in the WKWebView. **Fully automatable on a fresh, not-logged-in sim**
-  via an auth key (see below); without one it **skips** (`XCTSkip`) so `make
-  test` stays green on any sim. Pass `-RequireConnected` to make a
-  not-connected sim a hard failure.
+
+Connected (require a logged-in sim; authenticate via an auth key — see below —
+and otherwise **skip** so `make test` stays green on any sim; `-RequireConnected`
+turns a not-connected sim into a hard failure):
+
+- `testHomePageLoadsWhenConnected` — the first tab (always an Aperture chat =
+  the home page) auto-loads; confirm the WKWebView appears and the URL field
+  shows the home page URL.
+- `testOpenAndCancelAddBookmark` — the browser toolbar's bookmark button opens
+  the "New Bookmark" editor; Save is disabled on empty fields; Cancel returns
+  to the browser.
+- `testOpenNewChatTab` — the "+" opens a new chat tab; the tab-overview button
+  opens the "Tabs" grid.
 
 ### Automating login with an auth key (`AUTHKEY`)
 
-`testHomePageLoadsWhenConnected` can log a fresh simulator into a Tailnet
-non-interactively instead of showing the "Login" button, so the whole suite
-runs green on a sim with no prior interactive login:
+`testHomePageLoadsWhenConnected` and the other connected tests can log a fresh
+simulator into a Tailnet non-interactively instead of showing the "Login"
+button, so the whole suite runs green on a sim with no prior interactive
+login:
 
 ```bash
 make test AUTHKEY=tskey-auth-...        # stages the key, runs all tests

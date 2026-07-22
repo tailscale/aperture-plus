@@ -39,7 +39,7 @@ struct ApertureApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainView(manager: manager)
+            TabbedBrowserView(manager: manager)
         }
         .modelContainer(sharedModelContainer)
         .onChange(of: scenePhase) { _, newPhase in

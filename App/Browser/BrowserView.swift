@@ -12,25 +12,17 @@ struct BrowserView: View {
     @State private var navErrorURLText: String = ""
     @State private var overlayTask: Task<Void, Never>?
 
-    // Bookmark editor presentation
-    @State private var showingBookmarkEditor: Bool = false
-    @State private var pendingBookmarkURLString: String = ""
-    @State private var pendingBookmarkName: String = ""
-
     init(model: BrowserViewModel) {
         self.model = model
     }
 
     var body: some View {
         ZStack {
+            // The webview itself. The navigation/URL toolbar and tab chrome
+            // are owned by `TabbedBrowserView` (so they persist across tab
+            // switches and can carry tab controls); this view is just the
+            // page plus its transient error overlay.
             WebView(model.page)
-                .toolbar {
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        BrowserNavigator(model: model, onAddBookmark: { showingBookmarkEditor = true })
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                    }
-                }
 
             if showNavErrorOverlay {
                 VStack(spacing: 8) {
@@ -81,13 +73,6 @@ struct BrowserView: View {
         }
         .onDisappear {
             overlayTask?.cancel()
-        }
-        .sheet(isPresented: $showingBookmarkEditor) {
-            BookmarkEditor(
-                dismissAction: { showingBookmarkEditor = false },
-                initialName: model.page.backForwardList.currentItem?.title ?? "",
-                initialURLString: model.page.backForwardList.currentItem?.url.absoluteString ?? ""
-            )
         }
     }
 }
