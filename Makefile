@@ -73,13 +73,15 @@ ipa: framework  ## Archive + export a dev-signed .ipa for a real iOS device
 		-configuration Release \
 		-destination 'generic/platform=iOS' \
 		-archivePath $(ARCHIVE) \
-		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
+		-derivedDataPath $(DERIVED) \
+		-allowProvisioningUpdates | $(XCPRETTIFIER)
 	@echo
 	@echo "::: Exporting dev-signed IPA → $(IPA_DIR)/ :::"
 	xcodebuild -exportArchive \
 		-archivePath $(ARCHIVE) \
 		-exportPath $(IPA_DIR) \
-		-exportOptionsPlist $(EXPORT_OPTS)
+		-exportOptionsPlist $(EXPORT_OPTS) \
+		-allowProvisioningUpdates
 	@echo
 	@echo "✅ IPA: $$(ls -1 $(IPA_DIR)/*.ipa 2>/dev/null | head -1)"
 	@echo "Install on a plugged-in device with Xcode locally:"
