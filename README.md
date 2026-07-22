@@ -46,6 +46,7 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make look` | Screenshot the booted sim + describe it with a vision sub-pi (`make look Q="describe the UI"`) |
 | `make framework` | Build just the `TailscaleKit.xcframework` |
 | `make app` | Build just the app (depends on `framework`) |
+| `make ipa` | Archive + export a dev-signed `.ipa` for a real iOS device (needs an unlocked keychain; prompts or aborts — see [Installing on a real device](#installing-on-a-real-device)) |
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
 | `make clean-all` | Also remove the libtailscale build artifacts |
 
@@ -91,6 +92,38 @@ $ xcodebuild build \
 
 (Note: a real device install still requires signing; `CODE_SIGNING_ALLOWED=NO` only
 gets you a built `.app` that cannot be installed onto a device.)
+
+### Installing on a real device
+
+`make ipa` archives a Release build for `generic/platform=iOS` and exports a
+development-signed `.ipa` (`build/ipa/Aperture.ipa`) suitable for installing on
+an iPhone/iPad registered with team `W5364U7YZB`. The device **must run iOS 26**
+(the deployment target).
+
+```bash
+$ make ipa            # → build/ipa/Aperture.ipa
+```
+
+The embedded `TailscaleKit.framework` is re-signed on copy, so the build needs a
+valid signing identity and an **unlocked** login keychain. `make ipa` runs
+`scripts/unlock-keychain.sh` first: if the keychain is already unlocked (e.g. a
+local GUI session, where it's unlocked at login) it's a silent no-op; if it's
+locked and you're in an interactive terminal it prompts for your login password;
+if it's locked and stdin isn't a terminal (piped/CI) it aborts with a clear error
+instead of hanging. The keychain re-locks on reboot, so re-unlock once per SSH
+session.
+
+To install: copy `build/ipa/Aperture.ipa` to a Mac with Xcode 26, plug the device
+in, and either drag the `.ipa` onto the device in **Xcode → Window → Devices and
+Simulators**, or run:
+
+```bash
+$ xcrun devicectl device install app --device <udid-or-name> build/ipa/Aperture.ipa
+```
+
+The device's UDID must be registered with team `W5364U7YZB` (plug it into a Mac,
+open Xcode → Devices and Simulators, and let it enable the device for
+development); once registered, automatic signing on the build host picks it up.
 
 ## Tests & UI automation
 

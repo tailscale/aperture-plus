@@ -62,11 +62,12 @@ app: framework  ## Build the Aperture app for the simulator
 # ----- device ipa (real device install) -----
 .PHONY: ipa
 ipa: framework  ## Archive + export a dev-signed .ipa for a real iOS device
+	@./scripts/unlock-keychain.sh
 	@echo
 	@echo "::: Archiving Aperture for generic iOS (Release) :::"
 	@echo "(needs a valid signing identity + provisioning profile for team W5364U7YZB;"
-	@echo " the login keychain must be unlocked, e.g."
-	@echo "   security unlock-keychain ~/Library/Keychains/login.keychain-db)"
+	@echo " the login keychain must be unlocked — unlock-keychain.sh above prompts"
+	@echo " interactively if it's locked, or aborts if stdin isn't a terminal)"
 	$(XCB) archive \
 		-project $(PROJECT) -scheme $(SCHEME) \
 		-configuration Release \

@@ -2,10 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- development = ad-hoc-ish dev signing for devices registered with the
-	     team. Use "app-store" instead if you want to ship via TestFlight. -->
+	<!-- debugging = development signing for devices registered with the
+	     team (this method was formerly named "development"). Use
+	     "app-store" instead if you want to ship via TestFlight. -->
 	<key>method</key>
-	<string>development</string>
+	<string>debugging</string>
 	<key>teamID</key>
 	<string>W5364U7YZB</string>
 	<key>signingStyle</key>
