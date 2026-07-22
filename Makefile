@@ -2,6 +2,7 @@
 #
 #   make            build everything from scratch (libtailscale + app for sim)
 #   make test       build, then run the UI tests on the simulator
+#   make ipa        archive + export a dev-signed .ipa for a real device
 #   make look       screenshot the booted sim + describe it with a vision sub-pi
 #   make clean      remove app build artifacts (not the libtailscale submodule)
 #
@@ -18,6 +19,11 @@ DERIVED      := build/DerivedData
 
 XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
 LIBTSCALEDIR := ThirdParty/libtailscale/swift
+
+# Device IPA build (see `make ipa`). Archive + export live under build/.
+ARCHIVE      := build/Aperture.xcarchive
+IPA_DIR      := build/ipa
+EXPORT_OPTS  := ExportOptions.plist
 
 # Pipe xcodebuild through xcpretty if installed, else cat. Use pipefail so a
 # failed xcodebuild isn't masked by the prettifier's exit status (matches the
@@ -53,6 +59,31 @@ app: framework  ## Build the Aperture app for the simulator
 		-destination 'platform=iOS Simulator,name=$(SIM_NAME)' \
 		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
 
+# ----- device ipa (real device install) -----
+.PHONY: ipa
+ipa: framework  ## Archive + export a dev-signed .ipa for a real iOS device
+	@echo
+	@echo "::: Archiving Aperture for generic iOS (Release) :::"
+	@echo "(needs a valid signing identity + provisioning profile for team W5364U7YZB;"
+	@echo " the login keychain must be unlocked, e.g."
+	@echo "   security unlock-keychain ~/Library/Keychains/login.keychain-db)"
+	$(XCB) archive \
+		-project $(PROJECT) -scheme $(SCHEME) \
+		-configuration Release \
+		-destination 'generic/platform=iOS' \
+		-archivePath $(ARCHIVE) \
+		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
+	@echo
+	@echo "::: Exporting dev-signed IPA → $(IPA_DIR)/ :::"
+	xcodebuild -exportArchive \
+		-archivePath $(ARCHIVE) \
+		-exportPath $(IPA_DIR) \
+		-exportOptionsPlist $(EXPORT_OPTS)
+	@echo
+	@echo "✅ IPA: $$(ls -1 $(IPA_DIR)/*.ipa 2>/dev/null | head -1)"
+	@echo "Install on a plugged-in device with Xcode locally:"
+	@echo "  xcrun devicectl device install app --device <udid-or-name> $(IPA_DIR)/Aperture.ipa"
+
 # ----- test -----
 .PHONY: test
 test: all  ## Build, then run the UI tests on the simulator (with log capture)
@@ -69,7 +100,7 @@ look:  ## Screenshot the booted sim + describe it with a vision sub-pi (ask Q=..
 .PHONY: clean
 clean:  ## Remove app build artifacts (keeps the libtailscale xcframework)
 	@echo "::: Cleaning app build artifacts :::"
-	rm -rf $(DERIVED)
+	rm -rf $(DERIVED) $(ARCHIVE) $(IPA_DIR)
 
 .PHONY: clean-all
 clean-all: clean  ## Also remove the libtailscale build artifacts (xcframework etc.)

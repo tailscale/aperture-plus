@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- development = ad-hoc-ish dev signing for devices registered with the
+	     team. Use "app-store" instead if you want to ship via TestFlight. -->
+	<key>method</key>
+	<string>development</string>
+	<key>teamID</key>
+	<string>W5364U7YZB</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+</dict>
+</plist>
