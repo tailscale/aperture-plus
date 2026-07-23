@@ -181,7 +181,28 @@ final class ApertureUITests: XCTestCase {
                        "'\(persistedValue)', expected '\(newValue)'.")
 
         // --- Restore the original value so the test is hermetic ---
-        homePageFieldAfter.clearAndType(text: originalValue)
+        // We do NOT restore by typing `originalValue` back into the field:
+        // `clearAndType`'s fixed-count delete clear is unreliable on longer
+        // strings, and a partial clear concatenates the typed text with
+        // leftover suffix from the old value (e.g. `http://ai/chat` +
+        // `FADC5F69` = `http://ai/chatFADC5F69`), writing a corrupted URL to
+        // UserDefaults that then makes every later connected test load a
+        // bogus path and 404. Instead, relaunch with `-UITestResetHomePage`,
+        // which sets `HomePage.standard.url = HomePage.defaultURL` at launch —
+        // 100% reliable, no typing. (The persistence-under-typing claim was
+        // already verified above; the restore is just cleanup.)
+        app.launchArguments = ["-UITestResetHomePage", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
+                      "App should relaunch after home-page reset")
+        // Verify the reset took: the home page field should show the default.
+        app.buttons["settings-button"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        let restoredField = app.textFields["home-page-field"]
+        XCTAssertTrue(restoredField.waitForExistence(timeout: 10))
+        XCTAssertEqual((restoredField.value as? String) ?? "", "http://ai/chat",
+                       "Home page should be restored to the default after the reset relaunch")
         app.buttons["settings-done-button"].tap()
     }
 
@@ -202,6 +223,11 @@ final class ApertureUITests: XCTestCase {
             app.launchEnvironment["APERTURE_AUTHKEY"] = key
             app.launchEnvironment["APERTURE_EPHEMERAL"] = Self.resolvedTestEphemeral()
         }
+        // Reset the home page to the known default so connected tests are
+        // hermetic — a prior test (e.g. the persistence test) may have left a
+        // non-default value in UserDefaults, and the first tab always loads
+        // HomePage.standard.url, so a stale value would load the wrong URL.
+        app.launchArguments += ["-UITestResetHomePage"]
         app.launch()
     }
 
@@ -242,10 +268,27 @@ final class ApertureUITests: XCTestCase {
             "Bookmark editor should appear after tapping the bookmark button"
         )
 
-        // Save starts disabled (empty name/url) — a stable, free assertion.
+        // The editor opens pre-filled with the current page's title + URL
+        // (it's "bookmark this page"), so Save starts ENABLED. Clear both
+        // fields and confirm Save becomes disabled — the original intent of
+        // this assertion (empty name+url => can't save).
+        let nameField = app.textFields["bookmark-name-field"]
+        let urlField = app.textFields["bookmark-url-field"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "Name field should exist")
+        XCTAssertTrue(urlField.exists, "URL field should exist")
         let saveButton = app.buttons["bookmark-save-button"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "Save button should exist")
-        XCTAssertFalse(saveButton.isEnabled, "Save should be disabled until name+url are valid")
+
+        nameField.clearAndType(text: "")
+        urlField.clearAndType(text: "")
+        XCTAssertFalse(saveButton.isEnabled,
+                       "Save should be disabled when name+url are empty")
+
+        // Typing valid values should re-enable Save.
+        nameField.clearAndType(text: "Test Bookmark")
+        urlField.clearAndType(text: "http://ai/chat")
+        XCTAssertTrue(saveButton.isEnabled,
+                      "Save should be enabled once name+url are valid")
 
         let cancelButton = app.buttons["bookmark-cancel-button"]
         XCTAssertTrue(cancelButton.exists, "Cancel button should exist in the editor")
@@ -278,12 +321,12 @@ final class ApertureUITests: XCTestCase {
 
         // Confirm the home page URL was reached AND no navigation error
         // surfaced. We check the URL pill/host (the navigation reached the
-        // server) rather than specific page content, because the `ai` node's
-        // /chat response is flaky (sometimes the chat UI, sometimes a 404
-        // page) — and a 404 is still a *successful* load. The thing we must
-        // catch is a *navigation failure* (cert/connectivity/proxy), which
-        // surfaces the `nav-error-overlay`. So: reach the URL, then assert
-        // the error overlay did NOT appear.
+        // server) rather than specific page content. The thing we must catch
+        // is a *navigation failure* (cert/connectivity/proxy), which surfaces
+        // the `nav-error-overlay`. So: reach the URL, then assert the error
+        // overlay did NOT appear. (A 404 would be a *successful* load from
+        // WebKit's view — but the 404 flakiness was a test-isolation bug, now
+        // fixed: see testHomePageSettingPersistsAcrossSettingsReopen.)
         let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
         attachScreenshot(app, named: reached ? "page-loaded" : "page-load-failed")
         XCTAssertTrue(reached,
@@ -330,18 +373,63 @@ final class ApertureUITests: XCTestCase {
             "Tab overview should appear after tapping the tabs button"
         )
         attachScreenshot(app, named: "tab-overview")
-        // Two chat tabs were opened (the first one at launch + the one we just added).
-        let tabCards = app.descendants(matching: .any)
-            .matching(identifier: "new-chat-tab-button").allElementsBoundByIndex
-        // The "+" is also labeled new-chat-tab-button, so we just assert the
-        // overview appeared (verified above) rather than counting matches.
-        _ = tabCards
+
+        // Guard the tab-title-mirroring fix (#5b): each card should show the
+        // real page title (the Aperture chat UI → "...Aperture Chat..."), not
+        // the host fallback ("ai"). The title is set by the SPA after load, so
+        // poll for it. (Both tabs load the same home page.)
+        let titleAppeared = waitForTabCardTitle(in: app, contains: "Aperture", timeout: 30)
+        attachScreenshot(app, named: titleAppeared ? "tab-titles" : "tab-titles-missing")
+        XCTAssertTrue(titleAppeared,
+                      "Tab cards should show the real page title (\"...Aperture " +
+                      "Chat...\"), not the host fallback (\"ai\") — the SPA title " +
+                      "update must be mirrored into the tab chrome.")
 
         app.buttons["Done"].tap()
         XCTAssertTrue(
             waitForHittable(app.buttons["add-bookmark-button"], timeout: 10),
             "Should return to the browser after Done"
         )
+    }
+
+    /// The per-tab connection-type indicator (#5) classifies the current page.
+    /// After the home page (http://ai/chat) loads on the tailnet, the host "ai"
+    /// is a tailnet peer, so the indicator must NOT read "Internet (off
+    /// tailnet)" — it should be "Direct tailnet connection" or "Tailnet
+    /// connection via relay". Guards the ConnectionTypeResolver + the
+    /// backendStatus poll + the icon rendering. Requires the connected browser.
+    func testConnectionTypeIndicatorNotInternet() throws {
+        let app = XCUIApplication()
+        let requireConnected = app.launchArguments.contains("-RequireConnected")
+        launchConnected(app)
+
+        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+
+        // Wait for the home page to load, then poll for the indicator to flip
+        // off "internet" (the default before the status poll runs).
+        let internet = "Internet (off tailnet)"
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            // The indicator is an accessibility element with one of three labels.
+            // After the home page loads on the tailnet it must not be "internet".
+            let labels: [String] = [
+                "Direct tailnet connection",
+                "Tailnet connection via relay"
+            ]
+            for label in labels {
+                if app.descendants(matching: .any).matching(identifier: label).firstMatch.exists {
+                    return true
+                }
+            }
+            return false
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 60)
+        attachScreenshot(app, named: result == .completed ? "conn-type-tailnet" : "conn-type-stuck-internet")
+        XCTAssertTrue(result == .completed,
+                      "The connection-type indicator should classify the home page (" +
+                      "http://ai/chat, a tailnet peer) as direct or derped, not " +
+                      "\(internet). The backendStatus poll may not be running.")
     }
 
     /// Loading a URL that can't be reached surfaces the navigation-error
@@ -483,6 +571,26 @@ final class ApertureUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
         return result == .completed
+    }
+
+    /// Waits for at least one tab-overview card to show a title containing
+    /// `substring` (the cards' title text is the page title, mirrored from the
+    /// WebPage). Guards the tab-title-mirroring fix (#5b) — a regression would
+    /// leave cards showing the host fallback (e.g. "ai") instead of the real
+    /// SPA title.
+    @discardableResult
+    private func waitForTabCardTitle(in app: XCUIApplication, contains substring: String,
+                                     timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            // Tab-overview cards expose their title as a static text. Match any
+            // static text whose label contains the substring and is plausible as
+            // a card title (non-trivial length).
+            let texts = app.staticTexts.allElementsBoundByIndex
+            return texts.contains { $0.label.localizedCaseInsensitiveContains(substring) }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     /// Waits for the browser page to load by polling several native signals

@@ -29,6 +29,17 @@ struct BrowserView: View {
             // avoids that. (Safari's "text scrolls under the notch while the
             // header stays put" needs `env()` support we don't have yet — see
             // TODO #6.)
+            //
+            // TODO(#6 notch): to get true Safari behavior (page content extends
+            // under the notch, page's own sticky header pins just below it via
+            // `env(safe-area-inset-top)`), we need `env()` to be non-zero.
+            // The iOS 26 SwiftUI `WebView` doesn't propagate the safe-area
+            // inset as `env()` (verified via JS: 0px even under the notch), so
+            // the fix is to drop down to a raw `WKWebView` wrapped in a
+            // `UIViewRepresentable`, set `scrollView.contentInsetAdjustment
+            // Behavior = .never`, and lay it out under the notch — then the
+            // page's `pt-[env(safe-area-inset-top)]` resolves to the real
+            // inset. Verify on a real device (sim safe-area may differ).
             WebView(model.page)
 
             // Navigation error overlay. Driven directly by `model.navError`

@@ -26,10 +26,12 @@ struct BookmarkEditor: View {
                     TextField("Name", text: $newName)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+                        .accessibilityIdentifier("bookmark-name-field")
                     TextField("URL", text: $newURLString)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .accessibilityIdentifier("bookmark-url-field")
                 }
             }
             .navigationTitle("New Bookmark")

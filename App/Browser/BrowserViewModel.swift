@@ -59,9 +59,10 @@ final class BrowserViewModel: ObservableObject {
 
         // Create the page once, with the persistent shared data store.
         // HTTPS-upgrade is disabled — see `pageConfiguration()` doc comment.
+        // A logging decider is attached (no-op unless `-UITestLogResponses`).
         var config = Self.pageConfiguration()
         config.websiteDataStore = Self.sharedDataStore
-        self.page = WebPage(configuration: config)
+        self.page = WebPage(configuration: config, navigationDecider: LoggingNavigationDecider())
 
         // If the proxy is already up (e.g. opening a new tab while connected),
         // apply it and load the initial URL immediately.
@@ -98,6 +99,20 @@ final class BrowserViewModel: ObservableObject {
     /// errors). Disabling the upgrade makes `http://` load as typed — matching
     /// Safari's *visible* result — while explicit `https://` cert errors still
     /// surface. No certificate checks are bypassed.
+    ///
+    /// TODO(https): Safari's *literal* behavior is upgrade + automatic HTTP
+    /// fallback on failure (`.automaticFallbackToHTTP`), which we can't use
+    /// safely today because WebKit applies that fallback to *explicit* https://
+    /// navigations too (silently downgrading a user-typed https URL on cert
+    /// failure — Safari shows a cert interstitial instead) and routes the
+    /// fallback's async navigation through a separate sequence we don't watch
+    /// (so failed loads go silent). To get true Safari behavior we'd need to
+    /// (a) build a Safari-style certificate-interstitial UI for explicit
+    /// https failures, and (b) make `watchForNavitationErrors` follow the
+    /// fallback sequence. Revisit once we have (a); until then, disabling the
+    /// upgrade is the safe choice that matches Safari's visible result for the
+    /// cases that matter here (http:// tailnet hosts, server-side http→https
+    /// redirects, explicit-https cert errors).
     private static func pageConfiguration() -> WebPage.Configuration {
         var config = WebPage.Configuration()
         config.upgradeKnownHostsToHTTPS = false
@@ -230,6 +245,22 @@ final class BrowserViewModel: ObservableObject {
         navErrorMessage = nil
     }
 
+    /// Diagnostic (launch arg `-UITestLogResponses`): after a page finishes
+    /// loading, dump the final URL, document title, and a snippet of the body
+    /// text — useful for seeing exactly what a page loaded (e.g. distinguishing
+    /// a 404 page from the real content). No-op without the arg. Pairs with
+    /// `LoggingNavigationDecider` (which logs response status codes).
+    private static func maybeDumpLoadedPage(page: WebPage) async {
+        guard ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") else { return }
+        let js = "return JSON.stringify({href:location.href,title:document.title,contentType:document.contentType,body:(document.body?document.body.innerText:'(no body)').substring(0,300)})"
+        do {
+            let result = try await page.callJavaScript(js)
+            logger.log("LOADED-PAGE: \(result ?? "(null)")")
+        } catch {
+            logger.log("LOADED-PAGE error: \(error)")
+        }
+    }
+
     var navTask : Task<Void, Never>?
     func watchForNavitationErrors(_ nav: some AsyncSequence<WebPage.NavigationEvent, any Error>, for url: URL) {
         navTask?.cancel()
@@ -242,6 +273,9 @@ final class BrowserViewModel: ObservableObject {
                 for try await event in nav {
                     if Task.isCancelled { return }
                     logger.log("Nav event: \(event)")
+                    if event == .finished {
+                        await Self.maybeDumpLoadedPage(page: self.page)
+                    }
                 }
             } catch {
                 if Task.isCancelled { return }
