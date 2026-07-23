@@ -51,21 +51,32 @@ final class BrowserViewModel: ObservableObject {
     /// Builds a `WebPage.Configuration` for this browser: the SOCKS5 proxy is
     /// applied when available, and `upgradeKnownHostsToHTTPS` is **disabled**.
     ///
-    /// WebKit's HTTPS Upgrade (on by default) auto-redirects `http://`
-    /// requests to `https://` for hosts it knows serve HTTPS. That breaks bare
-    /// tailnet hostnames: e.g. `http://ai/` is upgraded to `https://ai/`, but
-    /// the node's certificate is issued for the FQDN (`ai.<tailnet>.ts.net`),
-    /// not the short MagicDNS name, so the upgraded load fails with a cert
-    /// error (`NSURLErrorServerCertificateUntrusted`, -1202). Safari itself
-    /// upgrades too but falls back to HTTP on failure; a bare `WKWebView`/
-    /// `WebPage` upgrades and errors with no fallback. Disabling the upgrade
-    /// here makes `http://` URLs load exactly as typed (matching the user's
-    /// expectation and Safari's net result) without any redirect.
+    /// WebKit's HTTPS Upgrade (`upgradeKnownHostsToHTTPS`, on by default)
+    /// rewrites `http://` → `https://` for hosts it knows serve HTTPS, and
+    /// `preferredHTTPSNavigationPolicy = .automaticFallbackToHTTP` makes it
+    /// fall back to HTTP on HTTPS failure — the closest WebKit knob to Safari.
+    /// But that policy has two problems for this app:
+    ///   1. It silently downgrades *explicit* `https://` navigations on cert
+    ///      failure too (e.g. `https://ai/` → `http://ai/`), which Safari does
+    ///      NOT do (Safari shows a cert interstitial) and which is a security
+    ///      regression (a MITM on `https://bank.com/` would silently fall back
+    ///      to HTTP). WebKit has no knob that limits the fallback to upgraded
+    ///      navigations only.
+    ///   2. The fallback runs on a separate async navigation sequence that our
+    ///      `watchForNavitationErrors` doesn't see, so failed loads go silent
+    ///      (no error overlay) — the original bug.
     ///
-    /// HTTPS still verifies normally — we deliberately do **not** bypass
-    /// certificate checks. A navigation to `https://ai.bopp-minor.ts.net/`
-    /// (the FQDN the cert covers) validates fine; `https://ai/` (wrong host)
-    /// correctly fails. The point is just: don't silently rewrite the scheme.
+    /// So we disable the upgrade entirely. Net effect matches Safari's *visible*
+    /// behavior for the cases that matter here:
+    ///   - `http://ai/` loads over HTTP as typed (Safari upgrades→cert-fails→
+    ///     falls back to HTTP; same end result, one fewer round-trip here).
+    ///   - Public sites that serve only HTTP load over HTTP in both.
+    ///   - Public sites that redirect HTTP→HTTPS do so server-side in both.
+    ///   - Explicit `https://` with a bad cert surfaces a cert error in both
+    ///     (Safari's interstitial; our overlay) — no silent downgrade.
+    /// HTTPS still verifies normally; we do **not** bypass certificate checks.
+    /// (If we later build a Safari-style cert interstitial UI, we can revisit
+    /// `.automaticFallbackToHTTP` scoped to upgraded navigations only.)
     private static func pageConfiguration(proxy: ProxyConfiguration? = nil) -> WebPage.Configuration {
         var config = WebPage.Configuration()
         config.upgradeKnownHostsToHTTPS = false
