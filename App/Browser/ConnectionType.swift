@@ -1,0 +1,88 @@
+//
+//  ConnectionType.swift
+//  Aperture
+//
+//  Classifies a browser tab's current page as one of three connection types, so
+//  we can show a small per-tab indicator (see the URL pill on iPhone, the tab
+//  chips on iPad, and the tab-overview cards):
+//
+//    .direct   — tailnet peer, connected peer-to-peer (no relay)
+//    .derped   — tailnet peer, connected via a DERP relay
+//    .internet — not a tailnet peer (e.g. a public site, reached via an exit
+//                node or not in the netmap at all)
+//
+//  The direct/derped distinction matters for diagnostics but should look
+//  harmless to end users (a couple of green dots, not a warning). "Internet"
+//  uses an external-link-style icon to signal "this leaves the tailnet".
+//
+
+import Foundation
+import TailscaleKit
+
+enum ConnectionType: Equatable, Sendable {
+    case direct
+    case derped
+    case internet
+}
+
+enum ConnectionTypeResolver {
+    /// Classify `host` (the URL bar's host — a MagicDNS short name, a tailnet
+    /// FQDN, a tailnet IP, or an arbitrary internet host) using the live peer
+    /// status (`IpnState.Status`, which carries `Relay`/`CurAddr` per peer) and
+    /// the netmap (for the self node / fallback). Returns `.internet` if the
+    /// host isn't a known tailnet peer.
+    static func resolve(host: String?, status: IpnState.Status?) -> ConnectionType {
+        guard let host, !host.isEmpty else { return .internet }
+
+        // Find the matching peer status. `IpnState.Status.Peer` is keyed by
+        // StableNodeID; we scan values and match by DNSName / HostName / IPs.
+        if let status, let peer = peerStatus(forHost: host, in: status) {
+            // CurAddr non-empty => a direct path is established (p2p).
+            // Otherwise the path goes via the DERP `Relay` (or is still
+            // negotiating — treat as derped, since it's not direct).
+            if let addr = peer.CurAddr, !addr.isEmpty {
+                return .direct
+            }
+            return .derped
+        }
+
+        // No peer status (e.g. status not fetched yet). Fall back to the
+        // netmap: if the host matches a peer NAME there, assume tailnet
+        // (derped, conservatively) — otherwise internet.
+        // (TSNetModel.netmap peers are Tailcfg.Node, which don't decode
+        // DERP/Endpoints, so we can't be more precise without the status.)
+        return .internet
+    }
+
+    /// Matches a host against a peer's `DNSName` (FQDN, often with a trailing
+    /// dot), `HostName` (MagicDNS short name), first label of the DNSName, or
+    /// any `TailscaleIPs`.
+    private static func peerStatus(forHost host: String, in status: IpnState.Status) -> IpnState.PeerStatus? {
+        let lowered = host.lowercased()
+        // Also consider the self node (e.g. loading the node's own peerapi).
+        var candidates: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
+        if let selfStatus = status.SelfStatus { candidates.append(selfStatus) }
+
+        for peer in candidates {
+            if peer.HostName.lowercased() == lowered {
+                return peer
+            }
+            let dns = peer.DNSName.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            if dns == lowered {
+                return peer
+            }
+            // MagicDNS short name = first label of the DNSName.
+            if let firstLabel = dns.split(separator: ".").first, String(firstLabel) == lowered {
+                return peer
+            }
+            if let ips = peer.TailscaleIPs {
+                for ip in ips {
+                    if String(describing: ip).lowercased() == lowered {
+                        return peer
+                    }
+                }
+            }
+        }
+        return nil
+    }
+}

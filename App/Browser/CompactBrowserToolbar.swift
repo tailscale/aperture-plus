@@ -105,6 +105,8 @@ struct CompactBrowserToolbar: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    // Connection-type indicator (direct/derped/internet).
+                    ConnectionTypeIcon(type: tab.connectionType)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 10)

@@ -59,6 +59,8 @@ private struct TabChip: View {
                 .font(.system(size: 10))
                 .foregroundStyle(isSelected ? .white : .secondary)
 
+            ConnectionTypeIcon(type: tab.connectionType)
+
             Text(tab.displayTitle)
                 .font(.system(size: 13))
                 .lineLimit(1)

@@ -43,6 +43,12 @@ final class TSNetManager {
     var localAPIClient: LocalAPIClient?
     var processor: MessageProcessor?
 
+    /// Background poll of the localAPI `/status` endpoint (every few seconds
+    /// while connected) so the UI can classify each tab's connection as
+    /// direct vs derped vs internet (see `ConnectionTypeResolver`). Stopped
+    /// when the node goes down.
+    @MainActor private var statusPollTask: Task<Void, Never>?
+
     /// True while a start is in-flight or the node is up. Guards against the
     /// launch double-start: `init()` kicks off a start, and the
     /// `scenePhase == .active` notification (fired right after init on a fresh
@@ -211,6 +217,32 @@ final class TSNetManager {
 
     func setLocalAPIClient(_ client: TailscaleKit.LocalAPIClient) {
         self.localAPIClient = client
+        startStatusPolling()
+    }
+
+    /// Polls `backendStatus()` every few seconds and publishes it on the model,
+    /// so per-tab connection-type indicators stay current. Stops on
+    /// `willEnterBackground` / when the client is gone.
+    @MainActor
+    func startStatusPolling() {
+        guard statusPollTask == nil else { return }
+        statusPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let client = await MainActor.run(body: { self.localAPIClient }) {
+                    if let status = try? await client.backendStatus() {
+                        await MainActor.run { self.model.localStatus = status }
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
+            }
+        }
+    }
+
+    @MainActor
+    func stopStatusPolling() {
+        statusPollTask?.cancel()
+        statusPollTask = nil
     }
 
     func setProcessor(_ processor: MessageProcessor) {
@@ -242,6 +274,7 @@ final class TSNetManager {
     func willEnterBackground() {
         logger.log("Background: Disconnecting...")
         startInFlight = false
+        stopStatusPolling()
         busErrorWatcher?.cancel()
         model.proxyConfiguration = nil
         let nodeTmp = self.node

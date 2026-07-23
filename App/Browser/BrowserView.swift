@@ -17,6 +17,18 @@ struct BrowserView: View {
             // are owned by `TabbedBrowserView` (so they persist across tab
             // switches and can carry tab controls); this view is just the
             // page plus its error overlay.
+            //
+            // The webview respects the top safe area (notch / Dynamic Island)
+            // so the page's top bar sits below it, not under it. The Aperture
+            // chat UI uses `viewport-fit=cover` + Tailwind `pt-[env(safe-area-
+            // inset-top)]`, but the iOS 26 WebKit SwiftUI `WebView` does not
+            // propagate the safe-area inset as `env()` (verified: it resolves
+            // to 0px even when the webview extends under the notch), so letting
+            // the webview go under the notch would put the page's top bar at
+            // top:0 = under the notch. Keeping the webview in the safe area
+            // avoids that. (Safari's "text scrolls under the notch while the
+            // header stays put" needs `env()` support we don't have yet — see
+            // TODO #6.)
             WebView(model.page)
 
             // Navigation error overlay. Driven directly by `model.navError`

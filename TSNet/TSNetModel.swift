@@ -14,6 +14,10 @@ final class TSNetModel: ObservableObject {
     @Published var netmap: Netmap.NetworkMap? = nil
     @Published var proxyConfiguration: ProxyConfiguration?
     @Published var tailnetName: String?
+    /// Live peer status from the localAPI `/status` endpoint (polled). Carries
+    /// per-peer `Relay` (DERP) and `CurAddr` (direct) used to classify a tab's
+    /// connection as derped vs direct. Nil until the first successful poll.
+    @Published var localStatus: IpnState.Status?
 
     var exitNodeId: String? {
         if let prefs = prefs {

@@ -88,10 +88,14 @@ private struct TabCard: View {
                 .frame(height: 150)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tab.displayTitle)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(tab.displayTitle)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        ConnectionTypeIcon(type: tab.connectionType)
+                    }
                     Text(tab.displayURL)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
