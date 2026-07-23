@@ -15,104 +15,137 @@ final class BrowserViewModel: ObservableObject {
     /// A human-readable description of the current navigation error, for the
     /// error overlay. Cleared alongside `navError`.
     @Published var navErrorMessage: String?
+    /// Whether the SOCKS5 proxy is currently available. While false (e.g. the
+    /// node is reconnecting after the app was backgrounded) the browser shows a
+    /// "Reconnecting…" indicator and holds any navigation error instead of
+    /// surfacing the overlay — the load will be retried automatically once the
+    /// proxy returns, so a transient drop shouldn't look like a page failure.
+    @Published private(set) var isConnected: Bool = false
 
     private var observers: [AnyCancellable] = []
     private var tsnetModel: TSNetModel
     private let initialURL: URL
 
-    /// Whether the tab's initial URL has been loaded at least once. Used to
-    /// make `loadInitial()` idempotent (it can be called both eagerly and from
-    /// the proxy-arrival path).
+    /// Whether the tab's initial URL has been loaded at least once.
     private(set) var didLoadInitial: Bool = false
 
+    /// A navigation that failed while `isConnected` was false, to be retried
+    /// once the proxy returns. See `navigationError` / `applyProxy`.
+    private var pendingRetryURL: URL?
+
+    /// The shared, **persistent** on-disk website data store. Created once per
+    /// app install (the UUID is stored in UserDefaults) and reused by every
+    /// tab and across launches, so the HTTP cache, service workers, IndexedDB,
+    /// etc. persist — the Aperture chat PWA reloads as fast as when installed
+    /// to the home screen, instead of re-fetching everything each time.
+    /// It's also where the SOCKS5 proxy is applied/updated in place (see
+    /// `applyProxy`), so a proxy change does NOT require recreating the WebPage.
+    @MainActor private static let sharedDataStore: WKWebsiteDataStore = {
+        let key = "apertureWebDataStoreUUID"
+        if let s = UserDefaults.standard.string(forKey: key),
+           let u = UUID(uuidString: s) {
+            return WKWebsiteDataStore(forIdentifier: u)
+        }
+        let u = UUID()
+        UserDefaults.standard.set(u.uuidString, forKey: key)
+        return WKWebsiteDataStore(forIdentifier: u)
+    }()
+
     /// - parameter initialURL: The URL the tab opens with (e.g. the Aperture
-    ///   chat home page). Known at init so that when the SOCKS5 proxy arrives
-    ///   the page can (re)load the *correct* URL on the proxied `WebPage`
-    ///   instead of a placeholder.
+    ///   chat home page).
     init(model: TSNetModel, initialURL: URL) {
         self.tsnetModel = model
         self.initialURL = initialURL
-        // Create the initial (pre-proxy) page with HTTPS-upgrade disabled
-        // (see `pageConfiguration(proxy:)`).
-        self.page = WebPage(configuration: Self.pageConfiguration())
 
-        // `@Published` emits the current value to new subscribers immediately,
-        // so if the proxy is already up when this tab is created (e.g. opening
-        // a new tab while connected) the sink fires right away and applies it.
+        // Create the page once, with the persistent shared data store.
+        // HTTPS-upgrade is disabled — see `pageConfiguration()` doc comment.
+        var config = Self.pageConfiguration()
+        config.websiteDataStore = Self.sharedDataStore
+        self.page = WebPage(configuration: config)
+
+        // If the proxy is already up (e.g. opening a new tab while connected),
+        // apply it and load the initial URL immediately.
+        if let proxy = model.proxyConfiguration {
+            Self.sharedDataStore.proxyConfigurations = [proxy]
+            isConnected = true
+            loadInitial()
+        }
+
+        // React to proxy changes by updating the SHARED DATA STORE in place —
+        // NOT by recreating the WebPage. The webview/page persists across
+        // reconnects (no reload, no lost scroll/history); WebKit retries
+        // in-flight requests with the new proxy. This is why returning from a
+        // brief background trip no longer reloads the page.
         tsnetModel.$proxyConfiguration
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] proxy  in
-                guard let self, let proxy else { return }
-                logger.log("Reseting webview with new proxy: \(proxy)")
-                setPageAndProxy(proxy: proxy)
+            .sink { [weak self] proxy in
+                self?.applyProxy(proxy)
             }.store(in: &observers)
     }
 
-    /// Builds a `WebPage.Configuration` for this browser: the SOCKS5 proxy is
-    /// applied when available, and `upgradeKnownHostsToHTTPS` is **disabled**.
+    /// Builds a `WebPage.Configuration` with HTTPS-upgrade disabled. The
+    /// persistent shared data store is assigned by the caller (init); the proxy
+    /// is applied to that store in place via `applyProxy`, not here.
     ///
-    /// WebKit's HTTPS Upgrade (`upgradeKnownHostsToHTTPS`, on by default)
-    /// rewrites `http://` → `https://` for hosts it knows serve HTTPS, and
-    /// `preferredHTTPSNavigationPolicy = .automaticFallbackToHTTP` makes it
-    /// fall back to HTTP on HTTPS failure — the closest WebKit knob to Safari.
-    /// But that policy has two problems for this app:
-    ///   1. It silently downgrades *explicit* `https://` navigations on cert
-    ///      failure too (e.g. `https://ai/` → `http://ai/`), which Safari does
-    ///      NOT do (Safari shows a cert interstitial) and which is a security
-    ///      regression (a MITM on `https://bank.com/` would silently fall back
-    ///      to HTTP). WebKit has no knob that limits the fallback to upgraded
-    ///      navigations only.
-    ///   2. The fallback runs on a separate async navigation sequence that our
-    ///      `watchForNavitationErrors` doesn't see, so failed loads go silent
-    ///      (no error overlay) — the original bug.
-    ///
-    /// So we disable the upgrade entirely. Net effect matches Safari's *visible*
-    /// behavior for the cases that matter here:
-    ///   - `http://ai/` loads over HTTP as typed (Safari upgrades→cert-fails→
-    ///     falls back to HTTP; same end result, one fewer round-trip here).
-    ///   - Public sites that serve only HTTP load over HTTP in both.
-    ///   - Public sites that redirect HTTP→HTTPS do so server-side in both.
-    ///   - Explicit `https://` with a bad cert surfaces a cert error in both
-    ///     (Safari's interstitial; our overlay) — no silent downgrade.
-    /// HTTPS still verifies normally; we do **not** bypass certificate checks.
-    /// (If we later build a Safari-style cert interstitial UI, we can revisit
-    /// `.automaticFallbackToHTTP` scoped to upgraded navigations only.)
-    private static func pageConfiguration(proxy: ProxyConfiguration? = nil) -> WebPage.Configuration {
+    /// `upgradeKnownHostsToHTTPS` is **disabled** because WebKit's HTTPS Upgrade
+    /// breaks bare tailnet hostnames: `http://ai/` is upgraded to `https://ai/`,
+    /// but the node's cert is issued for the FQDN (`ai.<tailnet>.ts.net`), not
+    /// the short MagicDNS name, so the upgraded load fails (-1202). Safari does
+    /// the same upgrade but falls back to HTTP; WebKit's
+    /// `.automaticFallbackToHTTP` policy also silently downgrades *explicit*
+    /// https:// on cert failure (a security regression Safari doesn't have) and
+    /// routes fallback failures to an async sequence we don't watch (silent
+    /// errors). Disabling the upgrade makes `http://` load as typed — matching
+    /// Safari's *visible* result — while explicit `https://` cert errors still
+    /// surface. No certificate checks are bypassed.
+    private static func pageConfiguration() -> WebPage.Configuration {
         var config = WebPage.Configuration()
         config.upgradeKnownHostsToHTTPS = false
-        if let proxy {
-            config.websiteDataStore.proxyConfigurations = [proxy]
-        }
         return config
     }
 
-    func setPageAndProxy(proxy: ProxyConfiguration) {
-        let item = page.backForwardList.currentItem
-        // Recreate the page with the proxy AND HTTPS-upgrade disabled (see
-        // `pageConfiguration(proxy:)`).
-        self.page = WebPage(configuration: Self.pageConfiguration(proxy: proxy))
-        if let item {
-            // Reload where the user was (preserves back/forward history).
-            self.page.load(item)
+    /// Applies a proxy change by updating the shared data store's
+    /// `proxyConfigurations` **in place** — the WebPage is never recreated, so
+    /// the current page, scroll position, and history survive reconnects.
+    /// On the first connection, loads the tab's initial URL. On a reconnect
+    /// after a drop, retries any navigation that failed while disconnected
+    /// (see `navigationError`).
+    func applyProxy(_ proxy: ProxyConfiguration?) {
+        if let proxy {
+            Self.sharedDataStore.proxyConfigurations = [proxy]
+            let wasConnected = isConnected
+            isConnected = true
+            if !didLoadInitial {
+                // First connect: bring up the home page.
+                loadInitial()
+            } else if let retry = pendingRetryURL {
+                // Reconnect after a drop: retry the navigation that failed
+                // while we were disconnected, instead of leaving the error
+                // overlay up.
+                pendingRetryURL = nil
+                logger.log("Proxy reconnected — retrying held load \(retry)")
+                let nav = page.load(retry)
+                watchForNavitationErrors(nav, for: retry)
+            } else if !wasConnected {
+                logger.log("Proxy reconnected — page kept, no reload")
+            }
         } else {
-            // No current item yet — first proxy arrival, or a fresh page after
-            // a proxy reset (the node comes up twice on launch: once from init
-            // and once from scenePhase .active, each swapping the WebPage and
-            // discarding any in-flight load). (Re)load the tab's initial URL on
-            // the proxied page so the home page comes up instead of staying
-            // blank. Not gated by `didLoadInitial` so repeated proxy resets
-            // reliably re-seed the page.
-            let nav = self.page.load(initialURL)
-            watchForNavitationErrors(nav, for: initialURL)
-            didLoadInitial = true
+            // Disconnected (e.g. app backgrounded / node closed). Don't touch
+            // the page — it stays loaded (cached); only live fetches stall until
+            // the proxy returns. Clearing the store proxy stops new fetches from
+            // hitting a dead proxy.
+            isConnected = false
+            Self.sharedDataStore.proxyConfigurations = []
+            logger.log("Proxy dropped — page kept, holding loads until reconnect")
         }
     }
 
-    /// Loads the tab's initial URL once. Idempotent. Called from
-    /// `setPageAndProxy` on first proxy arrival and may also be called eagerly
-    /// when the proxy is already up at tab-creation time.
+    /// Loads the tab's initial URL once. Idempotent. Only loads when connected
+    /// (proxy up); if called before the proxy is available, it's a no-op and
+    /// `applyProxy` will load on first connect.
     func loadInitial() {
         guard !didLoadInitial else { return }
+        guard isConnected else { return }
         didLoadInitial = true
         let nav = page.load(initialURL)
         watchForNavitationErrors(nav, for: initialURL)
@@ -141,11 +174,8 @@ final class BrowserViewModel: ObservableObject {
     }
 
     /// Loads an arbitrary URL typed/chosen by the user (e.g. from the URL
-    /// bar). This is the single entry point for user-initiated navigations so
-    /// that *every* such load is watched for errors. Previously the URL bar
-    /// called `page.load` directly without `watchForNavitationErrors`, so a
-    /// failed load (e.g. an unreachable http URL) failed silently with no
-    /// overlay. Pass a URL with an explicit scheme.
+    /// bar). The single entry point for user-initiated navigations so that
+    /// every such load is watched for errors.
     func load(url: URL) {
         let nav = page.load(url)
         watchForNavitationErrors(nav, for: url)
@@ -153,6 +183,13 @@ final class BrowserViewModel: ObservableObject {
 
     func navigationError(_ error: Error, for url: URL) {
         logger.log("Navigation error for \(url): \(error)")
+        // While disconnected, don't surface a scary error overlay — hold the
+        // URL and retry once the proxy returns (see `applyProxy`). The
+        // "Reconnecting…" indicator tells the user what's happening instead.
+        if !isConnected {
+            pendingRetryURL = url
+            return
+        }
         navError = (error, url)
         navErrorMessage = Self.describe(error)
         if url == initialURL {

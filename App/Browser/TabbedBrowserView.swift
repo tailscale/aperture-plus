@@ -162,6 +162,8 @@ private struct BrowserRootContent: View {
                 .overlay(alignment: .top) {
                     if statusViewModel.needsAuth {
                         LoginBanner(onLogin: { statusViewModel.showAuth() })
+                    } else if !tab.viewModel.isConnected {
+                        ReconnectingBanner()
                     }
                 }
         }
@@ -222,6 +224,26 @@ private struct LoginBanner: View {
             Button("Login", action: onLogin)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// Inline "Reconnecting…" banner shown over the browser when the tailnet proxy
+/// drops (e.g. right after returning from the background, before the node
+/// finishes reconnecting). Loads are held and auto-retried (see
+/// `BrowserViewModel.applyProxy`), so this is informational — no retry button.
+private struct ReconnectingBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Reconnecting to your Tailnet…")
+                .font(.subheadline.weight(.medium))
+            Spacer()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
