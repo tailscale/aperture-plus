@@ -87,6 +87,115 @@ ipa: framework  ## Archive + export a dev-signed .ipa for a real iOS device
 	@echo "Install on a plugged-in device with Xcode locally:"
 	@echo "  xcrun devicectl device install app --device <udid-or-name> $(IPA_DIR)/Aperture.ipa"
 
+# ----- TestFlight / App Store -----
+# App Store distribution export uses a SEPARATE options plist so that the
+# existing `make ipa` (dev-signed real-device installs) keeps using the
+# debugging method. Requires an Apple Distribution signing identity + an
+# App Store provisioning profile for team W5364U7YZB (automatic signing will
+# fetch the profile via -allowProvisioningUpdates if the identity exists and
+# the Developer Portal session is valid).
+IPA_APPSTORE_DIR     := build/ipa-appstore
+EXPORT_OPTS_APPSTORE := ExportOptions.AppStore.plist
+# Optional env file sourced for App Store Connect upload creds (API key or
+# Apple ID). Defaults to ~/.aperture-testflight.env; override with
+# APERTURE_TF_ENV=/path/to/file. See scripts/tf-check-creds.sh and
+# README.testflight.md. Creds may also be provided as real env vars or on the
+# make command line (ASC_KEY_ID=... ASC_ISSUER_ID=...). `make tf` checks for
+# creds up front via tf-check-creds and fails fast before archiving.
+APERTURE_TF_ENV      ?= $(HOME)/.aperture-testflight.env
+
+# TestFlight build number (CFBundleVersion / CURRENT_PROJECT_VERSION) is
+# DERIVED FROM GIT, not stored in the repo — same principle as the main
+# Tailscale app, which computes its build number from git via mkversion's
+# changeCount (see tailscale.com/version/mkversion) instead of bookkeeping a
+# counter. We use the total reachable commit count (git rev-list --count
+# HEAD): monotonically increasing, identical across fresh clones, and unique
+# per commit, so every commit yields a fresh upload-able build number with
+# zero state to maintain. Override with BUILD_NUMBER=N only if you need to
+# (e.g. re-upload the same commit, or adopt a different scheme).
+ifndef BUILD_NUMBER
+  BUILD_NUMBER := $(shell git rev-list --count HEAD 2>/dev/null)
+endif
+BUILD_NUM_FLAG :=
+ifneq ($(strip $(BUILD_NUMBER)),)
+  BUILD_NUM_FLAG := CURRENT_PROJECT_VERSION=$(BUILD_NUMBER)
+endif
+
+.PHONY: tf-check-creds
+tf-check-creds:  ## Check ASC upload creds are available; fail fast w/ instructions
+	@APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh
+
+.PHONY: tf-archive
+tf-archive: framework  ## Archive a Release build for App Store / TestFlight
+	@./scripts/unlock-keychain.sh
+	@echo
+	@echo "::: Archiving Aperture for App Store distribution (Release) :::"
+	$(XCB) archive \
+		-project $(PROJECT) -scheme $(SCHEME) \
+		-configuration Release \
+		-destination 'generic/platform=iOS' \
+		-archivePath $(ARCHIVE) \
+		-derivedDataPath $(DERIVED) \
+		-allowProvisioningUpdates $(BUILD_NUM_FLAG) | $(XCPRETTIFIER)
+
+.PHONY: tf-export
+tf-export:  ## Export an App Store .ipa from build/Aperture.xcarchive -> build/ipa-appstore/
+	@./scripts/unlock-keychain.sh
+	@echo
+	@echo "::: Exporting App Store IPA -> $(IPA_APPSTORE_DIR)/ :::"
+	rm -rf $(IPA_APPSTORE_DIR)
+	xcodebuild -exportArchive \
+		-archivePath $(ARCHIVE) \
+		-exportPath $(IPA_APPSTORE_DIR) \
+		-exportOptionsPlist $(EXPORT_OPTS_APPSTORE) \
+		-allowProvisioningUpdates
+	@echo
+	@echo "✅ App Store IPA: $$(ls -1 $(IPA_APPSTORE_DIR)/*.ipa 2>/dev/null | head -1)"
+
+# altool auth: prefer an App Store Connect API key (ASC_KEY_ID + ASC_ISSUER_ID;
+# key file at ~/private_keys/AuthKey_<ASC_KEY_ID>.p8, or override its path with
+# ASC_KEY_PATH). Else Apple ID + an app-specific password (ASC_USERNAME +
+# ASC_PASSWORD — the password is an app-specific one from appleid.apple.com,
+# NOT the account login password). Uploads also require the Paid Applications
+# Agreement to be signed in App Store Connect and an app record to exist for
+# io.tailscale.Aperture (auto-created on first successful upload).
+.PHONY: tf-validate
+tf-validate:  ## Validate the App Store .ipa with altool (needs ASC_* creds)
+	@IPATH=$$(ls -1 $(IPA_APPSTORE_DIR)/*.ipa 2>/dev/null | head -1); \
+	[ -n "$$IPATH" ] || { echo "❌ No IPA in $(IPA_APPSTORE_DIR)/ — run 'make tf-archive tf-export' first."; exit 1; }; \
+	[ -f "$(APERTURE_TF_ENV)" ] && { set -a; . "$(APERTURE_TF_ENV)"; set +a; }; \
+	APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh; \
+	if [ -n "$$ASC_KEY_ID" ] && [ -n "$$ASC_ISSUER_ID" ]; then \
+	  AUTH="--apiKey $$ASC_KEY_ID --apiIssuer $$ASC_ISSUER_ID"; \
+	  [ -n "$$ASC_KEY_PATH" ] && AUTH="$$AUTH --apiKey-key-path $$ASC_KEY_PATH"; \
+	else \
+	  AUTH="--username $$ASC_USERNAME --password $$ASC_PASSWORD"; \
+	fi; \
+	echo "Validating $$IPATH ..."; \
+	xcrun altool --validate-app -f "$$IPATH" -t ios $$AUTH
+
+.PHONY: tf-upload
+tf-upload:  ## Upload the App Store .ipa to App Store Connect (TestFlight)
+	@IPATH=$$(ls -1 $(IPA_APPSTORE_DIR)/*.ipa 2>/dev/null | head -1); \
+	[ -n "$$IPATH" ] || { echo "❌ No IPA in $(IPA_APPSTORE_DIR)/ — run 'make tf-archive tf-export' first."; exit 1; }; \
+	[ -f "$(APERTURE_TF_ENV)" ] && { set -a; . "$(APERTURE_TF_ENV)"; set +a; }; \
+	APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh; \
+	if [ -n "$$ASC_KEY_ID" ] && [ -n "$$ASC_ISSUER_ID" ]; then \
+	  AUTH="--apiKey $$ASC_KEY_ID --apiIssuer $$ASC_ISSUER_ID"; \
+	  [ -n "$$ASC_KEY_PATH" ] && AUTH="$$AUTH --apiKey-key-path $$ASC_KEY_PATH"; \
+	else \
+	  AUTH="--username $$ASC_USERNAME --password $$ASC_PASSWORD"; \
+	fi; \
+	echo "Uploading $$IPATH to App Store Connect ..."; \
+	xcrun altool --upload-app -f "$$IPATH" -t ios $$AUTH --output-format json
+
+.PHONY: tf
+tf:  ## Archive -> export -> upload to TestFlight (fails fast if no ASC creds)
+	@APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh
+	@$(MAKE) --no-print-directory tf-archive
+	@$(MAKE) --no-print-directory tf-export
+	@$(MAKE) --no-print-directory tf-upload
+
 # ----- test -----
 # Pass an auth key for the connected test (automates login on a fresh sim):
 #   make test AUTHKEY=tskey-auth-...

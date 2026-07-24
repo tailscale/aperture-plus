@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- app-store = distribution signing for TestFlight / App Store.
+	     Use this with `make tf-archive` / `make tf-export` / `make tf-upload`.
+	     (The dev-install flow in ExportOptions.plist stays on `debugging`.) -->
+	<key>method</key>
+	<string>app-store</string>
+	<key>teamID</key>
+	<string>W5364U7YZB</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>uploadBitcode</key>
+	<false/>
+	<key>compileBitcode</key>
+	<false/>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>
