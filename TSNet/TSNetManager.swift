@@ -59,6 +59,12 @@ final class TSNetManager {
 
     @MainActor
     init() {
+        // Capture Go runtime panic/fatal output (fd 2) and tsnet's own logs to
+        // files in the container, and surface any crash from the previous run.
+        // Must run before the tsnet node is created so `logger.logFileHandle`
+        // is set before TailscaleNode.init reads it. See TSNet/CrashCapture.swift.
+        CrashCapture.start()
+
         // UI-test hook: clear the persisted tsnet state (node credentials) so
         // the next launch starts from NeedsLogin (the connection gate) rather
         // than silently re-using a login a prior test left in the container.
@@ -163,10 +169,38 @@ final class TSNetManager {
         return ProcessInfo.processInfo.arguments.contains("-Ephemeral")
     }
 
+    /// The deliberate-crash mode requested via launch args, or nil if no crash
+    /// is requested. `-CrashTest` alone → mode 0 (immediate panic, the exact
+    /// overnight-crash mechanism); `-CrashTest -CrashTestMode <n>` → mode n.
+    /// TEST/DEBUG ONLY — see `TailscaleNode.crashTest` and the crash-capture UI
+    /// test. Never set outside automated tests.
+    nonisolated static func crashTestMode() -> Int? {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-CrashTest") else { return nil }
+        if let i = args.firstIndex(of: "-CrashTestMode"), i + 1 < args.count,
+           let m = Int(args[i + 1]) {
+            return m
+        }
+        return 0
+    }
+
     nonisolated private func startTailscale() async {
         do {
             // This sets up a localAPI client attached to the local node.
             let node = try await MainActor.run { try setupNode() }
+
+            // Test/debug hook: deliberately crash the Go runtime to verify that
+            // panic output is captured to stderr.log (see TSNet/CrashCapture.swift
+            // and UITests.testGoPanicIsCapturedToStderrLog). Gated by a launch
+            // arg so it can never fire in normal/TestFlight use. Done right after
+            // node creation (before `up()`) so it's connection-independent and
+            // deterministic. Mode 0 panics synchronously and does not return.
+            if let mode = Self.crashTestMode() {
+                logger.log("CrashTest: triggering deliberate Go runtime panic (mode \(mode))")
+                // TailscaleNode is an actor, so cross the boundary with `await`
+                // (mode 0 panics inside the call and aborts before this resumes).
+                await node.crashTest(mode: mode)
+            }
 
             // Create a localAPIClient instance for our local node
             let localAPIClient = await LocalAPIClient(localNode: node, logger: logger)

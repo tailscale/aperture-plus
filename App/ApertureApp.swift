@@ -40,6 +40,15 @@ struct ApertureApp: App {
     var body: some Scene {
         WindowGroup {
             TabbedBrowserView(manager: manager)
+                .overlay {
+                    // Test-only surface for the crash-capture UI test: when
+                    // `-UITestCrashReport` is set, show the previous run's
+                    // captured Go panic text under `crash-capture-debug` so the
+                    // test can assert the capture worked. Invisible otherwise.
+                    if CrashCapture.shouldShowDebugReport {
+                        CrashCaptureDebugView()
+                    }
+                }
         }
         .modelContainer(sharedModelContainer)
         .onChange(of: scenePhase) { _, newPhase in

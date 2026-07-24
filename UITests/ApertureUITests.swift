@@ -65,6 +65,79 @@ final class ApertureUITests: XCTestCase {
         )
     }
 
+    // MARK: - Crash-capture test (connection-independent)
+
+    /// Verifies that Go runtime panic output is captured to the redirected
+    /// stderr log and surfaced on the next launch — the experiment that makes
+    /// the next overnight TestFlight crash readable.
+    ///
+    /// Uses mode 2 (`-CrashTest -CrashTestMode 2`), which writes a realistic
+    /// Go-panic dump to stderr (fd 2) and RETURNS without aborting. The real
+    /// abort path (modes 0/1) is covered by the host-side `make crashtest`
+    /// script; here we can't let the app actually crash because XCUITest
+    /// hard-fails any test whose app crashes ("io.tailscale.Aperture crashed"),
+    /// which would abort the test before phase 2. Mode 2 exercises the exact
+    /// same capture+surface pipeline (dup2 → stderr.log → next-launch os_log +
+    /// `crash-capture-status` label) without killing the process.
+    ///
+    /// Phase 1: launch with `-CrashTest -CrashTestMode 2`. The app writes the
+    /// panic dump to stderr.log, then continues running normally. We confirm
+    /// it stayed up (brand header), give the async start task time to write,
+    /// then terminate cleanly.
+    ///
+    /// Phase 2: relaunch with `-UITestCrashReport`. CrashCapture.start() sees
+    /// the previous run's stderr.log, finds the first crash-signature line, and
+    /// surfaces it under `crash-capture-status`. We assert it carries our panic.
+    func testGoPanicIsCapturedToStderrLog() throws {
+        let app = XCUIApplication()
+
+        // --- Phase 1: write the panic dump to stderr.log (no crash) ---
+        app.launchArguments = ["-UITestResetLogin", "-UITestClearCrashLogs",
+                               "-CrashTest", "-CrashTestMode", "2"]
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
+                      "App should launch and stay up under -CrashTestMode 2 (it " +
+                      "writes the panic dump but does not abort)")
+        // The panic dump is written from the async start task shortly after
+        // launch; give it time before we tear the app down.
+        _ = XCTWaiter().wait(for: [], timeout: 6)
+        app.terminate()
+
+        // --- Phase 2: relaunch and read back the captured panic ---
+        app.launchArguments = ["-UITestResetLogin", "-UITestCrashReport"]
+        app.launch()
+
+        let status = app.staticTexts["crash-capture-status"]
+        let appeared = status.waitForExistence(timeout: 20)
+        if !appeared { attachScreenshot(app, named: "crashtest-no-report-label") }
+        XCTAssertTrue(appeared,
+                      "The crash-capture debug label should appear under " +
+                      "-UITestCrashReport. If it's missing or reads 'NO CAPTURE', " +
+                      "CrashCapture didn't surface the previous run's stderr.log.")
+
+        let label = status.label
+        attachScreenshot(app, named: label.contains("TsnetCrashTest") ? "crashtest-captured" : "crashtest-not-captured")
+        XCTAssertTrue(label.contains("panic"),
+                      "Captured status should contain 'panic'; got: \(label)")
+        XCTAssertTrue(label.contains("TsnetCrashTest"),
+                      "Captured status should contain 'TsnetCrashTest' (the " +
+                      "panic we induced); got: \(label)")
+    }
+
+    /// Polls `app.state` until the app is not running (crashed/terminated),
+    /// up to `timeout`. Reading `.state` is not a UI interaction, so it doesn't
+    /// itself trip XCUITest's crash detector the way a tap/query would.
+    /// (Kept for the host-side `make crashtest` flow; unused by mode 2 above.)
+    @discardableResult
+    private func waitForAppNotRunning(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            return app.state == .notRunning
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     /// Tapping the gear opens Settings; Done dismisses it. The gear lives in
     /// the connection gate (and in the browser once connected) — both carry
     /// the `settings-button` identifier, so this test is connection-independent.

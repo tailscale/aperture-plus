@@ -36,15 +36,15 @@ single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
 `App/` and `TSNet/` are Xcode **synchronized folder groups**
 (`PBXFileSystemSynchronizedRootGroup`). New `.swift` files dropped into either
 directory are automatically compiled into the `Aperture` target — no
-`project.pbxproj` editing required (verified: an unlisted `.swift` file in `TSNet/`
-is picked up and compiled). The `UITests/` directory is the same kind of
+`project.pbxproj` editing required. The `UITests/` directory is the same kind of
 synchronized folder group, but for the `ApertureUITests` target.
 
-The `TSNet/` group has a `membershipExceptions` list in `project.pbxproj` naming its
-current four files; in this project's configuration that list does **not** gate
-compilation of newly added files, so you generally don't need to touch it when adding
-files. If a new file under `TSNet/` ever fails to compile, that list is the first
-thing to check.
+The `TSNet/` group is different: it has a `membershipExceptions` list in
+`project.pbxproj` naming the files that ARE compiled into the `Aperture` target,
+and in this project's configuration that list **does** gate compilation — a new
+`.swift` file dropped into `TSNet/` is NOT picked up until you add its name to the
+`membershipExceptions` list (e.g. `TSNet/CrashCapture.swift` had to be added).
+(`App/` and `UITests/` have no such list, so files there are auto-compiled.)
 
 Other files (Info.plist, README.md, assets) are normal pbxproj references and do
 require project edits if you add/relocate them.

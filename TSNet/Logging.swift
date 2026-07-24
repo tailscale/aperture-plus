@@ -19,10 +19,25 @@ enum ApertureLog {
     nonisolated static let tsnet = OSLog(subsystem: subsystem, category: "tsnet")
 }
 
-let logger = Logger()
+// The fd tsnet's own `s.s.Logf` output is written to (via `tailscale_set_logfd`),
+// or nil to discard. Set once at launch by `CrashCapture.start()` before any Go
+// thread exists; read once by `TailscaleNode.init` (also before concurrency
+// starts). `nonisolated(unsafe)` because `Logger.log` is called from Go-backed
+// (nonisolated) threads — but `log()` never reads this; only `TailscaleNode.init`
+// does, so the set-once-then-read ordering is safe even though the compiler
+// can't verify it. See TSNet/CrashCapture.swift.
+nonisolated(unsafe) var tsnetLogFileHandle: Int32?
+
+// `nonisolated` (and `let`) so this Sendable global is callable from the
+// `nonisolated` contexts that use it (notably TSNetManager.startTailscale, which
+// runs off the main actor). The fd it vends is mutated through
+// `tsnetLogFileHandle` above, not through this binding.
+nonisolated let logger = Logger()
 
 struct Logger: TailscaleKit.LogSink {
-    var logFileHandle: Int32?
+    // Computed so `Logger` can stay a value-type `let` global while CrashCapture
+    // swaps the fd behind it. Satisfies `LogSink.logFileHandle { get }`.
+    var logFileHandle: Int32? { tsnetLogFileHandle }
 
     /// `LogSink.log` is called from libtailscale's (Go-backed) threads, which
     /// are off the main actor, so this must be `nonisolated`. It touches only
