@@ -590,6 +590,40 @@ final class ApertureUITests: XCTestCase {
                       "— that is a security regression.")
     }
 
+    /// After the home page loads, tapping the page (e.g. to focus the chat
+    /// input) must NOT crash the app. Guards against WebView/Page lifecycle
+    /// regressions (notably the per-workspace `WKWebsiteDataStore` refactor).
+    /// Requires the connected browser (auth key automates login).
+    func testTapOnLoadedHomePageDoesNotCrash() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        // Wait for the webview and the home page to finish loading.
+        let webView = app.webViews.firstMatch
+        guard webView.waitForExistence(timeout: 30) else {
+            attachScreenshot(app, named: "tap-no-webview")
+            XCTFail("Browser view / WKWebView did not appear once connected")
+            return
+        }
+        let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
+        attachScreenshot(app, named: reached ? "tap-before" : "tap-no-load")
+        XCTAssertTrue(reached, "Home page should load before tapping")
+
+        // Tap the center of the webview (where the chat UI renders its input).
+        webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        // Give any crash a moment to surface, then assert the app is still
+        // running in the foreground and the webview is still present.
+        _ = XCTWaiter().wait(for: [], timeout: 3)
+        attachScreenshot(app, named: "tap-after")
+        XCTAssertEqual(app.state, .runningForeground,
+                       "App should not crash after tapping the loaded home page")
+        XCTAssertTrue(webView.exists,
+                      "WebView should still be present after the tap")
+    }
+
     // MARK: - Helpers
 
     /// Resolve the auth key for connected tests. `xcodebuild` does NOT forward
