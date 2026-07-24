@@ -1,4 +1,11 @@
-//  Created by Jonathan Nobels on 2025-12-19.
+//  SettingsViewModel.swift
+//  Aperture
+//
+//  Backs the Settings sheet for the ACTIVE workspace. Reads the workspace's
+//  hostname/home page from its `WorkspaceDefinition` and writes edits back
+//  through the workspace (which persists the definition). Exit-node state is
+//  observed from the workspace's tsnet prefs; logout deletes the workspace's
+//  tsnet profile.
 //
 
 import Foundation
@@ -11,22 +18,23 @@ final class SettingsViewModel: ObservableObject {
     @Published var exitNodeDisplayName: String = "None"
 
     @Published var tailnetHostName: String = ""
-    @Published var homePage: String = HomePage.standard.url
+    @Published var homePage: String = ""
 
-    private let manager: TSNetManager
+    private let workspace: Workspace
     private var observers: Set<AnyCancellable> = []
 
-    init(manager: TSNetManager) {
-        self.manager = manager
-        // Initialize from saved defaults (or manager.config)
-        let saved = UserDefaults.standard.string(forKey: "TailnetHostName")
-        self.tailnetHostName = saved ?? manager.config.hostName
+    init(workspace: Workspace) {
+        self.workspace = workspace
+        // Seed from the workspace's persisted definition + home page.
+        self.tailnetHostName = workspace.definition.hostname
+        self.homePage = workspace.homePage.url
         bindPrefs()
+        observeWorkspace()
     }
 
     private func bindPrefs() {
-        // Observe prefs to drive exit node UI
-        manager.model.$prefs
+        // Observe prefs to drive exit node UI.
+        workspace.model.$prefs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
@@ -37,25 +45,41 @@ final class SettingsViewModel: ObservableObject {
             .store(in: &observers)
     }
 
+    /// Keep the hostname/home-page fields in sync if they change elsewhere
+    /// (e.g. the workspace identity refresh, or a future workspace switch).
+    private func observeWorkspace() {
+        workspace.$definition
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] def in
+                guard let self else { return }
+                if self.tailnetHostName != def.hostname {
+                    self.tailnetHostName = def.hostname
+                }
+            }
+            .store(in: &observers)
+
+        workspace.homePage.$url
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] url in
+                guard let self, self.homePage != url else { return }
+                self.homePage = url
+            }
+            .store(in: &observers)
+    }
+
     func setExitNodeEnabled(_ enabled: Bool) {
-        manager.setExitNodeEnabled(enabled)
+        workspace.setExitNodeEnabled(enabled)
     }
 
     func setHomePage(_ url: String) {
-        HomePage.standard.url = url
+        workspace.setHomePage(url)
     }
 
     func setTailnetHostName(_ hostName: String) {
-        manager.setHostName(hostName)
+        workspace.setHostName(hostName)
     }
 
     func logout() {
-        Task {
-            let currentUser = try? await manager.localAPIClient?.currentProfile()
-            if let currentUser {
-                try? await manager.localAPIClient?.deleteProfile(profileID: currentUser.id)
-            }
-        }
+        workspace.logout()
     }
 }
-

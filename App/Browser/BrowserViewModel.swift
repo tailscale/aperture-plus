@@ -26,6 +26,12 @@ final class BrowserViewModel: ObservableObject {
     private var tsnetModel: TSNetModel
     private let initialURL: URL
 
+    /// This tab's web data store (per-workspace, NOT a process-wide singleton).
+    /// Isolates cookies/cache/service workers per identity and is where the
+    /// SOCKS5 proxy is applied/updated in place (see `applyProxy`), so a proxy
+    /// change does NOT require recreating the WebPage.
+    private let dataStore: WKWebsiteDataStore
+
     /// Whether the tab's initial URL has been loaded at least once.
     private(set) var didLoadInitial: Bool = false
 
@@ -33,47 +39,32 @@ final class BrowserViewModel: ObservableObject {
     /// once the proxy returns. See `navigationError` / `applyProxy`.
     private var pendingRetryURL: URL?
 
-    /// The shared, **persistent** on-disk website data store. Created once per
-    /// app install (the UUID is stored in UserDefaults) and reused by every
-    /// tab and across launches, so the HTTP cache, service workers, IndexedDB,
-    /// etc. persist — the Aperture chat PWA reloads as fast as when installed
-    /// to the home screen, instead of re-fetching everything each time.
-    /// It's also where the SOCKS5 proxy is applied/updated in place (see
-    /// `applyProxy`), so a proxy change does NOT require recreating the WebPage.
-    @MainActor private static let sharedDataStore: WKWebsiteDataStore = {
-        let key = "apertureWebDataStoreUUID"
-        if let s = UserDefaults.standard.string(forKey: key),
-           let u = UUID(uuidString: s) {
-            return WKWebsiteDataStore(forIdentifier: u)
-        }
-        let u = UUID()
-        UserDefaults.standard.set(u.uuidString, forKey: key)
-        return WKWebsiteDataStore(forIdentifier: u)
-    }()
-
+    /// - parameter model: The workspace's `TSNetModel` (proxy state, etc.).
     /// - parameter initialURL: The URL the tab opens with (e.g. the Aperture
     ///   chat home page).
-    init(model: TSNetModel, initialURL: URL) {
+    /// - parameter dataStore: The workspace's per-identity `WKWebsiteDataStore`.
+    init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore) {
         self.tsnetModel = model
         self.initialURL = initialURL
+        self.dataStore = dataStore
 
-        // Create the page once, with the persistent shared data store.
+        // Create the page once, with the workspace's data store.
         // HTTPS-upgrade is disabled — see `pageConfiguration()` doc comment.
         // A logging decider is attached (no-op unless `-UITestLogResponses`).
         var config = Self.pageConfiguration()
-        config.websiteDataStore = Self.sharedDataStore
+        config.websiteDataStore = dataStore
         self.page = WebPage(configuration: config, navigationDecider: LoggingNavigationDecider())
 
         // If the proxy is already up (e.g. opening a new tab while connected),
         // apply it and load the initial URL immediately.
         if let proxy = model.proxyConfiguration {
-            Self.sharedDataStore.proxyConfigurations = [proxy]
+            dataStore.proxyConfigurations = [proxy]
             isConnected = true
             loadInitial()
         }
 
-        // React to proxy changes by updating the SHARED DATA STORE in place —
-        // NOT by recreating the WebPage. The webview/page persists across
+        // React to proxy changes by updating the workspace data store in place
+        // — NOT by recreating the WebPage. The webview/page persists across
         // reconnects (no reload, no lost scroll/history); WebKit retries
         // in-flight requests with the new proxy. This is why returning from a
         // brief background trip no longer reloads the page.
@@ -119,7 +110,7 @@ final class BrowserViewModel: ObservableObject {
         return config
     }
 
-    /// Applies a proxy change by updating the shared data store's
+    /// Applies a proxy change by updating the workspace data store's
     /// `proxyConfigurations` **in place** — the WebPage is never recreated, so
     /// the current page, scroll position, and history survive reconnects.
     /// On the first connection, loads the tab's initial URL. On a reconnect
@@ -127,7 +118,7 @@ final class BrowserViewModel: ObservableObject {
     /// (see `navigationError`).
     func applyProxy(_ proxy: ProxyConfiguration?) {
         if let proxy {
-            Self.sharedDataStore.proxyConfigurations = [proxy]
+            dataStore.proxyConfigurations = [proxy]
             let wasConnected = isConnected
             isConnected = true
             if !didLoadInitial {
@@ -150,7 +141,7 @@ final class BrowserViewModel: ObservableObject {
             // the proxy returns. Clearing the store proxy stops new fetches from
             // hitting a dead proxy.
             isConnected = false
-            Self.sharedDataStore.proxyConfigurations = []
+            dataStore.proxyConfigurations = []
             logger.log("Proxy dropped — page kept, holding loads until reconnect")
         }
     }

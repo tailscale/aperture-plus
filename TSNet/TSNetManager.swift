@@ -13,10 +13,6 @@ enum TSNetError: Error {
 
 typealias MessageSender = @Sendable (String) async  -> Void
 
-private enum DefaultsKeys {
-    static let tailnetHostName = "TailnetHostName"
-}
-
 /// How an auth key may be supplied to the node for non-interactive (headless)
 /// login — used by UI tests and any automated run that can't show the web
 /// auth sheet. Checked once at launch, in priority order:
@@ -57,45 +53,22 @@ final class TSNetManager {
     /// in the logs. MainActor so the check-and-set is atomic.
     @MainActor private var startInFlight = false
 
+    /// Creates a per-workspace tsnet controller. `config.path` is the
+    /// workspace's state dir (Application Support — persistent, unlike the
+    /// old `NSTemporaryDirectory` location; see `WorkspaceStore.stateDir`);
+    /// `config.hostName`/`controlURL`/`ephemeral`/`authKey` come from the
+    /// workspace's `WorkspaceDefinition` (plus the shared launch-arg auth key
+    /// for the default/test workspace).
+    ///
+    /// App-level one-time setup (CrashCapture, `-UITestResetLogin` state-dir
+    /// wipe) is handled by `WorkspaceManager`, NOT here — this class is now
+    /// instantiated once per workspace and must not repeat global setup.
     @MainActor
-    init() {
-        // Capture Go runtime panic/fatal output (fd 2) and tsnet's own logs to
-        // files in the container, and surface any crash from the previous run.
-        // Must run before the tsnet node is created so `logger.logFileHandle`
-        // is set before TailscaleNode.init reads it. See TSNet/CrashCapture.swift.
-        CrashCapture.start()
-
-        // UI-test hook: clear the persisted tsnet state (node credentials) so
-        // the next launch starts from NeedsLogin (the connection gate) rather
-        // than silently re-using a login a prior test left in the container.
-        // Harmless in normal use — the launch argument is never set outside
-        // UI tests. Must run before the node is created from this path.
-        if ProcessInfo.processInfo.arguments.contains("-UITestResetLogin") {
-            Self.resetStateDir()
+    init(config: Configuration) {
+        if let authKey = config.authKey {
+            logger.log("Launching with auth key (ephemeral=\(config.ephemeral))")
         }
-
-        let temp = Self.getDocumentDirectoryPath().path()
-
-        // Load persisted hostname, or generate a fresh
-        // `aperture-<6-digit>` default and persist it so the node name is
-        // stable across launches (rather than regenerating every cold start).
-        let savedHostName = UserDefaults.standard.string(forKey: DefaultsKeys.tailnetHostName)
-        let hostName = savedHostName ?? Self.generateDefaultHostName()
-        if savedHostName == nil {
-            UserDefaults.standard.set(hostName, forKey: DefaultsKeys.tailnetHostName)
-        }
-
-        let authKey = Self.launchAuthKey()
-        let ephemeral = Self.launchEphemeral()
-        if let authKey {
-            logger.log("Launching with auth key (ephemeral=\(ephemeral))")
-        }
-
-        self.config = Configuration(hostName:  hostName,
-                                    path: temp,
-                                    authKey: authKey,
-                                    controlURL: kDefaultControlURL,
-                                    ephemeral: ephemeral)
+        self.config = config
 
         let model = TSNetModel()
         let consumer = TSNetConsumer(logger: logger, model: model)
@@ -124,11 +97,6 @@ final class TSNetManager {
         return model
     }
 
-    nonisolated static func getDocumentDirectoryPath() -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory().appending("aperture"))
-        return url
-    }
-
     /// A fresh default tailnet hostname: `aperture-` + a random 6-digit number
     /// (100000–999999, always exactly six digits with no leading zeros).
     nonisolated static func generateDefaultHostName() -> String {
@@ -136,16 +104,9 @@ final class TSNetManager {
         return "aperture-\(number)"
     }
 
-    /// Removes the on-disk tsnet state directory (node credentials, prefs) so
-    /// the next node start is a fresh, not-logged-in node. Used by the
-    /// `-UITestResetLogin` UI-test hook to keep connection-independent tests
-    /// hermetic against logins left behind by prior connected tests.
-    nonisolated static func resetStateDir() {
-        let url = Self.getDocumentDirectoryPath()
-        try? FileManager.default.removeItem(at: url)
-    }
-
-    /// The auth key supplied at launch, if any. See `DefaultsKeys`-adjacent
+    /// The auth key supplied at launch, if any. See the doc comment above the
+    /// class for the resolution order. `nonisolated` so it's safe to call from
+    /// any isolation context.
     /// doc comment for the resolution order. `nonisolated` so it's safe to
     /// call from any isolation context.
     nonisolated static func launchAuthKey() -> String? {
@@ -339,8 +300,6 @@ final class TSNetManager {
 
     func setHostName(_ newHostName: String) {
         let trimmed = newHostName.trimmingCharacters(in: .whitespacesAndNewlines)
-        UserDefaults.standard.set(trimmed, forKey: DefaultsKeys.tailnetHostName)
-
         let mask = Ipn.MaskedPrefs().hostname(trimmed)
         let client = localAPIClient
         Task {

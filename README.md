@@ -171,11 +171,11 @@ $ make clean-all    # also the libtailscale artifacts
 
 ```
 App/                      SwiftUI app sources (synchronized folder group)
-  ApertureApp.swift     @main App, owns the TSNetManager + SwiftData container
-  MainView.swift          Top-level UI
-  Browser/                WebKit browser view/view-model/navigator
-  Boomarks/               SwiftData-backed bookmarks (note: dir is spelled "Boomarks")
-  Settings/               Hostname / tailnet settings
+  ApertureApp.swift     @main App, owns the WorkspaceManager
+  Workspace/            Workspace + WorkspaceManager + on-disk workspace store
+  Browser/              WebKit browser view/view-model/navigator
+  Bookmarks/            SwiftData-backed bookmarks (per-workspace) + HomePage
+  Settings/             Hostname / home page / exit-node / logout (per active workspace)
   Tailnet Status/         Local-API-backed status view
 TSNet/                    Wrapper layer over TailscaleKit
   TSNetManager.swift      Owns the TailscaleNode, lifecycle, LocalAPI plumbing

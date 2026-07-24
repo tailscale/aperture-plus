@@ -13,6 +13,7 @@
 
 import Combine
 import SwiftUI
+import WebKit
 import TailscaleKit
 
 @MainActor
@@ -21,6 +22,8 @@ final class TabManager: ObservableObject {
     @Published var selectedIndex: Int = 0
 
     private let model: TSNetModel
+    private let homePage: HomePage
+    private let dataStore: WKWebsiteDataStore
     private var cancellables: Set<AnyCancellable> = []
 
     /// The currently selected tab, if any.
@@ -31,8 +34,10 @@ final class TabManager: ObservableObject {
 
     var tabCount: Int { tabs.count }
 
-    init(model: TSNetModel) {
+    init(model: TSNetModel, homePage: HomePage, dataStore: WKWebsiteDataStore) {
         self.model = model
+        self.homePage = homePage
+        self.dataStore = dataStore
 
         // The first tab is always the Aperture chat (home page).
         openChatTab(select: true)
@@ -57,9 +62,9 @@ final class TabManager: ObservableObject {
     /// the new tab. This is the "open an additional aperture chat tab" button.
     @discardableResult
     func openChatTab(select: Bool = true) -> BrowserTab {
-        let urlString = HomePage.standard.url
+        let urlString = homePage.url
         let url = URL(string: urlString) ?? URL(string: HomePage.defaultURL)!
-        let tab = BrowserTab(model: model, initialURL: url)
+        let tab = BrowserTab(model: model, initialURL: url, dataStore: dataStore)
         tabs.append(tab)
         if select {
             selectedIndex = tabs.count - 1

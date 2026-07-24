@@ -262,7 +262,7 @@ final class ApertureUITests: XCTestCase {
         // `FADC5F69` = `http://ai/chatFADC5F69`), writing a corrupted URL to
         // UserDefaults that then makes every later connected test load a
         // bogus path and 404. Instead, relaunch with `-UITestResetHomePage`,
-        // which sets `HomePage.standard.url = HomePage.defaultURL` at launch —
+        // which resets each workspace's home page to the default at launch —
         // 100% reliable, no typing. (The persistence-under-typing claim was
         // already verified above; the restore is just cleanup.)
         app.launchArguments = ["-UITestResetHomePage", "-UITestResetLogin"]
@@ -301,6 +301,7 @@ final class ApertureUITests: XCTestCase {
         // hermetic — a prior test (e.g. the persistence test) may have left a
         // non-default value in UserDefaults, and the first tab always loads
         // HomePage.standard.url, so a stale value would load the wrong URL.
+        // (Now per-workspace; `-UITestResetHomePage` resets them all.)
         app.launchArguments += ["-UITestResetHomePage"]
         app.launch()
     }

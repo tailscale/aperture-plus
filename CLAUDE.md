@@ -103,15 +103,17 @@ Prefer `-derivedDataPath build/DerivedData` to keep DerivedData inside the
   See `README.ui-automation.md` for the full log-capture workflow and the critical
   state transitions (`State: NeedsLogin`, `Authenticate at: …`).
 
-- The bookmarks directory is spelled **`Boomarks`** (missing 'k') throughout the
-  codebase — match the existing spelling if you reference it; don't "fix" it
-  casually without renaming everything.
+- The bookmarks directory is **`App/Bookmarks/`** (previously a typo,
+  `Boomarks`, since fixed). SwiftData `Bookmark` model + per-workspace
+  `HomePage`.
 - `Aperture/Info.plist` sets `NSAllowsArbitraryLoads` / `NSAllowsArbitraryLoadsInWebContent`
   in the ATS dictionary. This is intentional — the browser must load plain-HTTP and
   self-signed tailnet nodes. Don't remove it.
-- SwiftData is used for bookmarks (`App/Boomarks/Bookmark.swift`); the
-  `ModelContainer` is created in `ApertureApp.swift` and injected via
-  `.modelContainer`.
+- SwiftData is used for bookmarks (`App/Bookmarks/Bookmark.swift`). Each
+  workspace owns its own `ModelContainer` (per-identity bookmarks store at
+  `Workspaces/<id>/Bookmarks.store`); the active workspace's container is
+  injected into the browser view tree via `.modelContainer`. See
+  `App/Workspace/`.
 - `build/` (including `build/DerivedData`) is gitignored, as is the submodule's
   `swift/build/`. Don't commit build artifacts.
 

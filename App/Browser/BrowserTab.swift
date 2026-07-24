@@ -26,6 +26,7 @@ final class BrowserTab: Identifiable, ObservableObject {
     let viewModel: BrowserViewModel
     let initialURL: URL
     private let model: TSNetModel
+    private let dataStore: WKWebsiteDataStore
 
     /// Live, UI-facing metadata (mirrored from `WebPage`; see class doc).
     @Published private(set) var displayTitle: String = "Aperture"
@@ -40,10 +41,11 @@ final class BrowserTab: Identifiable, ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
 
-    init(model: TSNetModel, initialURL: URL) {
-        self.viewModel = BrowserViewModel(model: model, initialURL: initialURL)
+    init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore) {
+        self.viewModel = BrowserViewModel(model: model, initialURL: initialURL, dataStore: dataStore)
         self.initialURL = initialURL
         self.model = model
+        self.dataStore = dataStore
         self.displayURL = initialURL.absoluteString
         self.displayHost = initialURL.host ?? initialURL.absoluteString
 

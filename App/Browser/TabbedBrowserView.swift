@@ -2,12 +2,18 @@
 //  TabbedBrowserView.swift
 //  Aperture
 //
-//  The root window: a Safari-style multi-tab web browser. Until the tailnet
-//  first reaches `Running` it shows `ConnectionGateView` (the onboarding/login
-//  screen); once connected it switches to the tabbed browser for the rest of
-//  the session (subsequent reconnects show an inline banner, not the gate).
+//  The root window: a Safari-style multi-tab web browser, driven by the
+//  ACTIVE workspace. Until that workspace's tailnet first reaches `Running`
+//  it shows `ConnectionGateView` (the onboarding/login screen); once
+//  connected it switches to the tabbed browser for the rest of the session
+//  (subsequent reconnects show an inline banner, not the gate).
 //
-//  - First tab is always an Aperture chat (the home page).
+//  Each workspace owns its own tabs, home page, bookmarks store, and web data
+//  store (see `Workspace`); this view just renders the active one. Settings is
+//  global (reachable from both the gate and the browser) and reflects the
+//  active workspace.
+//
+//  - First tab is always an Aperture chat (the workspace's home page).
 //  - "+" opens an additional Aperture-chat tab.
 //  - iPhone (compact): tabs are managed via the tab-overview button
 //    (`square.on.square`); the overview is a full-screen card grid.
@@ -17,35 +23,62 @@
 
 import SwiftUI
 import WebKit
+import SwiftData
 import TailscaleKit
 
 struct TabbedBrowserView: View {
-    let manager: TSNetManager
-    @StateObject private var tabManager: TabManager
-    @StateObject private var statusViewModel: StatusViewModel
-
-    /// Flips to true the first time the tailnet reaches `Running` and stays
-    /// true — so a transient reconnect doesn't kick the user back to the gate.
-    @State private var hasConnected = false
+    @ObservedObject var workspaceManager: WorkspaceManager
 
     /// Settings is global (reachable from both the gate and the browser), so
     /// its full-screen cover lives here.
     @State private var showingSettings = false
 
-    init(manager: TSNetManager) {
-        self.manager = manager
-        _tabManager = StateObject(wrappedValue: TabManager(model: manager.model))
-        _statusViewModel = StateObject(wrappedValue: StatusViewModel(manager: manager))
+    var body: some View {
+        Group {
+            if let ws = workspaceManager.activeWorkspace {
+                WorkspaceRoot(workspace: ws, showingSettings: $showingSettings)
+            } else {
+                // No workspace — never happens (WorkspaceManager always seeds
+                // one), but keep the view tree valid rather than crashing.
+                ProgressView()
+            }
+        }
+        .fullScreenCover(isPresented: $showingSettings) {
+            if let ws = workspaceManager.activeWorkspace {
+                SettingsView(viewModel: SettingsViewModel(workspace: ws),
+                             dismissAction: { showingSettings = false })
+            }
+        }
+    }
+}
+
+// MARK: - Per-workspace root (gate ⇄ browser)
+
+/// The root for a single (active) workspace: shows the connection gate until
+/// that workspace's tailnet first reaches `Running`, then the tabbed browser
+/// for the rest of the session. Observes the workspace's `StatusViewModel`
+/// directly so the `running` flip is tracked live.
+private struct WorkspaceRoot: View {
+    @ObservedObject var workspace: Workspace
+    @ObservedObject var statusViewModel: StatusViewModel
+    @Binding var showingSettings: Bool
+
+    /// Flips to true the first time this workspace's tailnet reaches `Running`
+    /// and stays true — so a transient reconnect doesn't kick back to the gate.
+    @State private var hasConnected = false
+
+    init(workspace: Workspace, showingSettings: Binding<Bool>) {
+        self.workspace = workspace
+        self.statusViewModel = workspace.statusViewModel
+        self._showingSettings = showingSettings
     }
 
     var body: some View {
         Group {
-            if hasConnected, let tab = tabManager.currentTab {
+            if hasConnected, let tab = workspace.tabManager.currentTab {
                 BrowserRootContent(
-                    manager: manager,
-                    tabManager: tabManager,
+                    workspace: workspace,
                     tab: tab,
-                    statusViewModel: statusViewModel,
                     onSettings: { showingSettings = true }
                 )
             } else {
@@ -61,10 +94,9 @@ struct TabbedBrowserView: View {
         .onChange(of: statusViewModel.running) { _, running in
             if running { hasConnected = true }
         }
-        .fullScreenCover(isPresented: $showingSettings) {
-            SettingsView(viewModel: SettingsViewModel(manager: manager),
-                         dismissAction: { showingSettings = false })
-        }
+        // Inject the workspace's bookmarks container so the bookmarks sheet /
+        // editor (presented from below) see only this workspace's bookmarks.
+        .modelContainer(workspace.modelContainer)
     }
 }
 
@@ -74,7 +106,7 @@ struct TabbedBrowserView: View {
 /// controls, URL/navigation toolbar, and per-tab sheets. Observes the current
 /// `BrowserTab` directly so the nav title tracks live page-title changes.
 private struct BrowserRootContent: View {
-    let manager: TSNetManager
+    @ObservedObject var workspace: Workspace
     @ObservedObject var tabManager: TabManager
     @ObservedObject var tab: BrowserTab
     @ObservedObject var statusViewModel: StatusViewModel
@@ -85,6 +117,14 @@ private struct BrowserRootContent: View {
     @State private var showingTabOverview = false
     @State private var showingBookmarks = false
     @State private var showingBookmarkEditor = false
+
+    init(workspace: Workspace, tab: BrowserTab, onSettings: @escaping () -> Void) {
+        self.workspace = workspace
+        self.tabManager = workspace.tabManager
+        self.tab = tab
+        self.statusViewModel = workspace.statusViewModel
+        self.onSettings = onSettings
+    }
 
     var body: some View {
         NavigationStack {
@@ -177,7 +217,7 @@ private struct BrowserRootContent: View {
             )
         }
         .sheet(isPresented: $showingBookmarks) {
-            BookmarksSheet { bookmark in
+            BookmarksSheet(homePage: workspace.homePage) { bookmark in
                 if let url = URL(string: bookmark.url) {
                     tab.viewModel.load(url: url)
                 }

@@ -10,12 +10,13 @@ import SwiftUI
 
 struct BookmarksSheet: View {
     @Environment(\.dismiss) private var dismiss
+    let homePage: HomePage
     let onSelect: (Bookmark) -> Void
 
     var body: some View {
         NavigationStack {
             List {
-                BookmarkListItem(bookmark: HomePage.standard.bookmark, onSelect: handle)
+                BookmarkListItem(bookmark: homePage.bookmark, onSelect: handle)
                 BookMarkList(onSelect: handle)
             }
             .navigationTitle("Bookmarks")
