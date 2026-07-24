@@ -88,9 +88,15 @@ AUTHKEY_FILE="${APERTURE_TEST_AUTHKEY_FILE:-/tmp/aperture-test-authkey}"
 if [[ -n "${APERTURE_TEST_AUTHKEY:-}" ]]; then
     printf '%s' "$APERTURE_TEST_AUTHKEY" > "$AUTHKEY_FILE"
     echo "▶ Staged auth key for UI tests → $AUTHKEY_FILE"
+elif [[ -f "$HOME/.aperture-ios-authkey" ]]; then
+    cp "$HOME/.aperture-ios-authkey" "$AUTHKEY_FILE"
+    echo "▶ Staged auth key from ~/.aperture-ios-authkey → $AUTHKEY_FILE"
 else
-    # No key staged: the connected test will skip on a not-logged-in sim.
+    # No key staged: connected UI tests will now FAIL (they require a
+    # connection — they no longer skip), so this is intentionally loud.
     rm -f "$AUTHKEY_FILE" 2>/dev/null || true
+    echo "⚠ No auth key found (APERTURE_TEST_AUTHKEY / AUTHKEY / ~/.aperture-ios-authkey)."
+    echo "  Connected UI tests will FAIL (not skip)."
 fi
 
 # --- Build (optional) then run the tests ------------------------------------

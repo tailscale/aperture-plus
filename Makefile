@@ -197,9 +197,10 @@ tf:  ## Archive -> export -> upload to TestFlight (fails fast if no ASC creds)
 	@$(MAKE) --no-print-directory tf-upload
 
 # ----- test -----
-# Pass an auth key for the connected test (automates login on a fresh sim):
-#   make test AUTHKEY=tskey-auth-...
-# Without AUTHKEY, the connected test skips on a not-logged-in sim as before.
+# An auth key automates login on a fresh sim so the connected tests run.
+# Resolution order: `make test AUTHKEY=...` > APERTURE_TEST_AUTHKEY env >
+# ~/.aperture-ios-authkey. Without any of these, connected tests FAIL (they no
+# longer skip) — a broken connection must be loud, not silently green.
 .PHONY: test
 test: all  ## Build, then run the UI tests on the simulator (with log capture)
 	@echo

@@ -63,9 +63,9 @@ Headline for always-context: **use the simulator for autonomous work** (build +
 `simctl install`/`launch` + `simctl io booted screenshot` + XCUITest + `log stream`
 all work with zero permission grants). The "My Mac (Designed for iPad)" target
 can't be launched headlessly. The UI tests include a `testHomePageLoadsWhenConnected`
-that **skips** (via `XCTSkip`) on a sim not logged into a Tailnet and **runs** on
-one that is — so `make test` stays green on any sim. Pass the app launch argument
-`-RequireConnected` to turn a not-connected sim into a hard failure (for CI).
+connected test that **fails** (never skips) if the tailnet doesn't come up, so a
+broken connection is never silently green. Connected tests need an auth key —
+stage one at `~/.aperture-ios-authkey` (or `make test AUTHKEY=...`).
 
 ## Command-line builds that actually work
 

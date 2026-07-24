@@ -130,8 +130,9 @@ development); once registered, automatic signing on the build host picks it up.
 There is a **UI test target**, `ApertureUITests` (XCUITest), whose sources live
 in `UITests/`. The current tests are connection-independent smoke tests (launch,
 open Settings, open the Add-Bookmark editor) — no Tailnet login needed. There is
-also a `testHomePageLoadsWhenConnected` test that **skips** on a sim that isn't
-logged into a Tailnet and **runs** on one that is (e.g. the iPad sim).
+also a `testHomePageLoadsWhenConnected` test that **fails** (never skips) if the
+tailnet doesn't come up. Connected tests need an auth key — stage one at
+`~/.aperture-ios-authkey` (or `make test AUTHKEY=...`).
 
 ```bash
 # Easiest — builds everything then runs the UI tests with log capture:

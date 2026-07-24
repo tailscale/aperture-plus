@@ -12,15 +12,16 @@
 //  - Connection-independent tests (brand header, status, Settings, home-page
 //    persistence) run against the gate and stay green on any sim.
 //  - Connected tests (the browser: add-bookmark, home-page load) need a
-//    logged-in sim. They authenticate non-interactively via an auth key when
-//    one is staged (see `resolvedTestAuthKey`), and otherwise SKIP (not fail)
-//    so `make test` stays green on any sim. `-RequireConnected` turns a
-//    not-connected sim into a hard failure for CI.
+//    working tailnet connection. They authenticate non-interactively via an
+//    auth key when one is staged (see `resolvedTestAuthKey`), and otherwise
+//    they FAIL (never skip) — a broken connection must be a loud failure, not
+//    a silent green. Stage a key at ~/.aperture-ios-authkey (or pass
+//    AUTHKEY=... / set APERTURE_TEST_AUTHKEY).
 //
 //  Run from the command line:
 //
-//    make test                                # any sim (connected test skips)
-//    make test AUTHKEY=tskey-auth-...         # connected test runs too
+//    make test                                # stages ~/.aperture-ios-authkey if present
+//    make test AUTHKEY=tskey-auth-...         # explicit key
 //    scripts/run-uitests.sh
 //    xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
 //      -configuration Debug \
@@ -304,19 +305,23 @@ final class ApertureUITests: XCTestCase {
         app.launch()
     }
 
-    /// Skip-or-fail helper for connected tests when the tailnet doesn't come up.
-    private func skipIfNotConnected(_ app: XCUIApplication, requireConnected: Bool,
-                                    timeout: TimeInterval = 90) throws -> Bool {
+    /// Waits for the connected browser to appear and FAILS (never skips) if it
+    /// doesn't. Connected tests require a working tailnet connection — a broken
+    /// connection must be a loud failure, never a silent skip. The connection
+    /// is automated by staging an auth key (see `launchConnected` /
+    /// `resolvedTestAuthKey`); without one, a fresh sim won't connect and this
+    /// fails after the timeout.
+    @discardableResult
+    private func requireBrowserReady(_ app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
         guard waitForBrowserReady(app, timeout: timeout) else {
             attachScreenshot(app, named: "not-connected")
-            let msg = "Tailnet did not reach Running state within \(Int(timeout))s — the " +
-                      "browser chrome never appeared. Is this sim logged into a Tailnet " +
-                      "(or was an AUTHKEY staged)?"
-            if requireConnected {
-                XCTFail(msg)
-            } else {
-                throw XCTSkip(msg)
-            }
+            XCTFail(
+                "Tailnet did not reach Running state within \(Int(timeout))s — the " +
+                "browser chrome never appeared. Connected tests require a connection. " +
+                "Stage an auth key at ~/.aperture-ios-authkey (or pass AUTHKEY=... / " +
+                "set APERTURE_TEST_AUTHKEY); on a not-logged-in sim without a key the " +
+                "node can't authenticate. This is a hard failure by design — connected " +
+                "tests never skip, so a broken connection is never silent.")
             return false
         }
         return true
@@ -326,10 +331,9 @@ final class ApertureUITests: XCTestCase {
     /// editor; Cancel dismisses it. Requires the connected browser.
     func testOpenAndCancelAddBookmark() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         let addButton = app.buttons["add-bookmark-button"]
         XCTAssertTrue(addButton.waitForExistence(timeout: 10),
@@ -379,10 +383,9 @@ final class ApertureUITests: XCTestCase {
     /// browser's URL field.
     func testHomePageLoadsWhenConnected() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         // The browser view hosts a WKWebView (the current tab's page). Wait for it.
         let webView = app.webViews.firstMatch
@@ -422,10 +425,9 @@ final class ApertureUITests: XCTestCase {
     /// the new tab. Requires the connected browser.
     func testOpenNewChatTab() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         // The "+" new-chat-tab button is in the top toolbar.
         let newTabButton = app.buttons["new-chat-tab-button"]
@@ -473,10 +475,9 @@ final class ApertureUITests: XCTestCase {
     /// backendStatus poll + the icon rendering. Requires the connected browser.
     func testConnectionTypeIndicatorNotInternet() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         // Wait for the home page to load, then poll for the indicator to flip
         // off "internet" (the default before the status poll runs).
@@ -512,10 +513,9 @@ final class ApertureUITests: XCTestCase {
     /// navigation's async sequence, so failures were silent.
     func testBadURLShowsErrorOverlay() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         // Enter the URL editor. On iPhone (compact) tap the url-pill; the
         // editing bar's text field ("url-field") appears. (On iPad the
@@ -556,10 +556,9 @@ final class ApertureUITests: XCTestCase {
     /// (cert mismatch) correctly errors. Requires the connected browser.
     func testHTTPSCertMismatchShowsError() throws {
         let app = XCUIApplication()
-        let requireConnected = app.launchArguments.contains("-RequireConnected")
         launchConnected(app)
 
-        guard try skipIfNotConnected(app, requireConnected: requireConnected) else { return }
+        guard requireBrowserReady(app) else { return }
 
         // Open the URL editor (compact: tap the url-pill; regular: tap the field).
         if app.buttons["url-pill"].waitForExistence(timeout: 5) {

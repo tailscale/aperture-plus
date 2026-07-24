@@ -102,9 +102,9 @@ prior connected test logged the sim in):
 - `testHomePageSettingPersistsAcrossSettingsReopen` — hermetic Home-Page
   persistence across a `terminate()` + `launch()` (see the test's doc comment).
 
-Connected (require a logged-in sim; authenticate via an auth key — see below —
-and otherwise **skip** so `make test` stays green on any sim; `-RequireConnected`
-turns a not-connected sim into a hard failure):
+Connected (require a working tailnet connection; authenticate via an auth key —
+see below — and otherwise **fail** so a broken connection is never silently
+green):
 
 - `testHomePageLoadsWhenConnected` — the first tab (always an Aperture chat =
   the home page) auto-loads; confirm the WKWebView appears and the URL field
@@ -120,11 +120,20 @@ turns a not-connected sim into a hard failure):
 `testHomePageLoadsWhenConnected` and the other connected tests can log a fresh
 simulator into a Tailnet non-interactively instead of showing the "Login"
 button, so the whole suite runs green on a sim with no prior interactive
-login:
+login. Auth-key resolution order:
+
+1. `make test AUTHKEY=tskey-auth-...` (Makefile var → `APERTURE_TEST_AUTHKEY`).
+2. `APERTURE_TEST_AUTHKEY` env var seen by `run-uitests.sh`.
+3. `~/.aperture-ios-authkey` file (the default local-dev fallback).
 
 ```bash
-make test AUTHKEY=tskey-auth-...        # stages the key, runs all tests
+make test                                # auto-stages ~/.aperture-ios-authkey if present
+make test AUTHKEY=tskey-auth-...        # explicit key
 ```
+
+If **none** of those is available, connected tests **fail** (they no longer
+skip) after the connection timeout — by design, so a missing/broken key is
+loud rather than a silent green suite.
 
 The app reads the key from the `APERTURE_AUTHKEY` env var (or `-AuthKey`
 launch arg) and authenticates on `up()`; `APERTURE_EPHEMERAL`/`-Ephemeral`
