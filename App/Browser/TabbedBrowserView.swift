@@ -37,6 +37,23 @@ struct TabbedBrowserView: View {
         Group {
             if let ws = workspaceManager.activeWorkspace {
                 WorkspaceRoot(workspace: ws, showingSettings: $showingSettings)
+                    // Key by workspace id so switching the active workspace
+                    // (Phase 3) tears down this subtree and creates a fresh
+                    // `WorkspaceRoot` with its own `@StateObject` tab manager /
+                    // status VM / WebPage for the new identity. Within one
+                    // workspace the id is stable, so the WebView survives.
+                    .id(ws.id)
+                    // Inject the workspace's bookmarks container at this
+                    // (stable) level, NOT inside `WorkspaceRoot`. `WorkspaceRoot`
+                    // re-renders on every `Workspace` identity/netmap publish
+                    // during load; re-applying `.modelContainer` there rebuilt
+                    // the whole subtree (including the WKWebView) mid-load,
+                    // which left a stale gesture recognizer in the window and
+                    // crashed the app on the first tap (see
+                    // `testTapOnLoadedHomePageDoesNotCrash`). `TabbedBrowserView`
+                    // only re-renders when `WorkspaceManager` publishes (rare),
+                    // so the container is applied once and the WebView survives.
+                    .modelContainer(ws.modelContainer)
             } else {
                 // No workspace — never happens (WorkspaceManager always seeds
                 // one), but keep the view tree valid rather than crashing.
@@ -59,8 +76,9 @@ struct TabbedBrowserView: View {
 /// for the rest of the session. Observes the workspace's `StatusViewModel`
 /// directly so the `running` flip is tracked live.
 private struct WorkspaceRoot: View {
-    @ObservedObject var workspace: Workspace
-    @ObservedObject var statusViewModel: StatusViewModel
+    let workspace: Workspace
+    @StateObject private var tabManager: TabManager
+    @StateObject private var statusViewModel: StatusViewModel
     @Binding var showingSettings: Bool
 
     /// Flips to true the first time this workspace's tailnet reaches `Running`
@@ -69,16 +87,29 @@ private struct WorkspaceRoot: View {
 
     init(workspace: Workspace, showingSettings: Binding<Bool>) {
         self.workspace = workspace
-        self.statusViewModel = workspace.statusViewModel
+        // Create the per-workspace tab manager + status VM here (first render)
+        // — NOT in `Workspace.init` (which runs at app launch, before the
+        // window/view hierarchy exists). Creating the WebPage/WKWebView before
+        // the window existed left WebKit's gesture recognizers in a corrupt
+        // state and crashed the app on the first tap (see
+        // `testTapOnLoadedHomePageDoesNotCrash`). `@StateObject` runs this
+        // `wrappedValue` only on the view's first appearance, matching the
+        // pre-refactor timing where `TabManager` was built in
+        // `TabbedBrowserView.init`.
+        _tabManager = StateObject(wrappedValue: TabManager(
+            model: workspace.model, homePage: workspace.homePage, dataStore: workspace.dataStore))
+        _statusViewModel = StateObject(wrappedValue: StatusViewModel(manager: workspace.manager))
         self._showingSettings = showingSettings
     }
 
     var body: some View {
         Group {
-            if hasConnected, let tab = workspace.tabManager.currentTab {
+            if hasConnected, let tab = tabManager.currentTab {
                 BrowserRootContent(
                     workspace: workspace,
+                    tabManager: tabManager,
                     tab: tab,
+                    statusViewModel: statusViewModel,
                     onSettings: { showingSettings = true }
                 )
             } else {
@@ -94,9 +125,8 @@ private struct WorkspaceRoot: View {
         .onChange(of: statusViewModel.running) { _, running in
             if running { hasConnected = true }
         }
-        // Inject the workspace's bookmarks container so the bookmarks sheet /
-        // editor (presented from below) see only this workspace's bookmarks.
-        .modelContainer(workspace.modelContainer)
+        // The workspace's bookmarks container is injected by `TabbedBrowserView`
+        // (see the comment there for why it must NOT live on this view).
     }
 }
 
@@ -106,7 +136,7 @@ private struct WorkspaceRoot: View {
 /// controls, URL/navigation toolbar, and per-tab sheets. Observes the current
 /// `BrowserTab` directly so the nav title tracks live page-title changes.
 private struct BrowserRootContent: View {
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     @ObservedObject var tabManager: TabManager
     @ObservedObject var tab: BrowserTab
     @ObservedObject var statusViewModel: StatusViewModel
@@ -118,11 +148,15 @@ private struct BrowserRootContent: View {
     @State private var showingBookmarks = false
     @State private var showingBookmarkEditor = false
 
-    init(workspace: Workspace, tab: BrowserTab, onSettings: @escaping () -> Void) {
+    init(workspace: Workspace,
+         tabManager: TabManager,
+         tab: BrowserTab,
+         statusViewModel: StatusViewModel,
+         onSettings: @escaping () -> Void) {
         self.workspace = workspace
-        self.tabManager = workspace.tabManager
+        self.tabManager = tabManager
         self.tab = tab
-        self.statusViewModel = workspace.statusViewModel
+        self.statusViewModel = statusViewModel
         self.onSettings = onSettings
     }
 

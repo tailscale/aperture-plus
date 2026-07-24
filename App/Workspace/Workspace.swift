@@ -43,9 +43,6 @@ final class Workspace: ObservableObject, Identifiable {
     /// Per-workspace SwiftData container for bookmarks.
     let modelContainer: ModelContainer
 
-    let tabManager: TabManager
-    let statusViewModel: StatusViewModel
-
     /// Called whenever the definition changes, so `WorkspaceManager` can
     /// persist the workspace list. Set after init to avoid a retain cycle.
     var onChange: ((WorkspaceDefinition) -> Void)?
@@ -88,11 +85,6 @@ final class Workspace: ObservableObject, Identifiable {
             logger.log("Workspace: failed to open bookmarks store at \(url.path); using in-memory")
             self.modelContainer = Self.fallbackContainer
         }
-
-        self.tabManager = TabManager(model: manager.model,
-                                     homePage: homePage,
-                                     dataStore: dataStore)
-        self.statusViewModel = StatusViewModel(manager: manager)
 
         // Persist home-page edits back into the definition.
         homePage.$url
