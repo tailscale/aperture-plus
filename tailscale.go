@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"regexp"
@@ -542,6 +543,7 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
 	}
 	if fd == -1 {
 		s.s.Logf = logger.Discard
+		log.SetOutput(io.Discard)
 		return 0
 	}
 	f := os.NewFile(uintptr(fd), "logfd")
@@ -549,7 +551,68 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
 		fmt.Fprintf(f, format, args...)
 		fmt.Fprintf(f, "\n")
 	}
+	// Also route Go's stdlib `log` package to the same fd. tsnet (and libtailscale)
+	// emit some messages via `log.Printf`, which otherwise writes to os.Stderr
+	// (fd 2) and would mix tsnet logs into the redirected stderr.log that
+	// CrashCapture reserves for Go runtime panic/fatal output. Keeping tsnet's
+	// stdlib logs on the logfd (tsnet.log) leaves stderr.log holding ONLY Go
+	// runtime panics, so "stderr.log non-empty + a crash signature" reliably
+	// means a runtime fatal occurred. (The Go runtime's own panic/fatal output
+	// is written directly to fd 2 via write(2), not via `log`, so it still lands
+	// in stderr.log regardless.) Mirrors ipn-go-bridge's log.SetOutput.
+	log.SetOutput(f)
 	return 0
+}
+
+// TsnetCrashTest deliberately crashes the Go runtime. TEST/DEBUG ONLY —
+// never reachable from normal app flow; the Swift side only invokes it when
+// the `-CrashTest` launch argument is set (see TSNetManager.startTailscale).
+//
+// It exists to verify end-to-end that Go runtime panics (and the goroutine
+// stack dump Go prints to fd 2 before aborting) are captured by Aperture's
+// stderr redirect (TSNet/CrashCapture.swift) and surfaced on the next launch.
+// This reproduces the exact mechanism of the overnight TestFlight crash
+// (SIGABRT raised from a TailscaleKit thread via the Go runtime):
+//
+//	Thread N:
+//	  0 libsystem_kernel.dylib  __kill
+//	  1 TailscaleKit            runtime.signal_unix / runtime.fatalthrow
+//
+// mode 0: panic synchronously in the calling goroutine. The Go runtime
+//	   prints "panic: TsnetCrashTest: ..." + a stack trace to stderr (fd 2),
+//	   then raises SIGABRT. Does not return.
+// mode 1: panic in a freshly-spawned background goroutine. Returns 0
+//	   immediately; the goroutine panics a moment later and the runtime
+//	   aborts the whole process (closer to "ran for a while, then a
+//	   goroutine panicked").
+// mode 2: write a realistic Go-panic-formatted dump to stderr (fd 2) and
+//	   RETURN normally — does NOT abort. Lets the crash-capture UI test
+//	   exercise the full capture+surface pipeline (dup2 → stderr.log →
+//	   next-launch os_log + debug label) without killing the process, which
+//	   XCUITest would otherwise hard-fail as an app crash. The real abort
+//	   path (modes 0/1) is covered by the host-side `make crashtest` script.
+//export TsnetCrashTest
+func TsnetCrashTest(sd, mode C.int) C.int {
+	if _, err := getServer(sd); err != nil {
+		return -1
+	}
+	switch mode {
+	case 0:
+		panic("TsnetCrashTest: deliberate panic (mode 0)")
+	case 1:
+		go func() { panic("TsnetCrashTest: deliberate goroutine panic (mode 1)") }()
+		return 0
+	case 2:
+		fmt.Fprintf(os.Stderr, "panic: TsnetCrashTest: deliberate panic (mode 2)\n\n"+
+			"goroutine 1 [running]:\n"+
+			"main.TsnetCrashTest(...)\n"+
+			"\ttailscale.go:0\n"+
+			"main.TsnetCrashTest({0x%x}, 0x2)\n"+
+			"\ttailscale.go:0 +0x0\n")
+		return 0
+	default:
+		panic("TsnetCrashTest: unknown mode")
+	}
 }
 
 //export TsnetLoopback

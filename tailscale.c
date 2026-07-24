@@ -19,6 +19,7 @@ extern int TsnetSetAuthKey(int sd, char* str);
 extern int TsnetSetControlURL(int sd, char* str);
 extern int TsnetSetEphemeral(int sd, int ephemeral);
 extern int TsnetSetLogFD(int sd, int fd);
+extern int TsnetCrashTest(int sd, int mode);
 extern int TsnetGetIps(int sd, char *buf, size_t buflen);
 extern int TsnetGetRemoteAddr(int listener, int conn, char *buf, size_t buflen);
 extern int TsnetListen(int sd, char* net, char* addr, int* listenerOut);
@@ -79,6 +80,17 @@ int tailscale_set_ephemeral(tailscale sd, int ephemeral) {
 }
 int tailscale_set_logfd(tailscale sd, int fd) {
 	return TsnetSetLogFD(sd, fd);
+}
+
+// tailscale_crash_test deliberately crashes the Go runtime. TEST/DEBUG ONLY.
+// See TsnetCrashTest in tailscale.go (and TSNetManager's -CrashTest hook).
+// mode 0: panic immediately (prints panic+stack to the log fd/stderr, then
+//         raises SIGABRT — the same mechanism as a real overnight Go-runtime
+//         fatal). Does not return.
+// mode 1: panic in a background goroutine (returns 0; aborts the process
+//         asynchronously).
+int tailscale_crash_test(tailscale sd, int mode) {
+	return TsnetCrashTest(sd, mode);
 }
 
 int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out) {

@@ -29,13 +29,14 @@ libtailscale.a:
 libtailscale_ios.a:
 	# TODO(raggi): setup a PREFIX in the libtailscale.a build, then delete these targets, the caller should be setting PREFIX and CC
 	# that way the caller can also use the prefix, and not have to specialize target/link object names per build configuration.
-	GOOS=ios GOARCH=arm64 CC=$(PWD)/swift/script/clangwrap-ios.sh go build -v -ldflags -w -tags ios -o $@ -buildmode=c-archive
+	# Keep DWARF so TailscaleKit.framework.dSYM can symbolicate Go crash frames.
+	GOOS=ios GOARCH=arm64 CC=$(PWD)/swift/script/clangwrap-ios.sh go build -v -tags ios -o $@ -buildmode=c-archive
 
 libtailscale_ios_sim_arm64.a:
-	GOOS=ios GOARCH=arm64 CC=$(PWD)/swift/script/clangwrap-ios-sim-arm.sh go build -v -ldflags -w -tags ios -o $@ -buildmode=c-archive
+	GOOS=ios GOARCH=arm64 CC=$(PWD)/swift/script/clangwrap-ios-sim-arm.sh go build -v -tags ios -o $@ -buildmode=c-archive
 
 libtailscale_ios_sim_x86_64.a:
-	GOOS=ios GOARCH=amd64 CC=$(PWD)/swift/script/clangwrap-ios-sim-x86.sh go build -v -ldflags -w -tags ios -o $@ -buildmode=c-archive
+	GOOS=ios GOARCH=amd64 CC=$(PWD)/swift/script/clangwrap-ios-sim-x86.sh go build -v -tags ios -o $@ -buildmode=c-archive
 
 .PHONY: c-archive-ios
 c-archive-ios: libtailscale_ios.a  ## Builds libtailscale_ios.a for iOS (iOS SDK required)

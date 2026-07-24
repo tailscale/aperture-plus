@@ -56,13 +56,23 @@ ios-sim:  ## Builds TailscaleKit for iOS to swift/build/Build/Products/Release-i
 	 CODE_SIGNING_ALLOWED=NO | $(XCPRETTIFIER)
 
 .PHONY: ios-fat
-ios-fat: ios-sim ios ## Builds TailscaleKit.xcframework to swift/build/Build/Products/Release-iphonefat
+ios-fat: ios-sim ios ## Builds TailscaleKit.xcframework (with bundled dSYMs) to swift/build/Build/Products/Release-iphonefat
 	@echo 
 	@echo "::: Building TailscaleKit.xcframework for ios and ios-simulator :::"
 	mkdir -p ./build/Build/Products/Release-iphonefat
+	# -create-xcframework won't overwrite an existing bundle, and it does NOT
+	# auto-discover adjacent .dSYM bundles — both must be handled explicitly.
+	# Bundling the dSYMs here is what lets them flow into the app archive and
+	# get uploaded to App Store Connect for TestFlight crash symbolication
+	# (without them, every Go/TailscaleKit frame in a TestFlight crash log is
+	# an unreadable "TailscaleKit + <offset>"). The dSYMs are produced by the
+	# `ios`/`ios-sim` prerequisites via DEBUG_INFORMATION_FORMAT=dwarf-with-dsym.
+	rm -rf ./build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
 	xcodebuild -create-xcframework \
 		-framework ./build/Build/Products/Release-iphoneos/TailscaleKit.framework \
+		-debug-symbols $(CURDIR)/build/Build/Products/Release-iphoneos/TailscaleKit.framework.dSYM \
 		-framework ./build/Build/Products/Release-iphonesimulator/TailscaleKit.framework \
+		-debug-symbols $(CURDIR)/build/Build/Products/Release-iphonesimulator/TailscaleKit.framework.dSYM \
 		-output ./build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
 
 .PHONY: test
