@@ -82,6 +82,26 @@ extern int tailscale_set_ephemeral(tailscale sd, int ephemeral);
 // Returns zero on success or -1 on error, call tailscale_errmsg for details.
 extern int tailscale_set_logfd(tailscale sd, int fd);
 
+// tailscale_crash_test deliberately crashes the Go runtime. TEST/DEBUG ONLY.
+//
+// mode 0: panic immediately in the calling goroutine. The Go runtime prints
+//         "panic: ..." + a stack trace to stderr (fd 2), then raises SIGABRT —
+//         the same mechanism as a real overnight Go-runtime fatal. Does not
+//         return.
+// mode 1: panic in a background goroutine; returns 0 and aborts the process
+//         asynchronously.
+// mode 2: write a Go-panic-formatted dump to stderr (fd 2) and return 0 —
+//         does NOT abort. Lets the crash-capture UI test exercise capture+
+//         surface without killing the process under XCUITest.
+//
+// Never call from normal app flow. Used by the crash-capture UI test (via
+// TailscaleNode.crashTest and the -CrashTest launch arg) to verify that Go
+// runtime panics are captured to the redirected stderr log.
+//
+// Returns -1 if sd is invalid; otherwise does not return (mode 0) or returns 0
+// (mode 1/2).
+extern int tailscale_crash_test(tailscale sd, int mode);
+
 // A tailscale_conn is a connection to an address on the tailnet.
 //
 // It is a pipe(2) on which you can use read(2), write(2), and close(2).

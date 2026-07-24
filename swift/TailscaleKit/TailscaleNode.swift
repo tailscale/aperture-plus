@@ -115,6 +115,33 @@ public actor TailscaleNode {
         logger?.log("Closed Tailscale:\(tailscale)")
     }
 
+    /// Deliberately crashes the Go runtime. TEST/DEBUG ONLY — never call from
+    /// normal app flow. Used by the crash-capture UI test (via the `-CrashTest`
+    /// launch arg in TSNetManager) to verify that Go runtime panics — and the
+    /// goroutine stack dump Go prints to stderr (fd 2) before aborting — are
+    /// captured by Aperture's stderr redirect (TSNet/CrashCapture.swift) and
+    /// surfaced on the next launch.
+    ///
+    /// Reproduces the exact mechanism of the overnight TestFlight crash: the
+    /// Go runtime prints "panic: ..." + a stack trace to fd 2, then raises
+    /// SIGABRT, so in the crash log it shows up as `__kill` from a
+    /// TailscaleKit thread (see `TsnetCrashTest` in tailscale.go).
+    ///
+    /// mode 0 (default): panic immediately in the calling goroutine. Does not
+    /// return — the process aborts.
+    /// mode 1: panic in a background goroutine; returns 0, then the process
+    /// aborts a moment later.
+    //
+    // `async` (and actor-isolated, since TailscaleNode is an actor) to match
+    // up()/close(); callers `await` it across the actor boundary. The panic
+    // itself aborts the process before the `await` can resume (mode 0).
+    public func crashTest(mode: Int = 0) async {
+        guard let tailscale else {
+            return
+        }
+        tailscale_crash_test(tailscale, Int32(mode))
+    }
+
     /// Brings up the Tailscale server
     ///
     /// @See tailscale_up in Tailscale.h

@@ -6,13 +6,20 @@ libtailscale.a:
 	go build -buildmode=c-archive 
 
 libtailscale_ios.a:
-	GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios.sh go build -v -ldflags -w -tags ios -o libtailscale_ios.a -buildmode=c-archive
+	# NOTE: do NOT pass -ldflags -w here. Stripping DWARF (-w) makes every
+	# Go frame in an Apple crash log render as a bare "TailscaleKit + <offset>"
+	# with no symbol, which made the overnight TestFlight crash unreadable.
+	# Keeping DWARF lets the linked TailscaleKit.framework.dSYM symbolicate
+	# Go runtime panic/fatal frames (runtime.fatalthrow, the panic site, etc.)
+	# in Xcode Organizer / App Store Connect TestFlight crashes. Mirrors the
+	# ipn-go-bridge (the mature iOS app), which also builds unstripped.
+	GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios.sh go build -v -tags ios -o libtailscale_ios.a -buildmode=c-archive
 
 libtailscale_ios_sim_arm64.a:
-	GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios-sim-arm.sh go build -v -ldflags -w -tags ios -o libtailscale_ios_sim_arm64.a -buildmode=c-archive
+	GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios-sim-arm.sh go build -v -tags ios -o libtailscale_ios_sim_arm64.a -buildmode=c-archive
 
 libtailscale_ios_sim_x86_64.a:
-	GOOS=ios GOARCH=amd64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios-sim-x86.sh go build -v -ldflags -w -tags ios -o libtailscale_ios_sim_x86_64.a -buildmode=c-archive
+	GOOS=ios GOARCH=amd64 CGO_ENABLED=1 CC=$(PWD)/swift/script/clangwrap-ios-sim-x86.sh go build -v -tags ios -o libtailscale_ios_sim_x86_64.a -buildmode=c-archive
 
 .PHONY: c-archive-ios
 c-archive-ios: libtailscale_ios.a  ## Builds libtailscale_ios.a for iOS (iOS SDK required)
