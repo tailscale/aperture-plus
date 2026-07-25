@@ -372,6 +372,69 @@ traffic — there's no per-host split. tsnet's SOCKS5 server dials via
 `userDialResolve` has a `TODO(bradfitz): wire up net/dnscache too` — tsnet uses
 plain `net.Resolver`, NOT the robust `net/dnscache` the Tailscale iOS app uses.
 
+### The -1000 (badURL) result + the iPhone/iPad split
+
+On a REAL iPad (and macOS-Designed-for-iPad), `https://www.google.com/` fails
+with **`NSURLErrorDomain -1000` = `NSURLErrorBadURL`** (surfaced via WebKit's
+`.failedProvisionalNavigation`). On a real iPhone (same `ios-arm64`, same tailnet,
+same login) it works. This is the key fact, and -1000 is surprising:
+
+- It is NOT `-1003` (cannot find host / DNS) or `-1004` (cannot connect / TCP)
+  or `-1001` (timeout) — which is what a tsnet getaddrinfo/dial failure would
+  produce. The SOCKS-layer errors live in the 100–124 range (`kCFSOCKS5Error…`).
+- `-1000` is `kCFURLErrorBadURL` — the **CFURL/CFURLConnection layer** rejecting
+  the URL, *before* the SOCKS dial stage. For a URL that is obviously valid.
+
+So the failure is NOT "tsnet can't resolve/dial internet hosts" (that would be
+-1003, and would fail on the iPhone too). It's WebKit/CFNetwork deciding the
+URL is bad **on the iPad only**, in the proxied-request path. Since the app has
+NO idiom branching in the network/proxy code (verified: `proxyConfig` constructs
+the SOCKS endpoint identically; all `hSizeClass == .regular` branches are pure
+UI chrome), this points at an **Apple WebKit/CFNetwork idiom-specific behavior**
+for `WKWebsiteDataStore.proxyConfigurations` / `Network.ProxyConfiguration` —
+the well-trodden "WKWebView + SOCKS proxy is buggy on iOS" territory
+(rdar://20545691, iOS-17 forum threads), now manifesting as an iPhone/iPad
+split.
+
+### The decisive question: did the request reach tsnet?
+
+-1000 is at the URL layer, so the request may not even reach tsnet's SOCKS
+server. Two cases:
+- **tsnet log shows a `socks5:` CONNECT to `google.com`** (then a dial failure)
+  → the request reached tsnet; -1000 is CFNetwork's (odd) mapping of the SOCKS
+  `generalFailure` reply. Fix: PAC (route only tailnet via the proxy) or fix
+  tsnet's resolver.
+- **tsnet log shows NOTHING for `google.com`** → the request never left
+  WebKit/CFNetwork on the iPad; a pure client-side URL/proxy-handling bug. The
+  PAC approach may still help (DIRECT bypasses the proxy entirely) but the bug
+  is in Apple's code.
+
+The app already logs tsnet's socks5 activity to os_log (subsystem
+`io.tailscale.Aperture`, category `tsnet`). On the real iPad, capture it via
+Console.app while loading google.com and look for `socks5:` lines.
+
+### Faithful reproduction: `-TimingInternet -TimingWeb`
+
+The default `-TimingInternet` fetches via **URLSession + the CFNetwork SOCKS
+proxy dictionary** — a DIFFERENT proxy mechanism than the app (which uses
+**WebKit + `WKWebsiteDataStore.proxyConfigurations` + `Network.ProxyConfiguration`**).
+To reproduce the app's exact path, add `-TimingWeb`: the harness loads each URL
+via a real `BrowserViewModel`/`WebPage` + `WKWebsiteDataStore(forIdentifier:)` +
+the SOCKS `ProxyConfiguration` (the same code the URL bar uses), and logs the
+full `WebPage.NavigationError` + underlying NSError domain+code + the app's
+`NavErrorKind`.
+
+```sh
+# Real iPad — reproduce the app's WebKit path, full diagnostics in one launch:
+xcrun simctl launch booted io.tailscale.Aperture \
+    -TimingHarness -TimingRuns 1 -TimingInternet -TimingWeb -AuthKey tskey-auth-...
+# (or via Xcode's Run on the real device with these launch args)
+```
+
+Verified on iPhone 17 Pro sim: google.com loads (title=Google) via the WebKit
+path; on the real iPad the same line should show `FAIL: navError=… kind=…
+underlying=[NSURLErrorDomain -1000] …`, reproducing the overlay's -1000.
+
 ### Likely root cause (real-ios-binary only)
 
 On the sim, `net.Resolver.LookupIP` uses the macOS host resolver → works. On the
