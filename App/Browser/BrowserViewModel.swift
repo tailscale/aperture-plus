@@ -6,15 +6,40 @@ import Combine
 import WebKit
 import TailscaleKit
 
+/// Broad category of a navigation error, so the error overlay can distinguish a
+/// **URL format** problem (the URL itself is bad — a parse/validation failure)
+/// from a **retrieval** problem (the URL is fine but we couldn't reach it —
+/// DNS, proxy, TLS, timeout). Set by `BrowserViewModel.categorize`.
+enum NavErrorKind: Sendable, Equatable {
+    case urlFormat
+    case retrieval
+    case other
+}
+
 @MainActor
 final class BrowserViewModel: ObservableObject {
 
     @Published var page: WebPage
     @Published var failedInitialURL: URL?
-    @Published var navError: (err: Error, url: URL)?
+    /// The current navigation error, if any. `url` is the URL we tried to load
+    /// (nil for a Swift `URL(string:)` parse failure, where there's no URL —
+    /// see `reportURLParseFailure`). Cleared on the next navigation.
+    @Published var navError: (err: Error, url: URL?)?
     /// A human-readable description of the current navigation error, for the
     /// error overlay. Cleared alongside `navError`.
     @Published var navErrorMessage: String?
+    /// The category of the current navigation error, so the overlay can
+    /// distinguish a **URL format/parse** problem (`.urlFormat` — the URL
+    /// itself is bad) from a **retrieval/connection** problem (`.retrieval` —
+    /// the URL is fine but we couldn't reach it). `.other` for page-closed /
+    /// content-process crashes. Cleared alongside `navError`.
+    @Published var navErrorKind: NavErrorKind?
+    /// The string to render (escaped) in the error overlay: `url.absoluteString`
+    /// for WebKit errors, or the raw typed input for a Swift parse failure
+    /// (where there's no URL). Shown via `debugEscaped` so invisible/problematic
+    /// characters (non-breaking space, zero-width space, smart quotes, etc.)
+    /// the keyboard may have injected are visible. Cleared alongside `navError`.
+    @Published var navErrorURLString: String?
     /// Whether the SOCKS5 proxy is currently available. While false (e.g. the
     /// node is reconnecting after the app was backgrounded) the browser shows a
     /// "Reconnecting…" indicator and holds any navigation error instead of
@@ -198,11 +223,29 @@ final class BrowserViewModel: ObservableObject {
         }
         navError = (error, url)
         navErrorMessage = Self.describe(error)
+        navErrorKind = Self.categorize(error)
+        navErrorURLString = url.absoluteString
         if url == initialURL {
             failedInitialURL = url
         } else {
             failedInitialURL = nil
         }
+    }
+
+    /// Surfaces a **URL format/parse** error that failed BEFORE reaching WebKit
+    /// — i.e. Swift's `URL(string:)` returned `nil` for the normalized input in
+    /// a toolbar's submit handler (previously this failed silently with just a
+    /// log line). Shows the overlay with `navErrorKind = .urlFormat` and the raw
+    /// typed string (escaped in the UI) so the user can see what went wrong,
+    /// instead of nothing happening. Not subject to the `isConnected` hold
+    /// (it's a local parse error, not a network retry candidate).
+    func reportURLParseFailure(_ raw: String) {
+        logger.log("URL parse failure (URL(string:) returned nil): \(raw)")
+        navError = (URLError(.badURL), nil)
+        navErrorMessage = "The URL has a format error — check the escaped text above for unexpected characters."
+        navErrorKind = .urlFormat
+        navErrorURLString = raw
+        failedInitialURL = nil
     }
 
     /// Maps a `WebPage.NavigationError` (or any error) to a short user-facing
@@ -221,7 +264,10 @@ final class BrowserViewModel: ObservableObject {
             case .webContentProcessTerminated:
                 return "The page's content process crashed. Try reloading."
             case .invalidURL:
-                return "That URL is invalid."
+                // WebKit rejected the URL — a format problem, not a network
+                // problem. The overlay shows the URL escaped so any unexpected
+                // characters the keyboard injected are visible.
+                return "The URL has a format error — check the escaped text above for unexpected characters."
             @unknown default:
                 return error.localizedDescription
             }
@@ -229,11 +275,29 @@ final class BrowserViewModel: ObservableObject {
         return error.localizedDescription
     }
 
+    /// Classifies a navigation error into a broad category so the overlay can
+    /// distinguish a URL **format** problem from a **retrieval** problem.
+    /// `.invalidURL` is a parse/validation rejection from WebKit;
+    /// `.failedProvisionalNavigation` is a retrieval/connection failure (DNS,
+    /// proxy, TLS, timeout, cancelled); the rest are lifecycle/crash errors.
+    nonisolated static func categorize(_ error: Error) -> NavErrorKind {
+        if let navError = error as? WebPage.NavigationError {
+            switch navError {
+            case .invalidURL: return .urlFormat
+            case .failedProvisionalNavigation: return .retrieval
+            default: return .other
+            }
+        }
+        return .other
+    }
+
     /// Clears the current navigation error (e.g. the user dismissed the
     /// overlay). Does not affect the page itself.
     func clearNavError() {
         navError = nil
         navErrorMessage = nil
+        navErrorKind = nil
+        navErrorURLString = nil
     }
 
     /// Diagnostic (launch arg `-UITestLogResponses`): after a page finishes
@@ -258,6 +322,8 @@ final class BrowserViewModel: ObservableObject {
         failedInitialURL = nil
         navError = nil
         navErrorMessage = nil
+        navErrorKind = nil
+        navErrorURLString = nil
         navTask = Task { [weak self] in
             guard let self else { return }
             do {

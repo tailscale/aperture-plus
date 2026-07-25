@@ -49,7 +49,8 @@ struct BrowserView: View {
             // real failures easy to miss and hard for tests to catch.
             if let navError = model.navError {
                 NavErrorOverlay(
-                    url: navError.url,
+                    urlString: model.navErrorURLString ?? navError.url?.absoluteString ?? "",
+                    kind: model.navErrorKind,
                     message: model.navErrorMessage,
                     onRetry: { model.reload() },
                     onDismiss: { model.clearNavError() }
@@ -57,7 +58,7 @@ struct BrowserView: View {
                 .transition(.opacity.combined(with: .scale))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.navError?.url)
+        .animation(.easeInOut(duration: 0.2), value: model.navErrorURLString)
     }
 }
 
@@ -65,8 +66,16 @@ struct BrowserView: View {
 /// Persistent (no auto-hide): tap Retry to reload, or the close button to
 /// dismiss. Carries the `nav-error-overlay` accessibility identifier so UI
 /// tests can detect that a load failed.
+///
+/// The URL is rendered **escaped** (via `debugEscaped`) so invisible or
+/// problematic characters the keyboard may have injected — non-breaking space
+/// (U+00A0), zero-width space (U+200B), smart quotes (U+201C/201D), tabs,
+/// newlines, etc. — are visible as `\u{XXXX}` instead of silently breaking the
+/// URL. `kind` distinguishes a URL **format** error (parse/validation rejected)
+/// from a **retrieval** error (couldn't connect) via a small category label.
 struct NavErrorOverlay: View {
-    let url: URL
+    let urlString: String
+    let kind: NavErrorKind?
     let message: String?
     let onRetry: () -> Void
     let onDismiss: () -> Void
@@ -92,12 +101,31 @@ struct NavErrorOverlay: View {
                 .accessibilityLabel("Dismiss")
             }
 
-            Text(url.absoluteString)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Category label — distinguishes a URL format problem (the URL
+            // itself is bad) from a retrieval problem (the URL is fine but we
+            // couldn't reach it). Helps the user know whether to fix the URL
+            // or check their connection.
+            if let kind, let label = categoryLabel(for: kind) {
+                Text(label.text)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(label.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // The URL, escaped for diagnosis. Monospaced so the `\u{XXXX}`
+            // sequences align and any unexpected characters stand out.
+            VStack(alignment: .leading, spacing: 2) {
+                Text("URL (escaped for debugging):")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(debugEscaped(urlString))
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
 
             if let message, !message.isEmpty {
                 Text(message)
@@ -130,6 +158,42 @@ struct NavErrorOverlay: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("nav-error-overlay")
     }
+
+    /// A short label + color for each error category, or nil for `.other`
+    /// (page-closed / content-process crash — no useful category to show).
+    private func categoryLabel(for kind: NavErrorKind) -> (text: String, color: Color)? {
+        switch kind {
+        case .urlFormat:
+            return ("URL format error", .orange)
+        case .retrieval:
+            return ("Connection error", .secondary)
+        case .other:
+            return nil
+        }
+    }
+}
+
+/// Returns a diagnostic, escape-only representation of `s` for the error
+/// overlay: every Unicode scalar outside printable ASCII (0x20–0x7E) is
+/// rendered as `\u{XXXX}` so invisible/problematic characters the keyboard may
+/// have injected (non-breaking space U+00A0, zero-width space U+200B, smart
+/// quotes U+201C/201D, tabs, newlines, etc.) are visible. Printable ASCII
+/// (including the regular space) is shown as-is, so a clean URL reads normally.
+///
+/// Percent-encoding is decoded first, so a percent-encoded bad char (e.g.
+/// `%C2%A0` for a non-breaking space that `URL(string:)` encoded) reveals its
+/// true scalar (`\u{A0}`) rather than the opaque encoding.
+func debugEscaped(_ s: String) -> String {
+    let decoded = s.removingPercentEncoding ?? s
+    var out = ""
+    for scalar in decoded.unicodeScalars {
+        if scalar.value >= 0x20 && scalar.value <= 0x7E {
+            out += String(scalar)
+        } else {
+            out += String(format: "\\u{%X}", scalar.value)
+        }
+    }
+    return out
 }
 
 struct LoadingView: View {

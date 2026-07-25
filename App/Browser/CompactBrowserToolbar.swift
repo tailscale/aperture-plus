@@ -230,6 +230,7 @@ struct CompactBrowserToolbar: View {
             viewModel.load(url: url)
         } else {
             logger.log("Could not parse URL: \(normalized)")
+            viewModel.reportURLParseFailure(normalized)
         }
         isEditing = false
     }

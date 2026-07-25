@@ -104,8 +104,11 @@ struct BrowserNavigator: View {
                                 model.load(url: url)
                             } else {
                                 // A normalized string (always has a scheme) is
-                                // essentially always parseable; guard anyway.
+                                // essentially always parseable; if it isn't,
+                                // surface it via the error overlay (escaped)
+                                // instead of failing silently.
                                 logger.log("Could not parse URL: \(normalized)")
+                                model.reportURLParseFailure(normalized)
                             }
                         }
                     if model.page.isLoading {

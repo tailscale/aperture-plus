@@ -661,6 +661,51 @@ final class ApertureUITests: XCTestCase {
                       "navigation-error overlay")
     }
 
+    /// The navigation-error overlay must render the URL **escaped** (so invisible/
+    /// problematic characters are visible) and show a **category label** that
+    /// distinguishes a URL format error from a connection (retrieval) error.
+    /// Loads an unreachable host (a retrieval failure) and asserts the overlay
+    /// contains the "Connection error" category label and the escaped-URL
+    /// header. Guards the diagnostic rendering added to `NavErrorOverlay`.
+    func testNavErrorOverlayShowsEscapedURLAndCategory() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        if app.buttons["url-pill"].waitForExistence(timeout: 5) {
+            app.buttons["url-pill"].tap()
+        }
+        let urlField = app.textFields["url-field"].firstMatch
+        if !urlField.exists { app.textFields["Enter URL"].firstMatch.tap() }
+        XCTAssertTrue(urlField.waitForExistence(timeout: 10),
+                      "URL field should be reachable in the browser toolbar")
+        urlField.tap()
+
+        // An unreachable host -> a retrieval (failedProvisionalNavigation)
+        // error, which the overlay must label "Connection error".
+        urlField.clearAndType(text: "http://nonexistent-aperture-test.invalid/")
+        urlField.typeText("\n")
+
+        let overlay = app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch
+        XCTAssertTrue(overlay.waitForExistence(timeout: 60),
+                      "Loading an unreachable URL should show the nav-error overlay")
+        attachScreenshot(app, named: "nav-error-escaped-category")
+
+        let labels = overlay.staticTexts.allElementsBoundByIndex.map(\.label)
+        let joined = labels.joined(separator: " | ")
+        XCTAssertTrue(labels.contains(where: { $0.contains("Connection error") }),
+                      "Overlay should show the 'Connection error' category label. " +
+                      "Labels: \(joined)")
+        XCTAssertTrue(labels.contains(where: { $0.contains("escaped for debugging") }),
+                      "Overlay should show the escaped-URL header. Labels: \(joined)")
+        // The unreachable host must appear (escaped form of an all-ASCII URL is
+        // the URL itself), proving the URL is rendered at all.
+        XCTAssertTrue(labels.contains(where: { $0.contains("nonexistent-aperture-test.invalid") }),
+                      "Overlay should render the (escaped) URL. Labels: \(joined)")
+    }
+
     /// Explicitly loading **HTTPS** at a hostname whose certificate is issued
     /// for a *different* name (the tailnet FQDN, not the bare MagicDNS name)
     /// must fail with a certificate error — proving TLS certificate
@@ -744,7 +789,7 @@ final class ApertureUITests: XCTestCase {
                 .joined(separator: " | ")
             XCTFail("Valid URL https://google.com/ showed the navigation-error " +
                     "overlay on this size class. Overlay text: \(labels). " +
-                    "(Expected: load the page, not 'That URL is invalid.' or 'bad URL'.)")
+                    "(Expected: load the page, not a format/connection error.)")
         }
     }
 
