@@ -70,7 +70,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    StatusButton(text: "Logout", action: { showLogoutAlert = true })
+                    // Red (destructive) so Logout doesn't read as the
+                    // tempting default blue "go" button — it deletes the
+                    // workspace's tsnet profile and drops the tailnet.
+                    StatusButton(text: "Logout",
+                                 action: { showLogoutAlert = true },
+                                 color: .red)
+                        .accessibilityIdentifier("logout-button")
                 }
             }
             .navigationTitle("Settings")

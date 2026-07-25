@@ -66,6 +66,119 @@ final class ApertureUITests: XCTestCase {
         )
     }
 
+    // MARK: - Interactive login / logout / relogin (null identity provider)
+
+    /// Full interactive login → logout → relogin cycle, WITHOUT an auth key,
+    /// authenticating as `testuser@nullid.fly.dev`.
+    ///
+    /// `testuser@nullid.fly.dev` is a Tailscale "null" OIDC identity provider:
+    /// the Tailscale login page recognises the `nullid.fly.dev` domain and,
+    /// after you submit the email, redirects to a one-page provider that just
+    /// shows the parsed username (`testuser`) and a single "Log in" button —
+    /// no password. Confirming there completes the OAuth callback and brings
+    /// the tailnet up.
+    ///
+    /// Why this test exists: the connected tests all log in non-interactively
+    /// with a staged auth key, so the real `StatusViewModel.showAuth()` /
+    /// `ASWebAuthenticationSession` path, the Settings logout path, and the
+    /// post-logout relogin (via the browser's `LoginBanner`) were never
+    /// exercised by an automated test. This one drives the actual UI.
+    ///
+    /// XCUITest-vs-ASWebAuthenticationSession notes (learned the hard way):
+    /// the auth sheet's web content is hosted in a *separate* (out-of-process)
+    /// WebKit, so it is NOT in `app`'s element tree right away — there's a
+    /// ~10–30s accessibility-bridging lag before `app.webViews.textFields` /
+    /// `app.webViews.buttons` see it. The helpers below use generous timeouts
+    /// for that reason. Once exposed, the email field is
+    /// `app.webViews.textFields.firstMatch` and the submit buttons are
+    /// `app.webViews.buttons["Sign in"]` (Tailscale page) and
+    /// `app.webViews.buttons["Log in"]` (nullid confirm page).
+    ///
+    /// This is a CONNECTED test: it needs network reach to
+    /// controlplane/login.tailscale.com + nullid.fly.dev (the sim shares the
+    /// host network). It does NOT need an auth key — that's the whole point.
+    func testInteractiveLoginLogoutRelogin() throws {
+        let app = XCUIApplication()
+        // Fresh: wipe any saved node creds so we start at the connection gate
+        // (NeedsLogin). Crucially, do NOT stage an auth key — we want the
+        // interactive web-auth path, not the headless key path.
+        app.launchArguments = ["-UITestResetLogin"]
+        app.launch()
+
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
+                      "Brand header should appear on launch")
+        XCTAssertTrue(waitForGateLoginButton(app, timeout: 60),
+                      "Node should reach NeedsLogin and show the Login button " +
+                      "(requires network reach to controlplane.tailscale.com)")
+
+        // --- Phase 1: interactive login ---
+        app.buttons["login-button"].tap()
+        XCTAssertTrue(completeNullIdLogin(app, emailFieldTimeout: 90),
+                      "Interactive login via testuser@nullid.fly.dev should " +
+                      "complete (email → Sign in → nullid Log in)")
+        guard requireBrowserReady(app, timeout: 90) else { return }
+        attachScreenshot(app, named: "login-success")
+
+        // --- Phase 2: logout from Settings ---
+        XCTAssertTrue(openSettings(app), "Settings should open from the browser gear")
+        XCTAssertTrue(app.buttons["logout-button"].waitForExistence(timeout: 10),
+                      "The (red) Logout button should be present on Settings")
+        app.buttons["logout-button"].tap()
+
+        // SwiftUI confirmation alert: title "Logout", destructive confirm "Logout".
+        let alertConfirm = app.alerts["Logout"].buttons["Logout"]
+        XCTAssertTrue(alertConfirm.waitForExistence(timeout: 10),
+                      "Logout confirmation alert should appear")
+        alertConfirm.tap()
+
+        // Logout deletes the tsnet profile → node drops to NeedsLogin. Because
+        // `hasConnected` is sticky, the view stays in browser mode and shows
+        // the `LoginBanner` ("Login Required" + a Login button) rather than
+        // switching back to the connection gate. Accept either signal.
+        let needsLoginAgain = waitForNeedsLoginAgain(app, timeout: 40)
+        if !needsLoginAgain { attachScreenshot(app, named: "logout-no-needslogin") }
+        XCTAssertTrue(needsLoginAgain,
+                      "After logout the app should need login again — either the " +
+                      "browser's LoginBanner (login-banner-button) or the " +
+                      "connection gate's login-button should be reachable")
+
+        // --- Phase 3: relogin ---
+        // Tap whichever NeedsLogin trigger is present, then drive the same
+        // null-id auth flow. The banner button and the gate button both call
+        // `StatusViewModel.showAuth()`.
+        let banner = app.buttons["login-banner-button"]
+        let gate = app.buttons["login-button"]
+        let reloginTrigger = banner.exists ? banner : gate
+        XCTAssertTrue(reloginTrigger.exists, "A relogin trigger should be present")
+        reloginTrigger.tap()
+        XCTAssertTrue(completeNullIdLogin(app, emailFieldTimeout: 90),
+                      "Relogin via testuser@nullid.fly.dev should complete")
+
+        // Relogin success = the LoginBanner clearing. `needsAuth` flips false
+        // when the node leaves NeedsLogin (Starting/Running), so the banner
+        // disappearing is proof the callback completed. We CANNOT use
+        // `requireBrowserReady` here: the browser chrome from the first login
+        // persists across logout (hasConnected is sticky), so
+        // `add-bookmark-button` is present the whole time — it would pass
+        // even if the relogin never finished (a real false-pass risk).
+        let bannerCleared = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            return !app.buttons["login-banner-button"].exists
+                && !app.buttons["login-button"].exists
+        }
+        let bannerExp = XCTNSPredicateExpectation(predicate: bannerCleared, object: app)
+        let reloginDone = XCTWaiter().wait(for: [bannerExp], timeout: 90) == .completed
+        if !reloginDone { attachScreenshot(app, named: "relogin-banner-stuck") }
+        XCTAssertTrue(reloginDone,
+                      "After relogin the LoginBanner should clear (needsAuth → " +
+                      "false once the tailnet reaches Running). If it stays, the " +
+                      "relogin callback did not complete.")
+        // And the browser chrome should still be there.
+        XCTAssertTrue(app.buttons["add-bookmark-button"].exists,
+                      "Browser chrome should remain after a successful relogin")
+        attachScreenshot(app, named: "relogin-success")
+    }
+
     // MARK: - Crash-capture test (connection-independent)
 
     /// Verifies that Go runtime panic output is captured to the redirected
@@ -625,6 +738,140 @@ final class ApertureUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    // MARK: Interactive login (null identity provider) helpers
+
+    /// Waits for the connection gate's Login button (`login-button`) to
+    /// appear — i.e. for the node to reach `NeedsLogin` and `StatusView` to
+    /// render the Login button. Requires network reach to the control plane.
+    @discardableResult
+    private func waitForGateLoginButton(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        app.buttons["login-button"].waitForExistence(timeout: timeout)
+    }
+
+    /// Completes the `ASWebAuthenticationSession` web-auth flow once the sheet
+    /// has been (re)opened, authenticating as `testuser@nullid.fly.dev`:
+    ///
+    ///   1. Tailscale login page → type the email in the email field.
+    ///   2. Tap "Sign in" (fallback: Return on the email field) → redirected
+    ///      to the nullid.fly.dev provider.
+    ///   3. nullid confirm page → tap "Log in" (the username is pre-filled).
+    ///
+    /// Returns true once the nullid confirm button has been tapped (the OAuth
+    /// callback + tailnet-up then happen asynchronously; the caller waits for
+    /// the browser chrome via `requireBrowserReady`). The auth sheet's web
+    /// content is out-of-process, so `emailFieldTimeout` is generous (the
+    /// a11y bridge can take 10–30s to expose the webview's elements).
+    @discardableResult
+    private func completeNullIdLogin(_ app: XCUIApplication,
+                                     emailFieldTimeout: TimeInterval) -> Bool {
+        // 1. Email field on the Tailscale login page.
+        let emailField = app.webViews.textFields.firstMatch
+        guard emailField.waitForExistence(timeout: emailFieldTimeout) else {
+            attachScreenshot(app, named: "login-no-email-field")
+            return false
+        }
+        emailField.tap()
+        emailField.typeText("testuser@nullid.fly.dev")
+        attachScreenshot(app, named: "login-email-typed")
+
+        // 2. Submit → redirect to the nullid provider. Prefer the exposed
+        //    "Sign in" button; fall back to Return if it isn't hittable in
+        //    time (Return on the email field submits the form too).
+        let signInButton = app.webViews.buttons["Sign in"]
+        if signInButton.waitForExistence(timeout: 20) {
+            signInButton.tap()
+        } else {
+            emailField.typeText("\n")
+        }
+
+        // 3. nullid confirm page: a single "Log in" button (the "Username:"
+        //    field is pre-filled with the email's local part, "testuser").
+        let nullidConfirm = app.webViews.buttons["Log in"]
+        guard nullidConfirm.waitForExistence(timeout: 30) else {
+            attachScreenshot(app, named: "login-no-nullid-confirm")
+            return false
+        }
+        attachScreenshot(app, named: "login-nullid-confirm")
+        nullidConfirm.tap()
+
+        // 4. After the null-id provider confirms, Tailscale shows a device-
+        //    authorization page on login.tailscale.com with a blue "Connect"
+        //    button — authorizing THIS node to join the tailnet. It must be
+        //    tapped to finish the OAuth callback. (On a relogin the device is
+        //    still freshly registered — the state dir was wiped — so this page
+        //    appears every time.)
+        //
+        //    The button's visible text is "Connect" but its accessibility
+        //    label is "Connect device to tailnet" (extra SR-only context),
+        //    so match by label-contains rather than an exact "Connect".
+        //
+        //    NOTE: do NOT shortcut this wait on the browser chrome appearing —
+        //    `add-bookmark-button` persists across logout (hasConnected is
+        //    sticky), so it's true during relogin before the callback completes.
+        //    Always wait for the real Connect control and tap it.
+        let connectButton = app.webViews.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Connect")).firstMatch
+        if connectButton.waitForExistence(timeout: 40) {
+            attachScreenshot(app, named: "login-connect-page")
+            connectButton.tap()
+        } else {
+            // Device may have been auto-authorized (no Connect page). The
+            // caller's success check distinguishes a real completion.
+            attachScreenshot(app, named: "login-no-connect-page")
+        }
+        return true
+    }
+
+    /// Opens Settings. Settings is reachable two different ways depending on
+    /// where we are + the size class:
+    ///   - A direct gear button (`settings-button`) in the connection gate
+    ///     and the iPad (regular) browser toolbar.
+    ///   - A "Settings" item inside the iPhone (compact) browser's "More" menu
+    ///     (`more-menu-button` / ellipsis) — there is NO `settings-button` in
+    ///     the compact toolbar. This asymmetry is easy to miss (the gate-based
+    ///     `testOpenAndCloseSettings` never exercises the menu path).
+    @discardableResult
+    private func openSettings(_ app: XCUIApplication) -> Bool {
+        // Direct gear (gate / iPad).
+        if app.buttons["settings-button"].waitForExistence(timeout: 10) {
+            app.buttons["settings-button"].tap()
+            return app.navigationBars["Settings"].waitForExistence(timeout: 10)
+        }
+        // Compact browser: Settings lives behind the "More" menu.
+        guard app.buttons["more-menu-button"].waitForExistence(timeout: 5) else {
+            attachScreenshot(app, named: "settings-no-entry-point")
+            return false
+        }
+        app.buttons["more-menu-button"].tap()
+        // SwiftUI Menu items can surface as either `menuItems` or `buttons`.
+        let asMenuItem = app.menuItems["Settings"]
+        let asButton = app.buttons["Settings"]
+        let found = asMenuItem.waitForExistence(timeout: 5)
+            || asButton.waitForExistence(timeout: 5)
+        guard found else {
+            attachScreenshot(app, named: "settings-menu-no-settings-item")
+            return false
+        }
+        (asMenuItem.exists ? asMenuItem : asButton).tap()
+        return app.navigationBars["Settings"].waitForExistence(timeout: 10)
+    }
+
+    /// After logout, the node drops to `NeedsLogin`. Because `hasConnected` is
+    /// sticky, the UI stays in browser mode and shows the `LoginBanner`
+    /// (`login-banner-button`) rather than reverting to the connection gate's
+    /// `login-button`. Accept either as proof that a relogin is required.
+    @discardableResult
+    private func waitForNeedsLoginAgain(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            return app.buttons["login-banner-button"].exists || app.buttons["login-button"].exists
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    // MARK: - Auth-key resolution (connected tests)
 
     /// Resolve the auth key for connected tests. `xcodebuild` does NOT forward
     /// arbitrary parent-shell environment variables to the UI-test runner, so

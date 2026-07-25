@@ -115,6 +115,29 @@ green):
 - `testOpenNewChatTab` — the "+" opens a new chat tab; the tab-overview button
   opens the "Tabs" grid.
 
+Interactive login (connected, but does **NOT** use an auth key — it drives the
+real `ASWebAuthenticationSession` web-auth flow against the public control
+plane + the `testuser@nullid.fly.dev` null identity provider; needs network
+reach to controlplane/login.tailscale.com + nullid.fly.dev):
+
+- `testInteractiveLoginLogoutRelogin` — the full Login → Logout → Relogin
+  cycle: tap the gate's Login button, type `testuser@nullid.fly.dev` in the
+  Tailscale login sheet, submit, confirm on the nullid page, authorize the
+  device on the "Connect" page, then verify the browser comes up; open
+  Settings (via the compact browser's More menu), tap the red Logout button,
+  confirm the alert, verify the `LoginBanner` appears; tap it and re-login,
+  verifying the banner clears. Exercises the real interactive auth path, the
+  Settings logout, and the post-logout relogin — none of which the auth-key
+  connected tests touch.
+
+  Notes: the auth sheet's web content is out-of-process, so XCUITest can't see
+  it right away — there's a 10–30s accessibility-bridging lag before
+  `app.webViews.textFields` / `app.webViews.buttons` surface it (the test uses
+  generous timeouts). The "Connect" button's a11y label is "Connect device to
+  tailnet", not "Connect". This test also depends on a `StatusViewModel` fix
+  (clearing a stale `browseToURL` after login) so that post-logout relogin
+  requests a fresh auth URL instead of reusing a stale one.
+
 ### Automating login with an auth key (`AUTHKEY`)
 
 `testHomePageLoadsWhenConnected` and the other connected tests can log a fresh

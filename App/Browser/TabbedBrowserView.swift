@@ -288,6 +288,13 @@ private struct BrowserRootContent: View {
 private struct LoginBanner: View {
     let onLogin: () -> Void
 
+    /// Spins the moment the banner Login button's action fires — tap feedback
+    /// so the user can tell the tap landed (the button is small in a thin
+    /// banner). The whole banner disappears when login succeeds
+    /// (`needsAuth` → false removes it), so this just needs a safety timeout
+    /// to return the button to tappable if the sheet never opens.
+    @State private var isStartingLogin = false
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
@@ -295,9 +302,23 @@ private struct LoginBanner: View {
             Text("Login Required")
                 .font(.subheadline.weight(.medium))
             Spacer()
-            Button("Login", action: onLogin)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            Button {
+                isStartingLogin = true
+                onLogin()
+                Task {
+                    try? await Task.sleep(nanoseconds: 120_000_000_000)
+                    isStartingLogin = false
+                }
+            } label: {
+                if isStartingLogin {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("Login")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .accessibilityIdentifier("login-banner-button")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -177,7 +177,32 @@ final class TSNetManager {
     func tailscaleUp(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws {
         let processor = try await startEventBus(localAPI: localAPI, consumer: consumer)
         await MainActor.run { setProcessor(processor) }
-        try await node?.up()
+
+        // Deliberately do NOT call `node?.up()`. `up()` calls Go's
+        // `Up(context.Background())` (non-cancellable), which blocks until the
+        // node reaches `Running`. For a no-auth-key node sitting at
+        // `NeedsLogin` (every real user before they log in), that blocks the
+        // `TailscaleNode` actor's serial executor INDEFINITELY — and since
+        // `loopback()`, `close()`, `addrs()` are all on the same actor, EVERY
+        // localAPI call (`backendStatus()` polling, `startLoginInteractive()`,
+        // logout's `currentProfile`/`deleteProfile`) queues behind it and hangs
+        // for the whole login window. It also deadlocks `close()` on
+        // background (close queues behind up() forever) → two tsnet servers
+        // on the same state dir after a bg/fg cycle.
+        //
+        // `tailscale_start` (called in `TailscaleNode.init`) already sets
+        // `WantRunning` + calls `StartLoginInteractive`, so the IPN bus emits
+        // `NeedsLogin` + `BrowseToURL` (and later `Running` when the user
+        // completes login) on its own — `Up`'s only extra work is a redundant
+        // wait-for-`Running`. The bus watcher attached above is the source of
+        // truth for state; `startStatusPolling` is the fallback. (Confirmed by
+        // the timing harness in timing/: Start→Running ≈ Up→Running, with no
+        // actor freeze — see timing/README.md.)
+        //
+        // The loopback SOCKS5 proxy is up as soon as the node is started, so
+        // `proxyConfiguration` can be published now; WebKit loads through it
+        // only succeed once the bus reports `Running`, which is also when the
+        // gate switches to the browser — so setting it early is safe.
         if let loopback = try await self.node?.loopback() {
             await MainActor.run {
                 model.proxyConfiguration = proxyConfig(loopback)
@@ -185,7 +210,7 @@ final class TSNetManager {
         }
     }
 
-    var busErrorWatcher: AnyCancellable?
+    @MainActor var busErrorWatcher: AnyCancellable?
     func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws  -> MessageProcessor {
         // This sets up a bus watcher to listen for changes in the netmap.  These will be sent to the given consumer, in
         // this case, a TSNetModel which will keep track of the changes and publish them.
@@ -193,20 +218,52 @@ final class TSNetManager {
         let processor = try await localAPI.watchIPNBus(mask: busEventMask,
                                                        consumer: consumer)
 
-        // Any error on the bus consumer indicates that it needs to be restarted.
+        // Any error on the bus consumer indicates the watcher died and needs to
+        // be restarted. The watch-ipn-bus long-poll has no keep-alive, so
+        // URLSession's default 60s request timeout kills it every minute of
+        // idleness — this restart is what keeps state flowing.
+        //
+        // The restart MUST be robust: the previous version did
+        // `let processor = try await startEventBus(...)` inside an unawaited
+        // Task with no catch. If that threw (e.g. loopback not ready after a
+        // bg/fg cycle), the error was silently swallowed, `consumer.error` had
+        // already been cleared, and NO new watcher existed — the app then had
+        // NO bus observation forever, so state never updated again (the
+        // "click Login/Logout and nothing happens for minutes/ever" hang).
+        // Now we catch, log, back off, and retry until the bus comes back or
+        // the node is torn down (background).
         let busObserver = await consumer.$error
             .sink { [weak self] error in
                 guard error != nil else { return }
-                logger.log("Restarting bus watcher")
+                logger.log("Bus watcher error: \(String(describing: error)); restarting")
                 Task { [weak self] in
                     guard let self else { return }
                     await MainActor.run { consumer.error = nil }
-                    let processor = try await startEventBus(localAPI: localAPI, consumer: consumer)
-                    await MainActor.run { self.setProcessor(processor) }
+                    var backoff: TimeInterval = 0.5
+                    while !Task.isCancelled {
+                        // Bail if the node was torn down (background); the
+                        // foreground path starts a fresh bus on the new node.
+                        let alive = await MainActor.run { self.node != nil }
+                        guard alive else { return }
+                        do {
+                            let processor = try await self.startEventBus(localAPI: localAPI, consumer: consumer)
+                            await MainActor.run { self.setProcessor(processor) }
+                            return // success
+                        } catch {
+                            logger.log("Bus restart failed: \(error); retry in \(Int(backoff))s")
+                            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+                            backoff = min(backoff * 2, 30)
+                        }
+                    }
                 }
             }
 
-        await MainActor.run { busErrorWatcher = busObserver }
+        // Cancel any prior observer before installing the new one, so the old
+        // watcher's sink can't fire again and cascade into concurrent restarts.
+        await MainActor.run {
+            busErrorWatcher?.cancel()
+            busErrorWatcher = busObserver
+        }
         return processor
     }
 
@@ -226,7 +283,20 @@ final class TSNetManager {
                 guard let self else { return }
                 if let client = await MainActor.run(body: { self.localAPIClient }) {
                     if let status = try? await client.backendStatus() {
-                        await MainActor.run { self.model.localStatus = status }
+                        await MainActor.run {
+                            self.model.localStatus = status
+                            // Fallback state signal: model.state is normally
+                            // driven by the IPN bus, but if the bus watcher is
+                            // mid-restart (or has died — see startEventBus),
+                            // state would go stale indefinitely. Mirror the
+                            // polled BackendState into model.state so the UI's
+                            // gate/LoginBanner/Login-button react within one
+                            // poll interval (5s) instead of waiting for the bus.
+                            if let s = Self.ipnState(fromBackendState: status.BackendState),
+                               self.model.state != s {
+                                self.model.state = s
+                            }
+                        }
                     }
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000_000) // 5s
@@ -305,6 +375,24 @@ final class TSNetManager {
         Task {
             try await client?.editPrefs(mask: mask)
             logger.log("Set hostname to \(newHostName)")
+        }
+    }
+
+    /// Maps the polled `IpnState.Status.BackendState` string ("Running",
+    /// "NeedsLogin", …) to `Ipn.State`. Used by `startStatusPolling` as a
+    /// fallback state signal so the UI isn't blind when the IPN bus watcher
+    /// is mid-restart (or has died). `nonisolated` so it's callable from the
+    /// polling Task off the main actor.
+    nonisolated static func ipnState(fromBackendState s: String) -> Ipn.State? {
+        switch s {
+        case "NoState":          return .NoState
+        case "InUseOtherUser":   return .InUseOtherUser
+        case "NeedsLogin":       return .NeedsLogin
+        case "NeedsMachineAuth": return .NeedsMachineAuth
+        case "Stopped":          return .Stopped
+        case "Starting":         return .Starting
+        case "Running":          return .Running
+        default:                 return nil
         }
     }
 }

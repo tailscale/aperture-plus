@@ -133,9 +133,20 @@ final class Workspace: ObservableObject, Identifiable {
 
     func logout() {
         Task { [manager] in
-            let currentUser = try? await manager.localAPIClient?.currentProfile()
-            if let currentUser {
-                try? await manager.localAPIClient?.deleteProfile(profileID: currentUser.id)
+            do {
+                guard let profile = try await manager.localAPIClient?.currentProfile() else {
+                    logger.log("Logout: no current profile; nothing to delete")
+                    return
+                }
+                try await manager.localAPIClient?.deleteProfile(profileID: profile.id)
+                logger.log("Logout: deleted profile \(profile.id)")
+            } catch {
+                // Previously this swallowed every error with `try?`, so a failed
+                // logout (network blip, node not running) left the UI silently
+                // stuck on the browser with no LoginBanner — the user could tap
+                // Logout repeatedly with no effect and no clue why. At least log
+                // it now; surfacing the error to the user is a follow-up.
+                logger.log("Logout failed: \(error)")
             }
         }
     }

@@ -27,8 +27,15 @@ final class StatusViewModel:  ObservableObject {
     }
 
     private func observeAuthURL() {
+        // NOTE: no `.removeDuplicates()` on `$state` here. The bus watcher
+        // restarts every ~60s (no keep-alive on watch-ipn-bus) and re-emits
+        // the current State via the initial-state dump; deduping State would
+        // drop that re-emit, and if `browseToURL` wasn't also re-emitted in
+        // the same dump the NeedsLogin+URL pairing could be missed — leaving
+        // `authURL` stale/nil and Login silently broken. Re-evaluating on
+        // every state emit is idempotent (the NeedsLogin branch just re-sets
+        // authURL/needsAuth) and robust against the restart churn.
         manager.model.$state
-            .removeDuplicates()
             .combineLatest(manager.model.$browseToURL)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state, browseToURL in
@@ -39,13 +46,42 @@ final class StatusViewModel:  ObservableObject {
                     needsAuth = true
                     if requestedInteractiveLogin, let browseToURL {
                         requestedInteractiveLogin = false
+                        logger.log("observeAuthURL: fresh URL arrived while interactive login requested; opening sheet")
                         authManager.showAuth(authURL: browseToURL)
                     }
                 } else {
-                    requestedInteractiveLogin = false
+                    // NOTE: do NOT reset `requestedInteractiveLogin` here.
+                    // The user tapped Login (banner/gate) with no cached URL,
+                    // so `showAuth` set the flag and called
+                    // `startLoginInteractive()`; the fresh BrowseToURL arrives
+                    // asynchronously on the bus. If the backend briefly flips
+                    // the state to Starting/NoState before that URL lands, the
+                    // old code reset the flag here — so when NeedsLogin+URL
+                    // arrived a moment later the flag was false and the sheet
+                    // NEVER opened (the "tap banner Login, nothing happens"
+                    // device bug; the sim didn't flicker so the test passed).
+                    // Leaving the flag sticky means the request survives the
+                    // flicker and is consumed when the URL actually arrives;
+                    // it only fires in the NeedsLogin+URL branch above, so a
+                    // stale flag can't open a sheet at the wrong time.
                     needsAuth = false
                     authURL = nil
                     authManager.cancel()
+                    // Drop any BrowseToURL the node emitted while logged in
+                    // (tailscale can re-emit one right after `Running`). If we
+                    // leave it, then after a logout — when the node returns to
+                    // `NeedsLogin` WITHOUT emitting a fresh URL — the branch
+                    // above would re-fill `authURL` from this STALE URL. The
+                    // user's next Login would open the sheet with it: the OAuth
+                    // completes on the control plane (the "Connect using the
+                    // app" page even renders) but the node isn't watching for
+                    // that callback, so the tailnet stays `NeedsLogin` and
+                    // relogin silently fails. Clearing it here makes `authURL`
+                    // nil after a logout, so `showAuth()` falls through to
+                    // `startLoginInteractive()` and gets a fresh, watched URL.
+                    if manager.model.browseToURL != nil {
+                        manager.model.browseToURL = nil
+                    }
                 }
 
                 running = state == .Running
@@ -90,20 +126,42 @@ final class StatusViewModel:  ObservableObject {
 
     func showAuth() {
         if let authURL {
+            logger.log("showAuth: opening auth sheet with cached URL: \(authURL)")
             authManager.showAuth(authURL: authURL)
         } else {
+            // No URL yet — request a fresh interactive login and open the
+            // sheet when the bus delivers the URL (observeAuthURL).
+            logger.log("showAuth: no authURL yet; requesting interactive login")
             requestedInteractiveLogin = true
             Task {
-                try await manager.localAPIClient?.startLoginInteractive()
+                do {
+                    try await manager.localAPIClient?.startLoginInteractive()
+                } catch {
+                    // Previously this was `try await` in an unawaited Task —
+                    // a throw (e.g. localAPI not ready, node mid-restart) was
+                    // silently dropped and no URL ever arrived, so the sheet
+                    // never opened and the banner Login looked dead. Log it so
+                    // it's diagnosable, and clear the flag so a later stale
+                    // URL doesn't pop a sheet the user didn't expect.
+                    logger.log("showAuth: startLoginInteractive failed: \(error)")
+                    requestedInteractiveLogin = false
+                }
             }
         }
     }
 
     func logout() {
         Task {
-            let currentUser = try? await manager.localAPIClient?.currentProfile()
-            if let currentUser {
-                try? await manager.localAPIClient?.deleteProfile(profileID: currentUser.id)
+            do {
+                let currentUser = try await manager.localAPIClient?.currentProfile()
+                if let currentUser {
+                    try await manager.localAPIClient?.deleteProfile(profileID: currentUser.id)
+                    logger.log("Logout: deleted profile \(currentUser.id)")
+                } else {
+                    logger.log("Logout: no current profile; nothing to delete")
+                }
+            } catch {
+                logger.log("Logout failed: \(error)")
             }
         }
     }
