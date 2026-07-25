@@ -372,6 +372,93 @@ traffic — there's no per-host split. tsnet's SOCKS5 server dials via
 `userDialResolve` has a `TODO(bradfitz): wire up net/dnscache too` — tsnet uses
 plain `net.Resolver`, NOT the robust `net/dnscache` the Tailscale iOS app uses.
 
+### The likely gate: the `com.apple.developer.web-browser` entitlement
+
+Your security intuition is right: a random iOS app *shouldn't* be able to
+impersonate a browser and intercept all gmail traffic. Apple's defense is the
+**`com.apple.developer.web-browser` entitlement** — a *managed* entitlement
+Apple grants via the App Store "web browser" category (per WebKit's
+[App-Bound Domains blog](https://webkit.org/blog/10882/app-bound-domains/):
+"BrowserApp has previously received permission to take the managed entitlement
+com.apple.developer.web-browser, which signifies its purpose as a full
+web-browser. All `WKWebView` instances for BrowserApp will therefore have
+unrestricted API access on all domains.").
+
+WebKit source confirms the gate (`Source/WebKit/Shared/Cocoa/DefaultWebBrowserChecks.mm`):
+
+```cpp
+bool isFullWebBrowserOrRunningTest(const String& bundleIdentifier) {
+    static bool fullWebBrowser = WTF::processHasEntitlement("com.apple.developer.web-browser"_s);
+    ...
+    return fullWebBrowser && !treatAsNonBrowser(bundleID);
+}
+```
+
+`isFullWebBrowserOrRunningTest()` gates WebKit's "full browser" privileges
+(unrestricted API access on all domains, ITP behavior, app-bound-domain
+exemption, etc.). Without it you're an "in-app browser" with restrictions.
+
+**Aperture does NOT have this entitlement** — the project has no entitlements
+file (`codesign -d --entitlements` on the build is empty), and the Info.plist is
+minimal (just ATS). So WebKit treats Aperture as an in-app browser on every
+device. Which raises the question: why does the restriction fire on iPad but
+not iPhone, when both run the same entitlement-less `ios-arm64` binary?
+
+### Why the iPhone/iPad split (the working hypothesis)
+
+The entitlement itself is the same on both. The split is most likely an
+**iOS/iPadOS policy difference in what an in-app browser is allowed to do with
+`WKWebsiteDataStore.proxyConfigurations` for non-app-bound (internet) hosts** —
+i.e. Apple's defense against the exact "intercept all gmail" attack you
+described, enforced more strictly on iPadOS (and macOS-Designed-for-iPad) than
+on iOS, for a non-`web-browser`-entitled app. -1000 (badURL) is then the
+ symptom: the proxied load of an internet host is rejected at the CFURL layer
+*before* it reaches the proxy, because the in-app-browser policy won't allow a
+non-browser app to route an internet host through a SOCKS proxy it controls.
+Tailnet hosts (`ai`) work because they're "app-bound"-ish (resolved in-memory
+by tsnet, not a public internet host the policy is trying to protect).
+
+This is consistent with everything observed:
+- The request likely **never reaches tsnet** for `google.com` on the iPad
+  (-1000 is pre-proxy); the tsnet `socks5:` log would confirm.
+- The sim doesn't reproduce it (sims don't enforce the production policy).
+- iPhone works — iPadOS enforces stricter, or the iPhone's dev-mode / a
+  linkedOnOrAfter / SDK-aligned-behavior difference relaxes it. (Your phone
+  being in dev mode, or an `linkedOnOrAfterSDKWithBehavior` quirk, could be
+  why iPhone doesn't trigger the same policy — see `determineTracking
+  PreventionStateInternal`'s `appWasLinkedOnOrAfter` branch in the same file.)
+
+### What this means for a fix
+
+A PAC/workaround would *hide* a security policy, not fix a bug — exactly your
+concern. The real fix is one of:
+
+1. **Declare `com.apple.developer.web-browser`** in Aperture's entitlements and
+   ship via the App Store as a "web browser" category app (Apple grants the
+   managed entitlement on approval). This is the *intended* path for an app
+   whose purpose is browsing. It's also what makes the in-app-browser
+   restrictions not apply. **Most likely the correct fix.** Requires App Review
+   approval as a browser.
+2. **Confirm the policy + file a WebKit bug** if the iPhone/iPad asymmetry is
+   unintended (an in-app-browser restriction should arguably fire identically
+   on both). The `-1000` for an obviously-valid URL is itself a poor error (it
+   should be a clear "not permitted" message), suggesting a bug in the policy's
+   *error reporting* even if the policy is intended.
+3. **Route internet DIRECT, tailnet via proxy (PAC)** — still valid as a
+   *design* choice (internet doesn't need tsnet), but it would be sidestepping
+   the policy, not addressing it. If the policy also blocks DIRECT internet for
+   in-app browsers on iPad (unknown), this wouldn't even work.
+
+The next step is **confirming the policy is the cause** (vs. a coincidental
+WebKit networking bug) before deciding. The cleanest confirmation: add the
+`com.apple.developer.web-browser` entitlement to a local build, run on the real
+iPad, and see if `https://google.com/` then loads. If it does → the entitlement
+is the gate; pursue path 1. If it doesn't → the policy is something else, and
+we file a WebKit bug with the -1000 reproduction. (Caveat: the entitlement is
+*managed* — a self-signed local build may not actually grant it; the real test
+is an App-Store-signed build with the entitlement granted by Apple. A
+provisioning profile with the entitlement from the dev portal is the dev path.)
+
 ### The -1000 (badURL) result + the iPhone/iPad split
 
 On a REAL iPad (and macOS-Designed-for-iPad), `https://www.google.com/` fails
