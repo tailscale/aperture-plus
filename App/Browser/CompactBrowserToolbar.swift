@@ -220,8 +220,11 @@ struct CompactBrowserToolbar: View {
     }
 
     private func submit() {
-        let trimmed = urlFieldText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = BrowserNavigator.trimmedURLInput(urlFieldText)
         guard !trimmed.isEmpty else { return }
+        if ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") {
+            logger.log("URL submit raw=\(Array(trimmed.utf8)) (\(trimmed.count) chars)")
+        }
         let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
         if let url = URL(string: normalized) {
             viewModel.load(url: url)

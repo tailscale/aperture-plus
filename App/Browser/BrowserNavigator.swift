@@ -80,12 +80,24 @@ struct BrowserNavigator: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
+                        .textContentType(.URL)
+                        .submitLabel(.go)
+                        .accessibilityIdentifier("url-field")
                         .onSubmit {
                             // Normalize and load URL via the watched loader so
                             // failures surface the error overlay (a direct
                             // `page.load` here previously failed silently).
-                            let trimmed = urlFieldText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let trimmed = BrowserNavigator.trimmedURLInput(urlFieldText)
                             guard !trimmed.isEmpty else { return }
+                            // Diagnostic (launch arg `-UITestLogResponses`): log the
+                            // raw bytes the keyboard handed us, so real-device
+                            // input mangling (autocorrect / autocapitalize /
+                            // smart punctuation on the toolbar field) is visible
+                            // in `log stream` when chasing spurious 'That URL
+                            // is invalid.' errors. Off by default.
+                            if ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") {
+                                logger.log("URL submit raw=\(Array(trimmed.utf8)) (\(trimmed.count) chars)")
+                            }
                             let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
                             urlFieldText = normalized
                             if let url = URL(string: normalized) {
@@ -191,9 +203,51 @@ struct BrowserNavigator: View {
             ?? ""
     }
 
+    /// Trims leading/trailing whitespace from a URL-bar input, including the
+    /// Unicode whitespace characters (U+00A0 non-breaking space, U+200B
+    /// zero-width space, etc.) that `.whitespacesAndNewlines` misses and that
+    /// the iOS keyboard can insert. Used by both toolbars' submit paths.
+    static func trimmedURLInput(_ input: String) -> String {
+        // Strip ALL Unicode whitespace from both ends (CharacterSet.whitespaces
+        // includes U+00A0; .whitespacesAndNewlines in some SDKs did not).
+        let ws = CharacterSet.whitespaces.union(.newlines)
+        var s = input.trimmingCharacters(in: ws)
+        // Also drop any stray zero-width / non-breaking spaces anywhere — a
+        // keyboard can inject them mid-string and they break URL parsing.
+        let invisibles: Set<Character> = ["\u{00A0}", "\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}"]
+        s = String(s.filter { !invisibles.contains($0) })
+        return s.trimmingCharacters(in: ws)
+    }
+
+    /// Normalizes a URL-bar input into a string suitable for `URL(string:)` /
+    /// `WebPage.load`. Prepends `https://` when there's no scheme, and — to
+    /// survive real-keyboard input mangling on iPad (where the toolbar
+    /// TextField's `.textInputAutocapitalization(.never)`/`.autocorrectionDisabled()`
+    /// are not always honored, so autocorrect can mutate `https` into a
+    /// non-http scheme) — if the parsed scheme is anything other than http or
+    /// https, strips that scheme and prepends `https://` instead. A non-http
+    /// scheme would otherwise parse as a valid `URL` but be rejected by WebKit's
+    /// `WebPage.load` as `.invalidURL` ("That URL is invalid."), which is the
+    /// reported iPad symptom.
     static func normalizedURLString(from input: String) -> String {
-        if let url = URL(string: input), let scheme = url.scheme, !scheme.isEmpty {
+        // Fast path: already explicitly http(s) — the overwhelmingly common case.
+        let lower = input.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
             return input
+        }
+        if let url = URL(string: input), let scheme = url.scheme, !scheme.isEmpty {
+            let s = scheme.lowercased()
+            if s == "http" || s == "https" {
+                return input
+            }
+            // Parsed with a non-http(s) scheme (e.g. autocorrect mangled
+            // "https" into "httpd"). Strip the "scheme://" and treat the rest
+            // as a host/path under https.
+            if let r = input.range(of: "://") {
+                return "https://\(input[r.upperBound...])"
+            }
+            // Scheme but no "://" (e.g. "mailto:foo"); prepend https to the lot.
+            return "https://\(input)"
         }
         return "https://\(input)"
     }

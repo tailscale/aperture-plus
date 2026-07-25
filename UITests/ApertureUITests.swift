@@ -703,6 +703,51 @@ final class ApertureUITests: XCTestCase {
                       "— that is a security regression.")
     }
 
+    /// A plainly valid https URL entered in the URL box must load, NOT show
+    /// "That URL is invalid." Runs on BOTH size classes (iPhone compact +
+    /// iPad regular) so the iPad `BrowserNavigator` field — which previously
+    /// had no "url-field" identifier and so was never exercised by the URL
+    /// tests (they ran on an iPhone sim) — is covered. Guards against
+    /// regressions in `normalizedURLString` / the submit path.
+    ///
+    /// Note: this types the URL literally via XCUITest, so it does NOT
+    /// reproduce real-keyboard autocorrect/autocapitalize mangling (the
+    /// suspected cause of the reported iPad-only 'invalid URL' on a real
+    /// device — the toolbar TextField's input traits aren't always honored).
+    /// It does guard the normalization + load path on both layouts.
+    func testValidHTTPSURLDoesNotShowInvalidError() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        // Open the URL editor. Compact: tap the url-pill. Regular (iPad): the
+        // "Enter URL" field is always present. Both now expose "url-field".
+        if app.buttons["url-pill"].waitForExistence(timeout: 5) {
+            app.buttons["url-pill"].tap()
+        }
+        let urlField = app.textFields["url-field"].firstMatch
+        XCTAssertTrue(urlField.waitForExistence(timeout: 10),
+                      "URL field should be reachable in the browser toolbar")
+        urlField.tap()
+
+        urlField.clearAndType(text: "https://google.com/")
+        urlField.typeText("\n")
+
+        // A valid https URL must NOT produce the navigation-error overlay.
+        let overlay = app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch
+        let overlayAppeared = overlay.waitForExistence(timeout: 30)
+        attachScreenshot(app, named: overlayAppeared ? "valid-url-errored" : "valid-url-loaded")
+        if overlayAppeared {
+            let labels = overlay.staticTexts.allElementsBoundByIndex.map(\.label)
+                .joined(separator: " | ")
+            XCTFail("Valid URL https://google.com/ showed the navigation-error " +
+                    "overlay on this size class. Overlay text: \(labels). " +
+                    "(Expected: load the page, not 'That URL is invalid.' or 'bad URL'.)")
+        }
+    }
+
     /// After the home page loads, tapping the page (e.g. to focus the chat
     /// input) must NOT crash the app. Guards against WebView/Page lifecycle
     /// regressions (notably the per-workspace `WKWebsiteDataStore` refactor).
