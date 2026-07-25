@@ -560,10 +560,127 @@ confirmed and the fix is the entitlement (production needs it) — PAC for split
 tunnel in the meantime. If `http://a/` also -1000s, H3 is dead and the block is
 "public-web/non-browser" broadly (H1′ + H4), not single-label.
 
+### Follow-up: the decisive new fact + the sourced mechanism (H-LNA)
+
+The user ran a fuller matrix on the real iPad: **ALL tailnet URLs work** —
+`http://ai/`, `http://ai.corp.ts.net/`, **and `https://ai.corp.ts.net/`** (FQDN,
+dotted, HTTPS), plus other `*.corp.ts.net` services. **ALL non-tailnet URLs
+-1000** — `google.com`, `example.com`, `142.250.80.46`. So the discriminator is
+NOT hostname shape (H3 is DEAD — `ai.corp.ts.net` is dotted/HTTPS and works) —
+it's whether the host **is on the tailnet**.
+
+The domain-entitlement hypothesis is RULED OUT: the project has NO entitlements
+file, NO `com.apple.developer.associated-domains`, NO `ts.net` anywhere, NO
+`WKAppBoundDomains` — `Info.plist` is just ATS. MagicDNS is a Tailscale-node DNS
+feature, not an Apple one; `*.ts.net` gets no Apple-side special handling. So
+Apple isn't categorizing `ai.corp.ts.net` as "tailnet" — the proxy (tsnet) is.
+
+Re-engaged the three reviewers with this narrowed direction. **Opus found the
+concrete, sourced iOS-26 mechanism — H-LNA (Local Network Access / IPAddressSpace):**
+
+- **WebKit PR #69886** "Classify the real resolved connection IP for Local
+  Network Access on Cocoa" (bug 319906, rdar://182830220, **merged 2026-07-24** —
+  three days before this bug report): adds `classifyIPAddressSpace(const
+  IPAddress&)` to `NetworkDataTaskCocoa.mm` (`didReceiveResponse` /
+  `willPerformHTTPRedirection`). Verbatim from the PR: *"the resolved connection
+  address, not the request URL's host, is what gets classified into an
+  IPAddressSpace… When the connection address cannot be classified (no resolved
+  address…) the space is left as IPAddressSpace::Unknown, which ranks as the
+  least public space so the local network access check **fails closed** instead
+  of defaulting to Public."* 
+  https://github.com/WebKit/WebKit/pull/69886
+- **`IPAddressSpace.cpp` / `IPAddressSpaceTests.cpp`**: classifies into
+  `{Public, Local, Loopback, Unknown}`. There is an explicit
+  **`IPv4CarrierGradeNAT` test** — **`100.64.0.0/10` (RFC 6598 CGNAT) is
+  classified as `Local`**, alongside RFC1918. **Tailscale hands out exactly
+  `100.64.0.0/10`.** So tailnet hosts → `Local` → allowed; public hosts →
+  `Public` (or, through a proxy that resolves proxy-side, `Unknown`) → gated.
+- Meta-bug **250607** (LNA enforcement); PRs #63281, #69817 (IPAddressSpace
+  split into `{Public, Local, Loopback}`). Apple docs: **TN3179** (local network
+  privacy), support article 102229 — confirm `100.64/10` shared-address-space is
+  treated as local.
+
+**How it fits every fact:** through a SOCKS5 proxy that resolves proxy-side
+(tsnet uses `addrType: domainName` — the client hands the hostname to the proxy
+and never resolves it), WebKit on iOS 26 gets **no client-side resolved
+connection address** for the target → `IPAddressSpace::Unknown` → **fails
+closed** for public-destined loads. Tailnet hosts that resolve (via MagicDNS
+registered system-side, or whose connection resolves to a `100.x`) classify as
+`Local` (CGNAT) → allowed. That's the tailnet-works/internet-fails split, with
+NO app entitlement, NO domain allowlist, scheme/dottedness-independent, and
+it's brand-new in iOS 26 (merged 2026-07-24) — so the sim (older/unenforced)
+doesn't reproduce it, and the iPhone may be on a different enforcement state
+(per-app Local Network permission / linked-SDK behavior — a specific form of
+H2). Real-device confirmation: Apple devforums thread 817697 (iOS 26.4
+WKWebView: IP-type connections hang minutes / no SYN; `.local` and remote
+domains fine — LNA gating on address-class).
+
+**GPT's H5 (proxy-side `UserDial` split)** is a partial alternative: the request
+DOES reach tsnet; `UserDial` succeeds for tailnet (MagicDNS → netstack) and
+fails for public (system resolver/dial); CFNetwork misleadingly maps the SOCKS
+`generalFailure` to -1000. This fits the tailnet/internet split WITHIN a device
+but NOT the iPhone/iPad split (same tsnet, same `UserDial` — would fail on both).
+H-LNA fits both: the split is the per-device LNA enforcement state, not tsnet.
+**Deepseek stayed with H4 (appBoundSession proxy-miss)** but flagged its own
+tension (if the appBound session has no proxy, `google.com` should go direct and
+work, not -1000) and landed on "the discriminator is resolves-to-tailnet-IP via
+DNS" — which is the address-class core of H-LNA.
+
+**Net:** H3 dead; H-LNA (iOS-26 LNA + CGNAT-as-Local + fail-closed-on-Unknown)
+is the leading mechanism, sourced and verified; H2 (dev-mode/install-channel)
+is the specific form of "why iPhone vs iPad" (per-app LNA permission/enforcement
+state); H1 (entitlement) is the gate that makes an app a "full browser" exempt
+from the in-app-browser LNA restriction.
+
+### The ONE best new iPad test (URL bar only, ~1 minute)
+
+**Type `http://142.250.80.46/` (public IP) and `http://100.x.y.z/` (a known
+tailnet peer's raw 100.x IP) — both bare IPs, both dotted, no DNS, no hostname
+shape.** Under H-LNA: tailnet-IP (`100.x` = CGNAT = Local) **works**, public-IP
+(`142.250.x` = Public, or Unknown-through-proxy) **-1000s**. Nothing but H-LNA
+predicts a raw-private-IP-works / raw-public-IP-fails split — it kills any
+residual "it's about names/DNS/MagicDNS" story and confirms the discriminator is
+address-space class decided on the IP itself. Add `http://192.168.1.1/` as a
+tie-breaker (RFC1918 = Local = should work under H-LNA). And the earlier
+"toggle Developer Mode" test (H2) is still cheap and orthogonal.
+
 ### What this means for a fix
 
-A PAC/workaround would *hide* a security policy, not fix a bug — exactly your
-concern. The real fix is one of:
+Under H-LNA, the framing flips: a PAC is **the correct fix, not a workaround.**
+Routing only tailnet (`100.64.0.0/10`, MagicDNS suffix, `*.ts.net`) through the
+SOCKS proxy and everything else DIRECT is exactly what lets WebKit classify
+each request against its *true* address space with a *real resolved IP*: public
+hosts loaded DIRECT get a normal public classification and load normally (no
+proxy → WebKit resolves them itself → real public IP → ordinary public load,
+NOT `Unknown`-fail-closed). Tailnet hosts via the proxy classify as `Local`
+(CGNAT) and are allowed. PAC stops feeding public hosts through a proxy that
+denies WebKit a resolvable address — that's the actual bug, and PAC fixes it
+directly. Internet has no business going through tsnet anyway; this is correct
+least-privilege design (matches Safari-on-a-tailnet split-tunnel semantics).
+
+1. **PAC / split-tunnel (#1, implement now):** `Network.ProxyConfiguration`
+   supports `autoConfigurationURL`; the PAC returns the SOCKS proxy for tailnet
+   names/IPs and `DIRECT` for the rest. Fixes the bug on all platforms, no App
+   Review, sound architecture.
+2. **`com.apple.developer.web-browser` entitlement (parallel, if Aperture is a
+   full browser):** would exempt it from the in-app-browser LNA restriction.
+   Managed/App-Review-gated, can't be self-granted for local testing. Pursue
+   for product legitimacy; even then, PAC is still worth doing for least-
+   privilege.
+3. **`NSLocalNetworkUsageDescription` (cheap intermediate, no App Review):**
+   adding it + the LNA permission prompt (`decidePolicyForLocalNetworkAccess
+   PermissionRequest`) may let the app take the local-network posture directly —
+   a legitimate stance for an app that reaches tailnet (private) hosts. Worth
+   trying to validate the mechanism without App Review.
+4. **Confirm H-LNA first** with the `http://142.250.80.46/` vs `http://100.x.y.z/`
+   IP-literal test (above) — one minute on the iPad, no Mac. If raw-private-IP
+   works and raw-public-IP -1000s, H-LNA is confirmed and the PAC is the fix.
+
+### Earlier fix framing (superseded by H-LNA above)
+
+The concern that a PAC would *hide a security policy* was valid under the
+H1/H3 framing. Under H-LNA it's inverted: PAC makes WebKit's address-space
+classification correct. Kept for reference:
 
 1. **Declare `com.apple.developer.web-browser`** in Aperture's entitlements and
    ship via the App Store as a "web browser" category app (Apple grants the
