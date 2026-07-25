@@ -404,21 +404,73 @@ minimal (just ATS). So WebKit treats Aperture as an in-app browser on every
 device. Which raises the question: why does the restriction fire on iPad but
 not iPhone, when both run the same entitlement-less `ios-arm64` binary?
 
-### Why the iPhone/iPad split (the working hypothesis)
+### Why the iPhone/iPad split — three hypotheses, ranked
 
-The entitlement itself is the same on both. The split is most likely an
-**iOS/iPadOS policy difference in what an in-app browser is allowed to do with
-`WKWebsiteDataStore.proxyConfigurations` for non-app-bound (internet) hosts** —
-i.e. Apple's defense against the exact "intercept all gmail" attack you
-described, enforced more strictly on iPadOS (and macOS-Designed-for-iPad) than
-on iOS, for a non-`web-browser`-entitled app. -1000 (badURL) is then the
- symptom: the proxied load of an internet host is rejected at the CFURL layer
-*before* it reaches the proxy, because the in-app-browser policy won't allow a
-non-browser app to route an internet host through a SOCKS proxy it controls.
-Tailnet hosts (`ai`) work because they're "app-bound"-ish (resolved in-memory
-by tsnet, not a public internet host the policy is trying to protect).
+The entitlement itself is the same (absent) on both. The split needs another
+explanation. Three hypotheses, each with a decisive test:
 
-This is consistent with everything observed:
+**H2 — dev-mode / install-signing (CURRENTLY MOST LIKELY).** The iPhone is
+Xcode-dev-signed with **Developer Mode ON** (the user can plug it in). The
+iPad has a **broken USB port** — it can't be Xcode-installed, so its build is
+TestFlight / ad-hoc / App-Store-installed, and **Developer Mode may be OFF**.
+Apple's dev-mode doc says it "reduces the security of your device" and exposes
+"developer-only functionality." So dev-mode-ON (iPhone) could relax the
+in-app-browser proxy restriction; dev-mode-OFF (iPad) enforces it. **This
+explains the split WITHOUT requiring iPadOS vs iOS to differ at all** — same
+binary, same entitlements, different device policy state. The user's own
+question ("Because my phone is in dev mode?") may be exactly right.
+  - *Decisive test:* turn Developer Mode ON on the iPad (Settings → Privacy &
+    Security → Developer Mode) and reload `https://google.com/`. If it then
+    loads → H2 confirmed. (No Mac needed — just the Settings app.)
+
+**H3 — single-label / public-suffix hostname categorization.** How could
+Apple auto-categorize `http://ai/` as "not internet" but `https://google.com/`
+as "internet"? Tailnet IPs are 100.64.0.0/10 (CGNAT) but ONLY the proxy sees
+them — WebKit hands the hostname `ai` to the SOCKS proxy and never sees the
+IP, so categorization can't be IP-based pre-proxy. It must be HOSTNAME-based.
+`ai` is a **single-label name with no public suffix**; `google.com` is a
+registrable domain under a public suffix (`.com`). Apple's app-bound-domain
+machinery is entirely public-suffix/registrable-domain based. A policy like
+"an in-app browser may proxy only non-public-suffix (local/intranet) hosts"
+would let `ai` through and block `google.com`. A bare public IP
+(`142.250.80.46`) is also clearly-internet → blocked, fitting "all three -1000."
+  - *Decisive test (iPad, existing build, URL bar only):* type the FQDN
+    `https://ai.<tailnet>.ts.net/` (has dots, registrable-domain-ish). If H3
+    is right it should ALSO -1000, whereas `http://ai/` works. Also test
+    `http://example.com/` (HTTP not HTTPS) to isolate TLS from the host check.
+
+**H1 — entitlement/policy, iPadOS-enforces-stricter.** in-app-browser policy
+blocks proxying public-internet hosts; iPadOS enforces stricter than iOS.
+WEAKNESS: the blog says app-bound-domains is OPT-IN (add `WKAppBoundDomains` to
+Info.plist), which Aperture doesn't have — so that specific restriction
+shouldn't fire. And it's odd for the SAME entitlement-less binary to behave
+differently by idiom. H2 (dev-mode) subsumes this if the iPhone is dev-mode
+and the iPad isn't. If H2 is ruled out (dev-mode is ON on the iPad too and it
+still fails), H1 + H3 combine: iPadOS enforces a non-opt-in proxy restriction
+on non-browser apps, gated by hostname public-suffix.
+
+### iPad-doable tests (no Mac, no rebuild — URL bar + `[domain code]` overlay)
+
+The iPad's USB is broken, so the only interface is the app UI + the error
+overlay (which now prints `[domain code]`). These discriminating tests need
+nothing else:
+
+| type this | isolates | result → rules in/out |
+| --- | --- | --- |
+| `https://google.com/` | baseline | -1000 (known) |
+| `http://ai/` | baseline | works (known) |
+| `https://ai.<tailnet>.ts.net/` | **H3**: FQDN (dots) vs short name | -1000 → H3 yes; works → H3 no |
+| `http://example.com/` | TLS vs host (H3) | -1000 → not TLS-specific; works → TLS matters |
+| `http://neverssl.com/` | plain-HTTP internet | -1000 → host-based not scheme; works → scheme |
+| Settings → Privacy & Security → **Developer Mode ON**, then `https://google.com/` | **H2** | loads → H2 confirmed |
+
+The two highest-value tests: **the FQDN** (`https://ai.<tailnet>.ts.net/`)
+for H3, and **toggling Developer Mode** for H2. Either one, done in a minute
+on the iPad with no Mac, collapses the hypothesis space significantly.
+
+### Consistency check
+
+The entitlement/policy framing is consistent with everything observed:
 - The request likely **never reaches tsnet** for `google.com` on the iPad
   (-1000 is pre-proxy); the tsnet `socks5:` log would confirm.
 - The sim doesn't reproduce it (sims don't enforce the production policy).
@@ -427,6 +479,86 @@ This is consistent with everything observed:
   being in dev mode, or an `linkedOnOrAfterSDKWithBehavior` quirk, could be
   why iPhone doesn't trigger the same policy — see `determineTracking
   PreventionStateInternal`'s `appWasLinkedOnOrAfter` branch in the same file.)
+
+### Three-model consultation (deepseek / gpt-5.5 / opus) — synthesis
+
+Spawned three independent sub-pi consultations per `README.codereview.md`
+(deepseek-v4-flash, gpt-5.5, claude-opus-4-8; logs in `/tmp/ipad-1000-*.log`).
+They converged on the core and each added a distinct mechanism:
+
+**Convergent (all three):**
+- The `com.apple.developer.web-browser` entitlement is the gate
+  (`isFullWebBrowserOrRunningTest` / `isParentProcessAFullWebBrowser`). Aperture
+  lacks it → in-app browser.
+- `-1000` is a URL-validity/pre-dial rejection, NOT DNS/connect/SOCKS. The
+  request likely never reaches tsnet for internet hosts on the iPad.
+- Classic App-Bound Domains (opt-in via `WKAppBoundDomains`) does NOT apply —
+  Aperture doesn't have the key, and the blog says unchanged apps aren't
+  restricted. The mechanism is something BROADER.
+- H3 (single-label) explains the tailnet clue but not the iPhone/iPad split.
+- H2 (dev-mode/install-channel) best explains the split — BUT dev-mode-the-toggle
+  doesn't change `processHasEntitlement` (which reads the code signature, not a
+  runtime flag), so H2 is really about install-channel/signing/SDK-linkage.
+- The exact `-1000`-for-valid-URL behavior is NOT in open WebKit source → likely
+  in closed CFNetwork/Network.framework or an Apple-private policy.
+- PAC (tailnet via SOCKS, internet DIRECT) is legitimate least-privilege design,
+  NOT "hiding a policy" — internet has no business going through the tsnet proxy.
+  Do it regardless, AND pursue the entitlement if Aperture is a full browser.
+
+**Complementary mechanisms found:**
+- **Opus — WebKit PR #39912** ("Invalid WTF::URLs should not convert to NSURLs",
+  bug 286926, merged Feb 2025, commit `2404832`): WebKit's WTF::URL→NSURL
+  conversion was changed to fail for invalid URLs, **behind a
+  `linkedOnOrAfterSDKWithBehavior` gate.** A concrete, sourced mechanism that
+  yields a badURL-class failure for URLs one SDK-linkage side accepts and the
+  other rejects — fits the build/SDK-linkage axis of H2. Also: the app's OWN
+  synthetic `URLError(.badURL)` (`reportURLParseFailure`, kind=`.urlFormat`) must
+  be excluded — but the user's "connection error" (`.retrieval`) label already
+  does. Also: **sysdiagnose + the Networking diagnostic profile can be captured
+  on-device via Settings (no USB, no Mac)** — the route to ground-truth "did the
+  request reach the proxy" given the broken iPad USB.
+- **Deepseek — H4 appBoundSession proxy-miss:** in
+  `NetworkSessionCocoa::sessionWrapperForTask`, without the entitlement
+  `shouldBeConsideredAppBound` stays `Yes` → requests route to a lazily-created
+  `appBoundSession` whose `nw_context_t` never received the `nw_proxy_config`
+  (applied to the default session's context via `nw_context_add_proxy`, not the
+  appBound one). Ties the entitlement directly to "proxy not applied to the
+  session that loads internet." H5: the `requiresHTTPProtocols`/recreate branch
+  — SOCKS5 likely returns false → no recreate → appBound session misses the
+  proxy. (Tension: `http://ai/` works though — resolvable if single-label/host-
+  class routes `ai` to the proxied default session, combining H4+H3.)
+- **Gpt — H1′ closed-policy:** the open WebKit proxy-application path shows NO
+  public-host/non-browser gate, so the actual `-1000` rejection is in CLOSED
+  CFNetwork/Network.framework or an Apple-private policy reached via the
+  `nw_proxy_config`/`appBoundSession` path. Strong iPad-doable host-class/IP-
+  class/scheme/port matrix below.
+
+### Consolidated no-Mac iPad test matrix (URL bar + `[domain code]` overlay)
+
+These need only the existing iPad build — no Mac, no rebuild, no Console. Read
+the `[domain code]` AND the category label on each. Several reviewers stress:
+**"anything other than `-1000`" is informative**, even if the page doesn't load.
+
+| type this | isolates | result → rules in/out |
+| --- | --- | --- |
+| `https://google.com/` | baseline | -1000 / "Connection error" (known) |
+| `http://ai/` | baseline | works (known) |
+| **Settings → Privacy & Security → Developer Mode ON**, then `https://google.com/` | **H2** (dev-mode) | loads → H2 confirmed |
+| `https://ai.<tailnet>.ts.net/` (FQDN) | **H3** dots vs short name | -1000 → H3 yes; works → H3 no |
+| `http://ai.<tailnet>.ts.net/` (FQDN, HTTP) | H3 + TLS | -1000 → not scheme; works → TLS matters |
+| `http://a/` or `http://example/` (single-label, NOT tailnet) | **H3 killer** | -1000 → H3 dead; -1003 → reached proxy, single-label allowed |
+| `http://example.com/` (HTTP, public) | TLS vs host | -1000 → not TLS; loads → TLS/CONNECT-specific |
+| `http://foo.local/` / `http://foo.lan/` (dotted, non-public-suffix) | public-suffix boundary | non-(-1000) → PSL boundary; -1000 → broader dotted block |
+| `http://100.x.y.z/` (tailnet IP) vs `http://142.250.80.46/` (public IP) | address-class | tailnet-IP works + public-IP -1000 → address-class policy |
+| `http://192.168.1.1/` (private IP) | private-IP | non-(-1000) → private allowed; -1000 → all IP-literals blocked |
+| `https://google.com./` (trailing dot) | canonicalization | same -1000 → policy sees through canonicalization |
+| **sysdiagnose + Networking profile** (Settings-driven, no USB) | ground truth | shows whether the request reached the proxy at all |
+
+The two highest-value: **toggle Developer Mode** (H2, one minute, no Mac) and
+**`http://a/`** (H3 killer). If dev-mode-on makes google.com load, H2 is
+confirmed and the fix is the entitlement (production needs it) — PAC for split-
+tunnel in the meantime. If `http://a/` also -1000s, H3 is dead and the block is
+"public-web/non-browser" broadly (H1′ + H4), not single-label.
 
 ### What this means for a fix
 
