@@ -161,25 +161,6 @@ public actor TailscaleNode {
         logger?.log("Brought Tailscale up:\(tailscale)")
     }
 
-    /// Tears down the Tailscale server.
-    ///
-    /// @See tailscale_down in Tailscale.h
-    ///
-    /// @throws TailscaleError on failure
-    public func down() throws {
-        guard let tailscale else {
-            throw TailscaleError.badInterfaceHandle
-        }
-        logger?.log("Taking Tailscale down :\(tailscale)")
-
-        let res = tailscale_up(tailscale)
-
-        guard res == 0 else {
-            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
-        }
-        logger?.log("Took Tailscale down:\(tailscale)")
-    }
-
     /// Returns the addresses on the Tailscale server
     ///
     /// @See tailscale_getips in Tailscale.h
