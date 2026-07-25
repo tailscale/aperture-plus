@@ -256,9 +256,15 @@ final class BrowserViewModel: ObservableObject {
             case .failedProvisionalNavigation(let underlying):
                 // The underlying NSError from CFNetwork/WKWebView carries the
                 // real reason (e.g. "A server with the specified hostname could
-                // not be found", proxy refusal, cancelled navigation).
-                let detail = (underlying as NSError).localizedDescription
-                return detail.isEmpty ? "The page could not be loaded." : detail
+                // not be found", proxy refusal, cancelled navigation). Include
+                // the domain + code so the on-device overlay is diagnostically
+                // useful even when localizedDescription is vague/empty (e.g.
+                // distinguishing a DNS failure NSURLErrorDomain -1003 from a
+                // proxy/tunnel failure from a sandbox/generic block).
+                let ns = underlying as NSError
+                var detail = ns.localizedDescription
+                if detail.isEmpty { detail = "The page could not be loaded." }
+                return "\(detail) [\(ns.domain) \(ns.code)]"
             case .pageClosed:
                 return "The page was closed before it finished loading."
             case .webContentProcessTerminated:

@@ -89,6 +89,17 @@ struct TimingHarnessView: View {
             return
         }
 
+        // Internet-via-proxy mode (-TimingInternet <url>): fetch a NON-tailnet
+        // URL through the tsnet SOCKS5 proxy (the same path WebKit uses) and
+        // log the HTTP status / error. Diagnoses whether tsnet's direct dial
+        // of non-tailnet hosts works on this platform — the reported bug where
+        // internet URLs fail with a connection error on iPad/macOS-iPad but
+        // work on iPhone/the sim. Run on sim + real device to compare.
+        if let url = Self.parseArg("-TimingInternet") {
+            await runInternetMode(runs: runs, url: url, authKey: key)
+            return
+        }
+
         emit("timing-swift: \(runs) runs, control=\(harnessDefaultControlURL), key=\(key.prefix(14))…")
         emit("")
         emit("run | 1:Up→URL | 2:URL→KeyUp | 3:KeyUp→Running | 4:Logout→idle | 5:KeyUp2→Running")
@@ -371,6 +382,78 @@ struct TimingHarnessView: View {
 
         await teardown(node, proc)
         return rep
+    }
+
+    // MARK: - Internet-via-proxy mode (-TimingInternet)
+
+    /// Fetches a non-tailnet URL through the tsnet SOCKS5 proxy `runs` times,
+    /// logging the HTTP status / error for each. Diagnoses whether tsnet's
+    /// direct dial of non-tailnet hosts (Go `net.Dialer` + `net.Resolver`)
+    /// works on this platform — the reported bug where internet URLs fail
+    /// with a connection error on iPad/macOS-Designed-for-iPad but work on
+    /// iPhone / the simulator. The fetch uses the same `URLSession.tailscaleSession`
+    /// SOCKS path WebKit uses.
+    @MainActor
+    private func runInternetMode(runs: Int, url: String, authKey: String) async {
+        emit("timing-swift internet: \(runs) runs, url=\(url), key=\(authKey.prefix(14))…")
+        emit("")
+        guard let url = URL(string: url) else {
+            emit("timing-swift: bad URL \(url)")
+            return
+        }
+        var okCount = 0
+        for i in 1...runs {
+            if await runInternetOnce(i, url: url, authKey: authKey) {
+                okCount += 1
+            }
+        }
+        emit("")
+        emit("summary: \(okCount)/\(runs) succeeded")
+        emit("timing-swift: DONE")
+    }
+
+    @MainActor
+    private func runInternetOnce(_ run: Int, url: URL, authKey: String) async -> Bool {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timing-swift-inet\(run)").path
+        try? FileManager.default.removeItem(atPath: base)
+        let cfg = Configuration(hostName: "timing-swift-inet-\(run)",
+                                path: base, authKey: authKey,
+                                controlURL: harnessDefaultControlURL, ephemeral: true)
+        guard let (node, _, model, proc) = try? await startNode(cfg) else {
+            emit("  [r\(run)] startNode FAILED")
+            return false
+        }
+        guard await waitForRunning(model, timeout: 90) else {
+            emit("  [r\(run)] did not reach Running")
+            await teardown(node, proc)
+            return false
+        }
+        let sessionConfig: URLSessionConfiguration
+        do {
+            let (cfg, _) = try await URLSessionConfiguration.tailscaleSession(node)
+            sessionConfig = cfg
+        } catch {
+            emit("  [r\(run)] tailscaleSession FAILED: \(error)")
+            await teardown(node, proc)
+            return false
+        }
+        let session = URLSession(configuration: sessionConfig)
+        emit("  [r\(run)] fetching \(url.absoluteString) via SOCKS proxy…")
+        let req = URLRequest(url: url, timeoutInterval: 15)
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            let bytes = data.count
+            emit("  [r\(run)]   OK: HTTP \(code), \(bytes) bytes")
+            await teardown(node, proc)
+            return true
+        } catch {
+            let ns = error as NSError
+            emit("  [r\(run)]   FAIL: \(ns.localizedDescription) [\(ns.domain) \(ns.code)]")
+            await teardown(node, proc)
+            return false
+        }
     }
 }
 

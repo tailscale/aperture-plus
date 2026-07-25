@@ -340,6 +340,86 @@ low-power mode isn't engaged during the traffic window. The sim's "never direct"
 is the simulator's network (peer disco UDP not completing); the low-power mode
 is the additional real-device behaviour on top.
 
+### Internet-via-proxy mode (`-TimingInternet <url>`)
+
+A third harness mode that fetches a **non-tailnet** URL through the tsnet SOCKS5
+proxy (the same `URLSession.tailscaleSession` path WebKit uses) and logs the
+HTTP status / NSError domain+code. Diagnoses whether tsnet's direct dial of
+non-tailnet hosts works on a given platform:
+
+```sh
+xcrun simctl launch booted io.tailscale.Aperture \
+    -TimingHarness -TimingRuns 1 -TimingInternet "https://www.google.com/" -AuthKey tskey-auth-...
+```
+
+Results (2026-07-24): `https://www.google.com/` → **HTTP 200 on BOTH the iPhone
+17 Pro sim and the iPad Pro 11-inch sim.** The bug (internet URLs failing with
+a connection error) is **NOT reproduced in the simulator** — it's real-ios-binary
+only (real iPad + macOS-Designed-for-iPad). (`https://example.com/` fails on both
+sims with `kCFErrorHTTPSProxyConnectionFailure` 310 — a per-host proxy quirk,
+not the user's bug; `google.com` is the clean test case.)
+
+### Mechanism: how non-tailnet traffic is routed
+
+The app sets `dataStore.proxyConfigurations = [socks5Proxy]` for ALL WebKit
+traffic — there's no per-host split. tsnet's SOCKS5 server dials via
+`s.dialer.UserDial` (`tsnet.go:493`). `UserDial` (`net/tsdial/tsdial.go:482`):
+- tailnet peer IP → `NetstackDialTCP` (the tunnel) — works on all platforms.
+- non-tailnet IP → `net.Dialer.DialContext` after `net.Resolver.LookupIP`
+  (cgo `getaddrinfo` on iOS, since `CGO_ENABLED=1`, no `netgo` tag) — a **direct
+  OS dial** by the tsnet process. This is how `google.com` is supposed to work.
+
+`userDialResolve` has a `TODO(bradfitz): wire up net/dnscache too` — tsnet uses
+plain `net.Resolver`, NOT the robust `net/dnscache` the Tailscale iOS app uses.
+
+### Likely root cause (real-ios-binary only)
+
+On the sim, `net.Resolver.LookupIP` uses the macOS host resolver → works. On the
+**real ios binary**, Go's cgo `getaddrinfo` for non-tailnet hostnames is
+unreliable (a known Go-on-iOS pitfall; the Tailscale iOS app avoids it via
+custom DNS / DoH, which tsnet doesn't). So tsnet's SOCKS proxy can't resolve/dial
+internet hosts on real iOS → every non-tailnet URL fails with a connection
+error. Tailnet works because those names resolve via MagicDNS-in-memory
+(`dns.resolveMemory`), not getaddrinfo.
+
+**To confirm on a real iPad:** the app already logs the full navigation error —
+`log stream --predicate 'subsystem == "io.tailscale.Aperture"'` while loading
+`https://google.com/` shows `Navigation error for …: <error>`. The overlay's
+message line now also appends `[domain code]`. If it's `NSURLErrorDomain -1003`
+(cannot find host) → DNS (getaddrinfo) failure, confirming the hypothesis. The
+`-TimingInternet` harness mode run on a real iPad logs the same NSError directly.
+
+(The "iPhone works, iPad doesn't" split the user saw is the one anomaly this
+doesn't explain — both are real ios-arm64 binaries running the same `UserDial`.
+Either the "iPhone works" observation was the simulator, or there's a
+device/network difference in getaddrinfo behavior. The captured error from a
+real iPad will disambiguate.)
+
+### The design question: should internet go through tsnet at all?
+
+The user's instinct ("we're sending stuff to tsnet that we shouldn't be") is
+right. Routing ALL WebKit traffic through the tsnet SOCKS proxy is necessary for
+tailnet hosts (MagicDNS + tunnel) but NOT for internet hosts, and it's what
+makes internet depend on tsnet's iOS-direct-dial working. Options:
+
+1. **PAC (proxy auto-config)** — route only tailnet hosts/IPs through the SOCKS
+   proxy, everything else DIRECT. `Network.ProxyConfiguration` supports
+   `autoConfigurationURL`; a PAC script can return the SOCKS proxy for tailnet
+   names (`*.ts.net`, MagicDNS suffix, tailnet IPs) and `DIRECT` for the rest.
+   This matches Safari-on-tailnet semantics and removes the tsnet-internet
+   dependency entirely (works on all platforms). Most promising.
+2. **Exit node** — route internet through a tailnet exit node. Works but
+   requires the user to run one; not general.
+3. **Fix tsnet's resolver upstream** — wire `net/dnscache` / DoH into
+   `userDialResolve` so non-tailnet DNS works on real iOS. An upstream
+   libtailscale change; doesn't fix the design (internet still needlessly
+   flows through tsnet).
+
+Aperture can't use a NetworkExtension VPN tunnel (the real Tailscale iOS app's
+approach, which lets the OS route tailnet vs internet natively) because it's a
+userspace tsnet app — the SOCKS proxy is the workaround. The PAC approach is the
+closest equivalent within that constraint.
+
 ### Next (peer path)
 
 The Go reproduction already confirms the user's symptom is low-power mode. The
