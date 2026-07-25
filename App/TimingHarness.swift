@@ -89,13 +89,15 @@ struct TimingHarnessView: View {
             return
         }
 
-        // Internet-via-proxy mode (-TimingInternet <url>): fetch a NON-tailnet
+        // Internet-via-proxy mode (-TimingInternet [url]): fetch a NON-tailnet
         // URL through the tsnet SOCKS5 proxy (the same path WebKit uses) and
-        // log the HTTP status / error. Diagnoses whether tsnet's direct dial
-        // of non-tailnet hosts works on this platform — the reported bug where
-        // internet URLs fail with a connection error on iPad/macOS-iPad but
-        // work on iPhone/the sim. Run on sim + real device to compare.
-        if let url = Self.parseArg("-TimingInternet") {
+        // log the HTTP status / error. With no url arg, runs a built-in
+        // battery (tailnet vs internet, by-name vs by-IP, https vs http).
+        // Diagnoses the reported bug where internet URLs fail with a connection
+        // error on real iPad / macOS-Designed-for-iPad but work on real iPhone.
+        // Run on sim + real device to compare.
+        if ProcessInfo.processInfo.arguments.contains("-TimingInternet") {
+            let url = Self.parseArg("-TimingInternet")  // nil -> built-in battery
             await runInternetMode(runs: runs, url: url, authKey: key)
             return
         }
@@ -151,11 +153,16 @@ struct TimingHarnessView: View {
     }
 
     /// The string value following `-<name>` in the launch args, if present.
+    /// Returns nil if the arg is absent OR the following token starts with `-`
+    /// (treated as another flag, not a value) — so a flag that takes an
+    /// OPTIONAL value (e.g. `-TimingInternet` with a built-in battery when no
+    /// url is given) works even when other flags follow.
     private static func parseArg(_ name: String) -> String? {
         let args = ProcessInfo.processInfo.arguments
         guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
         let v = args[i + 1]
-        return v.isEmpty ? nil : v
+        if v.isEmpty || v.hasPrefix("-") { return nil }
+        return v
     }
 
     /// The Double value following `-<name>` in the launch args, else `defaultValue`.
@@ -390,25 +397,49 @@ struct TimingHarnessView: View {
     /// logging the HTTP status / error for each. Diagnoses whether tsnet's
     /// direct dial of non-tailnet hosts (Go `net.Dialer` + `net.Resolver`)
     /// works on this platform — the reported bug where internet URLs fail
-    /// with a connection error on iPad/macOS-Designed-for-iPad but work on
-    /// iPhone / the simulator. The fetch uses the same `URLSession.tailscaleSession`
-    /// SOCKS path WebKit uses.
+    /// with a connection error on real iPad / macOS-Designed-for-iPad but
+    /// work on a real iPhone / the simulator. The fetch uses the same
+    /// `URLSession.tailscaleSession` SOCKS path WebKit uses.
+    ///
+    /// With no `-TimingInternet` arg, runs a built-in battery that
+    /// distinguishes the failure modes in ONE launch: a tailnet host
+    /// (should always work), an internet host by name (the bug), an internet
+    /// host by IP (bypasses DNS — isolates DNS vs connect failure), and an
+    /// internet host over plain HTTP (isolates TLS). Pass `-TimingInternet <url>`
+    /// to fetch a single URL instead. Run on a real iPad to capture the exact
+    /// NSError domain+code that disambiguates DNS vs connect vs SOCKS vs TLS.
     @MainActor
-    private func runInternetMode(runs: Int, url: String, authKey: String) async {
-        emit("timing-swift internet: \(runs) runs, url=\(url), key=\(authKey.prefix(14))…")
+    private func runInternetMode(runs: Int, url: String?, authKey: String) async {
+        emit("timing-swift internet: \(runs) runs, key=\(authKey.prefix(14))…")
         emit("")
-        guard let url = URL(string: url) else {
-            emit("timing-swift: bad URL \(url)")
-            return
-        }
-        var okCount = 0
-        for i in 1...runs {
-            if await runInternetOnce(i, url: url, authKey: authKey) {
-                okCount += 1
+        var okCount = 0, total = 0
+        if let urlStr = url, let url = URL(string: urlStr) {
+            total = runs
+            for i in 1...runs {
+                if await runInternetOnce(i, url: url, authKey: authKey) { okCount += 1 }
+            }
+        } else {
+            // Built-in battery: distinguishes tailnet vs internet, by-name vs
+            // by-IP (DNS isolation), https vs http (TLS isolation). One launch
+            // gives the full picture on a real device.
+            let battery: [(label: String, url: String)] = [
+                ("tailnet (http://ai/)",            "http://ai/"),
+                ("internet https by-name",          "https://www.google.com/"),
+                ("internet https by-IP (142.250.80.46)", "https://142.250.80.46/"),
+                ("internet http by-name",           "http://example.com/"),
+            ]
+            total = battery.count * runs
+            for i in 1...runs {
+                for b in battery {
+                    emit("--- [r\(i)] \(b.label) ---")
+                    if await runInternetOnce(i, url: URL(string: b.url)!, authKey: authKey) {
+                        okCount += 1
+                    }
+                }
             }
         }
         emit("")
-        emit("summary: \(okCount)/\(runs) succeeded")
+        emit("summary: \(okCount)/\(total) succeeded")
         emit("timing-swift: DONE")
     }
 
