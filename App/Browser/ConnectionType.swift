@@ -57,7 +57,10 @@ enum ConnectionTypeResolver {
     /// Matches a host against a peer's `DNSName` (FQDN, often with a trailing
     /// dot), `HostName` (MagicDNS short name), first label of the DNSName, or
     /// any `TailscaleIPs`.
-    private static func peerStatus(forHost host: String, in status: IpnState.Status) -> IpnState.PeerStatus? {
+    ///
+    /// Internal (not private) so the timing harness can reuse the app's exact
+    /// host→peer matching when watching a peer's path upgrade.
+    static func peerStatus(forHost host: String, in status: IpnState.Status) -> IpnState.PeerStatus? {
         let lowered = host.lowercased()
         // Also consider the self node (e.g. loading the node's own peerapi).
         var candidates: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)

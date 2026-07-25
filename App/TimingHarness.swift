@@ -25,6 +25,12 @@
 //    4. Logout                 → idle (NeedsLogin / Stopped / NoState)
 //    5. second Up() with key   → Running (fresh node)
 //
+//  Peer path-upgrade mode (`-TimingPeer <host>`, mirroring `timing-go -peer`):
+//  skips the lifecycle test and instead watches a tailnet peer's CurAddr/Relay
+//  upgrade from DERP to direct, classifying with the app's own
+//  ConnectionTypeResolver. See `runPeerMode` and timing/README.md.
+//    -TimingPeer ai [-TimingPeerWatch 30] [-TimingPeerTraffic 12] [-TimingPeerUseUp]
+//
 
 import Foundation
 import OSLog
@@ -70,6 +76,19 @@ struct TimingHarnessView: View {
             return
         }
         let runs = Self.parseRuns(defaultValue: 5)
+
+        // Peer path-upgrade mode (-TimingPeer <host>): skip the lifecycle test
+        // and instead watch a tailnet peer's CurAddr/Relay upgrade from DERP
+        // to direct, mirroring the Go `timing-go -peer` harness.
+        if let peer = Self.parseArg("-TimingPeer") {
+            let watch = Self.parseArgDouble("-TimingPeerWatch", defaultValue: 30)
+            let traffic = Self.parseArgDouble("-TimingPeerTraffic", defaultValue: 12)
+            let useUp = ProcessInfo.processInfo.arguments.contains("-TimingPeerUseUp")
+            await runPeerMode(runs: runs, peer: peer, watch: watch, traffic: traffic,
+                             useUp: useUp, authKey: key)
+            return
+        }
+
         emit("timing-swift: \(runs) runs, control=\(harnessDefaultControlURL), key=\(key.prefix(14))…")
         emit("")
         emit("run | 1:Up→URL | 2:URL→KeyUp | 3:KeyUp→Running | 4:Logout→idle | 5:KeyUp2→Running")
@@ -118,6 +137,240 @@ struct TimingHarnessView: View {
             return n
         }
         return defaultValue
+    }
+
+    /// The string value following `-<name>` in the launch args, if present.
+    private static func parseArg(_ name: String) -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        let v = args[i + 1]
+        return v.isEmpty ? nil : v
+    }
+
+    /// The Double value following `-<name>` in the launch args, else `defaultValue`.
+    private static func parseArgDouble(_ name: String, defaultValue: Double) -> Double {
+        if let s = parseArg(name), let d = Double(s) { return d }
+        return defaultValue
+    }
+
+    // MARK: - Peer path-upgrade mode (-TimingPeer)
+
+    /// Peer mode: for each run, start a keyed ephemeral node, send a little
+    /// HTTP traffic to `http://<peer>/`, and watch the peer's path upgrade from
+    /// DERP to direct — mirroring the Go `timing-go -peer` harness and the
+    /// app's `ConnectionTypeResolver` (direct iff peer.CurAddr is non-empty).
+    /// A path that flips direct→DERP quickly here would explain the URL bar
+    /// showing "mostly one green dot, briefly two".
+    @MainActor
+    private func runPeerMode(runs: Int, peer: String, watch: TimeInterval,
+                             traffic: TimeInterval, useUp: Bool, authKey: String) async {
+        emit("timing-swift peer: \(runs) runs, peer=\(peer), watch=\(fmt(watch)), traffic=\(fmt(traffic)), useUp=\(useUp), key=\(authKey.prefix(14))…")
+        emit("")
+        emit("run |   up | toDirect | flips | totalDirect | longestDirect | >=10s | direct@end | gets/ok | found")
+
+        var reps: [PeerReport] = []
+        for i in 1...runs {
+            let r = await runPeerOnce(i, peer: peer, watch: watch, traffic: traffic,
+                                       useUp: useUp, authKey: authKey)
+            reps.append(r)
+            emit(String(format: "%3d | %4@ | %8@ | %5d | %11@ | %13@ | %5@ | %10@ | %7@ | %@",
+                        i, fmt(r.upSeconds), fmt(r.timeToDirect), r.directFlips,
+                        fmt(r.totalDirect), fmt(r.longestDirect),
+                        r.stayedDirect10 ? "yes" : "no",
+                        r.directAtEnd ? "yes" : "no",
+                        "\(r.trafficOK)/\(r.trafficGets)",
+                        r.peerFound ? "yes" : "no"))
+            if let e = r.trafficErr {
+                emit("    traffic err (non-fatal): \(e)")
+            }
+        }
+
+        // Summary over the runs that found the peer.
+        var n = 0, directCount = 0, stayed10 = 0, directAtEndCount = 0
+        var sumToDirect: Double = 0
+        for r in reps where r.peerFound {
+            n += 1
+            if r.timeToDirect > 0 { sumToDirect += r.timeToDirect; directCount += 1 }
+            if r.stayedDirect10 { stayed10 += 1 }
+            if r.directAtEnd { directAtEndCount += 1 }
+        }
+        emit("")
+        emit("summary (runs that found the peer):")
+        if n == 0 {
+            emit("  n=0 — peer \(peer) never matched in /status (see the peer dump above).")
+            emit("  (This itself is a clue: the app's host→peer matching may be the bug.)")
+        } else {
+            if directCount > 0 {
+                emit("  reached direct:    \(directCount)/\(n)   avg time-to-direct=\(fmt(sumToDirect / Double(directCount)))")
+            } else {
+                emit("  reached direct:    0/\(n)   (never went direct)")
+            }
+            emit("  stayed direct ≥10s: \(stayed10)/\(n)")
+            emit("  direct at end:      \(directAtEndCount)/\(n)")
+        }
+        emit("timing-swift: DONE")
+    }
+
+    /// One peer-upgrade run: start a keyed ephemeral node, send 1 GET/s to
+    /// http://<peer>/ for `traffic` seconds (then idle), and poll the local-API
+    /// /status every 200ms for `watch` seconds, classifying the peer's path
+    /// exactly as the app does (direct iff peer.CurAddr is non-empty, using the
+    /// app's own `ConnectionTypeResolver.peerStatus(forHost:in:)`). Logs every
+    /// direct↔derped transition with a timestamp.
+    @MainActor
+    private func runPeerOnce(_ run: Int, peer: String, watch: TimeInterval,
+                             traffic: TimeInterval, useUp: Bool, authKey: String) async -> PeerReport {
+        var rep = PeerReport()
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timing-swift-peer\(run)").path
+        try? FileManager.default.removeItem(atPath: base)
+
+        let cfg = Configuration(hostName: "timing-swift-peer-\(run)",
+                                path: base,
+                                authKey: authKey,
+                                controlURL: harnessDefaultControlURL,
+                                ephemeral: true)
+        let tStart = Date()
+        guard let (node, lc, model, proc) = try? await startNode(cfg) else {
+            emit("  [r\(run)] startNode FAILED")
+            return rep
+        }
+        if useUp {
+            // Mirror the Go harness: tailscale_up → srv.Up() (Start + wait for
+            // Running + a Status call + serve-config reset). The app deliberately
+            // does NOT call up(); this flag tests whether that's the difference.
+            do {
+                try await node.up()
+            } catch {
+                emit("  [r\(run)] node.up() FAILED: \(error)")
+                await teardown(node, proc)
+                return rep
+            }
+            guard await waitForRunning(model, timeout: 90) else {
+                emit("  [r\(run)] did not reach Running after up()")
+                await teardown(node, proc)
+                return rep
+            }
+        } else {
+            guard await waitForRunning(model, timeout: 90) else {
+                emit("  [r\(run)] did not reach Running")
+                await teardown(node, proc)
+                return rep
+            }
+        }
+        rep.upSeconds = Date().timeIntervalSince(tStart)
+        emit("  [r\(run)] up → Running in \(fmt(rep.upSeconds)); starting traffic + path watch")
+
+        // HTTP traffic through the tailnet SOCKS proxy — the same path WebKit
+        // uses to load http://<peer>/.
+        let sessionConfig: URLSessionConfiguration
+        do {
+            let (cfg, _) = try await URLSessionConfiguration.tailscaleSession(node)
+            sessionConfig = cfg
+        } catch {
+            emit("  [r\(run)] tailscaleSession FAILED: \(error)")
+            await teardown(node, proc)
+            return rep
+        }
+        let session = URLSession(configuration: sessionConfig)
+        guard let url = URL(string: "http://\(peer)/") else {
+            emit("  [r\(run)] bad URL http://\(peer)/")
+            await teardown(node, proc)
+            return rep
+        }
+
+        // Traffic runs concurrently for `traffic` seconds; the result is
+        // collected after the watch loop (no shared mutable state — the watch
+        // loop and runTraffic each touch only their own locals).
+        let trafficDeadline = Date().addingTimeInterval(traffic)
+        async let trafficResult = runTraffic(session: session, url: url, until: trafficDeadline)
+
+        // Path watcher: poll /status every 200ms. The app polls every 5s; we
+        // poll fast to catch quick direct→DERP flips the app's coarse poll
+        // would miss.
+        let pollInterval: UInt64 = 200_000_000
+        let deadline = Date().addingTimeInterval(watch)
+        var prevClass: ConnectionType?
+        var directSince: Date?
+        var firstDirectAt: Date?
+        var dumpedPeers = false
+        var dumpedDetail = false
+
+        while Date() < deadline {
+            guard let sts = try? await lc.backendStatus() else {
+                try? await Task.sleep(nanoseconds: pollInterval)
+                continue
+            }
+            // Reuse the app's exact host→peer matching (now internal).
+            guard let peerPS = ConnectionTypeResolver.peerStatus(forHost: peer, in: sts) else {
+                if !dumpedPeers {
+                    dumpedPeers = true
+                    emit("  [r\(run)] peer \(peer) not found in /status; known peers:")
+                    if let s = sts.SelfStatus {
+                        emit("        self: HostName=\(s.HostName) DNSName=\(s.DNSName)")
+                    }
+                    if let peers = sts.Peer {
+                        for p in peers.values {
+                            emit("        peer: HostName=\(p.HostName) DNSName=\(p.DNSName)")
+                        }
+                    }
+                }
+                try? await Task.sleep(nanoseconds: pollInterval)
+                continue
+            }
+            rep.peerFound = true
+            // Classify exactly as ConnectionTypeResolver.resolve does.
+            let cls: ConnectionType = (peerPS.CurAddr?.isEmpty == false) ? .direct : .derped
+
+            if !dumpedDetail {
+                dumpedDetail = true
+                let selfAddrs = sts.SelfStatus?.Addrs ?? []
+                let selfCur = sts.SelfStatus?.CurAddr ?? "(nil)"
+                emit("  [r\(run)] detail: self.Addrs=\(selfAddrs) self.CurAddr=\(selfCur)")
+                emit("  [r\(run)] detail: peer.Addrs=\(peerPS.Addrs ?? []) peer.Online=\(peerPS.Online)")
+            }
+
+            if cls != prevClass {
+                let t = Date().timeIntervalSince(tStart)
+                let cur = peerPS.CurAddr ?? ""
+                let rel = peerPS.Relay.flatMap { $0.isEmpty ? nil : $0 } ?? "-"
+                emit("  [r\(run)] \(String(format: "%7.2f", t))s  → \(cls)  (CurAddr=\(cur) Relay=\(rel))")
+                if cls == .direct {
+                    if firstDirectAt == nil {
+                        firstDirectAt = Date()
+                        rep.timeToDirect = t
+                    }
+                    directSince = Date()
+                } else {  // .derped
+                    if let ds = directSince {
+                        let d = Date().timeIntervalSince(ds)
+                        rep.totalDirect += d
+                        if d > rep.longestDirect { rep.longestDirect = d }
+                        rep.directFlips += 1
+                    }
+                    directSince = nil
+                }
+                prevClass = cls
+            }
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
+
+        // Close out any direct stretch still open at the end of the window.
+        if let ds = directSince {
+            let d = Date().timeIntervalSince(ds)
+            rep.totalDirect += d
+            if d > rep.longestDirect { rep.longestDirect = d }
+            rep.directAtEnd = true
+        }
+        rep.stayedDirect10 = rep.longestDirect >= 10
+
+        let (gets, ok, terr) = await trafficResult
+        rep.trafficGets = gets
+        rep.trafficOK = ok
+        rep.trafficErr = terr
+
+        await teardown(node, proc)
+        return rep
     }
 }
 
@@ -267,4 +520,43 @@ private func fmt(_ d: Double) -> String {
     if d <= 0 { return "-" }
     if d < 0.1 { return String(format: "%.0fms", d * 1000) }
     return String(format: "%.2fs", d)
+}
+
+// MARK: - Peer path-upgrade helpers
+
+@MainActor
+private struct PeerReport {
+    var upSeconds: Double = -1       // time to reach Running
+    var peerFound = false            // did the host match a peer in /status?
+    var timeToDirect: Double = -1    // <0 if it never went direct
+    var directFlips = 0             // direct→derped transitions observed
+    var totalDirect: Double = 0      // cumulative time spent direct
+    var longestDirect: Double = 0    // longest single direct stretch
+    var stayedDirect10 = false       // longestDirect >= 10s
+    var directAtEnd = false          // still direct at last sample
+    var trafficGets = 0              // GET attempts
+    var trafficOK = 0                // GETs that returned a response
+    var trafficErr: String?          // first traffic error (non-fatal)
+}
+
+/// Sends 1 GET/s to `url` (via a tailnet-proxied URLSession) until `deadline`.
+/// Even a refused connection sends a SYN through the tailnet, which is enough
+/// to trigger endpoint discovery / a direct-path upgrade. Returns
+/// (attempts, responses, firstError).
+@MainActor
+private func runTraffic(session: URLSession, url: URL, until deadline: Date) async -> (Int, Int, String?) {
+    var gets = 0, ok = 0
+    var firstErr: String?
+    while Date() < deadline {
+        gets += 1
+        let req = URLRequest(url: url, timeoutInterval: 8)
+        do {
+            _ = try await session.data(for: req)
+            ok += 1
+        } catch {
+            if firstErr == nil { firstErr = "\(error)" }
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+    }
+    return (gets, ok, firstErr)
 }
