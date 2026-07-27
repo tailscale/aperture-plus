@@ -18,6 +18,12 @@ final class TSNetModel: ObservableObject {
     /// per-peer `Relay` (DERP) and `CurAddr` (direct) used to classify a tab's
     /// connection as derped vs direct. Nil until the first successful poll.
     @Published var localStatus: IpnState.Status?
+    /// The split-tunnel rule set currently applied to `proxyConfiguration`
+    /// (which hosts go through the tsnet SOCKS proxy vs. load DIRECT). Kept on
+    /// the model so the Settings diagnostic can display it and so
+    /// `TSNetManager.refreshProxyPolicyIfNeeded` can tell when the rules
+    /// actually changed. See `TailnetProxyPolicy`.
+    @Published var proxyPolicy: TailnetProxyPolicy?
 
     var exitNodeId: String? {
         if let prefs = prefs {

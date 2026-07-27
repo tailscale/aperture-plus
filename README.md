@@ -1,8 +1,28 @@
 # Aperture
 
-A small WebKit-based iOS browser that proxies all requests through an embedded,
+A small WebKit-based iOS browser that reaches your Tailnet through an embedded,
 userspace Tailscale node ([TailscaleKit](https://github.com/tailscale/libtailscale) /
 `libtailscale`). Browse URLs on your Tailnet **without** running the system VPN.
+
+## How traffic is routed (split tunnel)
+
+Only **tailnet** destinations go through the embedded node's SOCKS5 proxy:
+
+| destination | route |
+| --- | --- |
+| Tailnet IPs (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) | via the tsnet proxy |
+| MagicDNS names — `http://nas/`, `https://nas.your-tailnet.ts.net/` | via the tsnet proxy |
+| Everything else (`https://google.com/`, …) | **direct**, like any other app |
+
+This is least-privilege (your public browsing never traverses the tailnet node)
+and it is also required for correctness: routing public traffic through a proxy
+that resolves names proxy-side made **every** non-tailnet URL fail with an
+"invalid URL" error (`NSURLErrorDomain -1000`) on some hardware. TLS is
+unaffected either way — certificates are still validated normally end-to-end.
+
+See **Settings → Routing** in the app to view the live rules and test any host,
+`TSNet/TailnetProxyPolicy.swift` for the implementation, and
+`scripts/proxy-semantics/README.md` for how the behaviour was measured.
 
 ## Supported platforms
 
@@ -42,7 +62,8 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | Target | What it does |
 |---|---|
 | `make` (aka `make all`) | Build the xcframework (if missing) + the app for the simulator |
-| `make test` | `make all`, then run the UI tests on the simulator (with log capture) |
+| `make test` | `make test-policy` + `make all`, then run the UI tests on the simulator (with log capture) |
+| `make test-policy` | Split-tunnel routing unit tests (~2s, host-only — no simulator or xcframework needed) |
 | `make look` | Screenshot the booted sim + describe it with a vision sub-pi (`make look Q="describe the UI"`) |
 | `make framework` | Build just the `TailscaleKit.xcframework` |
 | `make app` | Build just the app (depends on `framework`) |
@@ -180,6 +201,7 @@ App/                      SwiftUI app sources (synchronized folder group)
 TSNet/                    Wrapper layer over TailscaleKit
   TSNetManager.swift      Owns the TailscaleNode, lifecycle, LocalAPI plumbing
   TSNetModel.swift        Observable tailnet status model
+  TailnetProxyPolicy.swift  Split tunnel: which hosts go via the SOCKS proxy vs DIRECT
   AuthManager.swift       Auth-key / interactive-login handling
   Logging.swift           Logger
 Aperture/Info.plist    ATS exceptions (NSAllowsArbitraryLoads) so WebKit can load
@@ -191,6 +213,8 @@ scripts/
   run-uitests.sh          Build + run UI tests on the simulator, capturing libtailscale logs
   probe-xcode-mcp.py      Minimal probe of the Xcode MCP server (xcrun mcpbridge)
   look.sh                 Screenshot the sim/Mac + describe it with a vision sub-pi
+  test-proxy-policy.sh    Split-tunnel routing unit tests (make test-policy)
+  proxy-semantics/        SOCKS5 + WebKit harnesses used to measure proxy behaviour
 ThirdParty/libtailscale/  git submodule -> github.com/tailscale/libtailscale
   swift/build/...         Generated TailscaleKit.xcframework (NOT in git; build it)
 ```

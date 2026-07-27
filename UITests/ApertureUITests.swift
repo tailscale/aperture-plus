@@ -869,6 +869,73 @@ final class ApertureUITests: XCTestCase {
     /// suspected cause of the reported iPad-only 'invalid URL' on a real
     /// device — the toolbar TextField's input traits aren't always honored).
     /// It does guard the normalization + load path on both layouts.
+    /// The Settings → Routing diagnostic must show that tailnet hosts are
+    /// proxied and public hosts are NOT. This is the split tunnel that fixes
+    /// the iPad `-1000` ("invalid URL") bug: sending public traffic through the
+    /// tsnet SOCKS proxy is what breaks it, so a public host resolving to
+    /// anything other than DIRECT is a regression.
+    ///
+    /// It's also the only on-device view of the routing rules — the iPad that
+    /// reported the bug can't be attached to a Mac, so `log stream` is out.
+    /// Requires a connection (the rules come from live peer status).
+    func testRoutingDiagnosticSendsPublicHostsDirect() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+
+        // Settings lives behind the "more" menu on compact (iPhone) and a gear
+        // on regular (iPad) — `openSettings` handles both.
+        XCTAssertTrue(openSettings(app), "Settings should be reachable from the browser")
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10),
+                      "Settings should open")
+
+        // Routing is the last section (below Logout, so the primary controls
+        // stay above the fold), and `Form` is lazy — its elements may not exist
+        // at all until scrolled into view. Scroll until the test field appears.
+        let field = app.textFields["routing-test-field"]
+        for _ in 0..<8 where !field.exists {
+            app.swipeUp()
+        }
+
+        // The split tunnel must be active, with real rules from peer status.
+        XCTAssertFalse(app.staticTexts["routing-proxy-everything-warning"].exists,
+                       "All traffic should not be proxied here: the Exit Node " +
+                       "toggle must be off and -ProxyEverything unset")
+        XCTAssertTrue(app.staticTexts["routing-rule-count"].waitForExistence(timeout: 15),
+                      "Routing section should report the active proxy rules")
+        XCTAssertTrue(field.waitForExistence(timeout: 10),
+                      "Routing test field should exist (after scrolling to the Routing section)")
+
+        func routeResult(for host: String) -> String {
+            if !field.isHittable { app.swipeUp() }
+            field.tap()
+            field.clearAndType(text: host)
+            let result = app.staticTexts["routing-test-result"]
+            _ = result.waitForExistence(timeout: 5)
+            return result.label
+        }
+
+        // Public hosts must load DIRECT — routing these through the proxy is
+        // precisely the bug.
+        for host in ["google.com", "www.google.com", "example.com", "1.1.1.1"] {
+            let r = routeResult(for: host)
+            attachScreenshot(app, named: "routing-\(host)")
+            XCTAssertTrue(r.contains("DIRECT"),
+                          "Public host \(host) must load DIRECT, not through the " +
+                          "tailnet proxy (that is what causes the -1000 “invalid " +
+                          "URL” failure). Got: \(r)")
+        }
+
+        // A tailnet IP must still be proxied, or tailnet browsing is broken.
+        let tailnetIP = routeResult(for: "100.101.102.103")
+        attachScreenshot(app, named: "routing-tailnet-ip")
+        XCTAssertTrue(tailnetIP.contains("PROXY"),
+                      "A tailnet (100.64.0.0/10) address must route through the " +
+                      "proxy. Got: \(tailnetIP)")
+
+        app.buttons["settings-done-button"].tap()
+    }
+
     func testValidHTTPSURLDoesNotShowInvalidError() throws {
         let app = XCUIApplication()
         launchConnected(app)

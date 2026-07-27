@@ -32,6 +32,61 @@ final class SettingsViewModel: ObservableObject {
     /// blackhole is real and that the SOCKS path consults tsnet's route table).
     @Published var exitNodeDiagnostic: ExitNodeDiagnostic?
 
+    /// The live split-tunnel rule set: which hosts go through the tsnet SOCKS
+    /// proxy vs. load DIRECT. Surfaced in Settings because the device that
+    /// showed the `-1000` "invalid URL" bug can't be attached to a Mac (broken
+    /// USB port), so `log stream` isn't available — this is the on-device way
+    /// to confirm the fix is active and see exactly what is being proxied.
+    /// See `TailnetProxyPolicy`.
+    var proxyPolicy: TailnetProxyPolicy? { workspace.model.proxyPolicy }
+
+    /// Whether ALL traffic is currently routed through the tailnet proxy rather
+    /// than just tailnet destinations. True when the Exit Node toggle is on
+    /// (public traffic must be proxied to egress via the exit node) or the
+    /// `-ProxyEverything` launch override is set.
+    ///
+    /// The Exit Node toggle doubles as the routing control: there is no reason
+    /// to send non-tailnet traffic through the proxy unless an exit node is
+    /// carrying it — without one it just fails. That also makes the toggle the
+    /// on-device way to A/B the "invalid URL" bug, since launch arguments can't
+    /// be set on a physical device.
+    var proxyEverything: Bool {
+        workspace.model.proxyPolicy?.proxiesEverything ?? TSNetManager.proxyEverythingOverride()
+    }
+
+    /// Classifies `host` the way `matchDomains` does — label-wise suffix for
+    /// name rules, membership for CIDR rules — so the user can type a host in
+    /// Settings and see whether it will be proxied or loaded DIRECT.
+    /// Mirrors the semantics verified against a real SOCKS proxy; see the
+    /// file comment in `TailnetProxyPolicy.swift`.
+    func routeExplanation(for input: String) -> String? {
+        let host = TailnetProxyPolicy.normalizeDomain(hostComponent(of: input))
+        guard !host.isEmpty else { return nil }
+        guard !proxyEverything else {
+            return "⚠️ \(host) → PROXY (Exit Node on: all traffic goes through the tailnet)"
+        }
+        guard let policy = proxyPolicy else {
+            return "\(host) → not connected yet (no proxy rules applied)"
+        }
+        if let rule = policy.matchingRule(for: host) {
+            return "\(host) → PROXY via tailnet (matched rule: \(rule))"
+        }
+        if policy.shortNamesWithheldAsPublicTLD.contains(host) {
+            return "\(host) → PROXY after expansion to its tailnet FQDN"
+        }
+        return "\(host) → DIRECT (not a tailnet host)"
+    }
+
+    /// Extracts a bare host from whatever the user typed (a full URL, a
+    /// host:port, or just a hostname).
+    private func hostComponent(of input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.contains("://"), let h = URL(string: trimmed)?.host() { return h }
+        if let h = URL(string: "http://\(trimmed)")?.host() { return h }
+        return trimmed
+    }
+
     private let workspace: Workspace
     private var observers: Set<AnyCancellable> = []
 

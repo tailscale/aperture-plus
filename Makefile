@@ -201,8 +201,17 @@ tf:  ## Archive -> export -> upload to TestFlight (fails fast if no ASC creds)
 # Resolution order: `make test AUTHKEY=...` > APERTURE_TEST_AUTHKEY env >
 # ~/.aperture-ios-authkey. Without any of these, connected tests FAIL (they no
 # longer skip) — a broken connection must be loud, not silently green.
+# ----- split-tunnel policy unit tests (host-only, ~2s) -----
+# Compiles the real TSNet/TailnetProxyPolicy.swift against stubs and asserts the
+# routing rules: tailnet hosts proxied, public hosts DIRECT. No xcframework, no
+# simulator, no signing. See scripts/proxy-semantics/ for how the expectations
+# were measured against a real SOCKS proxy.
+.PHONY: test-policy
+test-policy:  ## Run the split-tunnel routing unit tests (fast, host-only)
+	@./scripts/test-proxy-policy.sh
+
 .PHONY: test
-test: all  ## Build, then run the UI tests on the simulator (with log capture)
+test: test-policy all  ## Build, then run the UI tests on the simulator (with log capture)
 	@echo
 	@echo "::: Running UI tests on $(SIM_NAME) :::"
 	@if [ -n "$(AUTHKEY)" ]; then \

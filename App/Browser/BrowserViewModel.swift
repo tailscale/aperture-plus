@@ -147,7 +147,9 @@ final class BrowserViewModel: ObservableObject {
             let wasConnected = isConnected
             isConnected = true
             if !didLoadInitial {
-                // First connect: bring up the home page.
+                // First connect (or a later policy update that finally brought
+                // peer data — loadInitial holds bare single-label URLs until
+                // then, so this is also the retry path for those).
                 loadInitial()
             } else if let retry = pendingRetryURL {
                 // Reconnect after a drop: retry the navigation that failed
@@ -155,8 +157,9 @@ final class BrowserViewModel: ObservableObject {
                 // overlay up.
                 pendingRetryURL = nil
                 logger.log("Proxy reconnected — retrying held load \(retry)")
-                let nav = page.load(retry)
-                watchForNavitationErrors(nav, for: retry)
+                // Via `load(url:)` so the retry re-applies short-name
+                // expansion against the (possibly updated) policy.
+                load(url: retry)
             } else if !wasConnected {
                 logger.log("Proxy reconnected — page kept, no reload")
             }
@@ -177,9 +180,25 @@ final class BrowserViewModel: ObservableObject {
     func loadInitial() {
         guard !didLoadInitial else { return }
         guard isConnected else { return }
+        // The proxy is published as soon as the node starts — BEFORE the first
+        // `/status` poll — so at this instant the routing rules may still be
+        // IP-ranges-only. A bare single-label home page (the default is
+        // `http://ai/chat`) can't be routed yet: it isn't a rule, and there's
+        // no known MagicDNS suffix to expand it with. Loading now would send it
+        // DIRECT and fail. Wait for peer data; `applyProxy` re-runs this when
+        // the policy updates (a few seconds at most).
+        if needsPeerDataToRoute(initialURL), tsnetModel.proxyPolicy?.hasPeerData != true {
+            logger.log("loadInitial: holding \(initialURL) until tailnet peer data arrives")
+            return
+        }
         didLoadInitial = true
-        let nav = page.load(initialURL)
-        watchForNavitationErrors(nav, for: initialURL)
+        // Goes through `load(url:)` so the initial URL gets the same
+        // short-name -> FQDN expansion as a typed one. The default home page
+        // is `http://ai/chat` — a bare MagicDNS name, and `ai` is exactly the
+        // kind of label withheld from the proxy rules (it collides with the
+        // public `.ai` TLD), so without expansion the home page would load
+        // DIRECT and fail for anyone not also running the system Tailscale VPN.
+        load(url: initialURL)
     }
 
     func reload() {
@@ -187,8 +206,8 @@ final class BrowserViewModel: ObservableObject {
             let nav = page.load(item)
             watchForNavitationErrors(nav, for: item.url)
         } else {
-            let nav = page.load(initialURL)
-            watchForNavitationErrors(nav, for: initialURL)
+            // Same expansion as loadInitial (see above).
+            load(url: initialURL)
         }
     }
 
@@ -208,8 +227,39 @@ final class BrowserViewModel: ObservableObject {
     /// bar). The single entry point for user-initiated navigations so that
     /// every such load is watched for errors.
     func load(url: URL) {
-        let nav = page.load(url)
-        watchForNavitationErrors(nav, for: url)
+        let target = resolveForTailnet(url)
+        let nav = page.load(target)
+        watchForNavitationErrors(nav, for: target)
+    }
+
+    /// Rewrites a bare MagicDNS short name to its tailnet FQDN when that name
+    /// had to be withheld from the proxy's `matchDomains` because the label
+    /// collides with a public TLD (e.g. a peer named `ai`, which as a match
+    /// entry would also capture all of `*.ai`).
+    ///
+    /// Without the rewrite such a URL would load DIRECT and fail; with it the
+    /// host becomes `ai.<magicdns-suffix>`, which matches the suffix rule, is
+    /// proxied, and presents the hostname the peer's TLS cert is issued for.
+    /// No-op for every other URL. See `TailnetProxyPolicy`.
+    /// Whether `url` can only be routed correctly once tailnet peer data is
+    /// known: a bare single-label host (`http://ai/`) that is neither an IP
+    /// literal nor already covered by the current rules. Such a host is only
+    /// reachable as an explicit rule or via FQDN expansion, both of which need
+    /// the peer list / MagicDNS suffix.
+    private func needsPeerDataToRoute(_ url: URL) -> Bool {
+        guard let host = url.host()?.lowercased(), !host.isEmpty else { return false }
+        guard !host.contains("."), !host.contains(":") else { return false }
+        return true
+    }
+
+    private func resolveForTailnet(_ url: URL) -> URL {
+        guard let policy = tsnetModel.proxyPolicy else { return url }
+        let suffix = tsnetModel.localStatus?.CurrentTailnet?.MagicDNSSuffix
+        let expanded = policy.expandWithheldShortName(in: url, magicDNSSuffix: suffix)
+        if expanded != url {
+            logger.log("Expanded withheld short name \(url) -> \(expanded)")
+        }
+        return expanded
     }
 
     func navigationError(_ error: Error, for url: URL) {

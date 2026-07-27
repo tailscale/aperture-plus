@@ -5,4 +5,5 @@
 *.xcuserstate
 .DS_Store
 /build
+TODO.md
 TODO.workspaces.md

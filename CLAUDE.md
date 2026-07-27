@@ -95,6 +95,54 @@ Prefer `-derivedDataPath build/DerivedData` to keep DerivedData inside the
 
 
 
+## Split tunnel: only tailnet traffic goes through the proxy
+
+`TSNet/TailnetProxyPolicy.swift` decides which hosts are routed through the tsnet
+SOCKS5 proxy. **Only tailnet destinations are proxied** (the `100.64.0.0/10`
+CGNAT + `fd7a:115c:a1e0::/48` ranges, the MagicDNS suffix, peer FQDNs, peer short
+names); everything else loads DIRECT. This is applied via
+`ProxyConfiguration.matchDomains` in `TSNetManager.proxyConfig`.
+
+Do **not** "simplify" this back to an unscoped `ProxyConfiguration`. Proxying
+everything is what caused the reported bug where every non-tailnet URL failed
+with an "invalid URL" popup (`NSURLErrorDomain -1000`) on a real iPad. Measured
+fact: **any** SOCKS5 CONNECT failure surfaces as `-1000`, so that error means
+"the proxy couldn't connect", not "bad URL" (see
+`scripts/proxy-semantics/README.md` and the "RESOLVED" section of
+`timing/README.md`).
+
+Gotchas encoded in that file, all empirically verified — read its header comment
+before touching it:
+
+- `matchDomains = []` means **proxy everything**; an empty-string entry also
+  matches everything. Never emit either.
+- Matching is **label-wise suffix**, so a single-label entry for a peer named
+  `ai` would also capture the whole public `.ai` TLD. Such names are withheld
+  and reached by rewriting to their FQDN (`BrowserViewModel.resolveForTailnet`).
+- Peer names are **untrusted input**: a peer called `localhost` must not become
+  a rule (it would route the app's own loopback through the proxy).
+- Rules are **sorted** so the 5s status poll doesn't republish the proxy config
+  (and reset it under live page loads) on every tick.
+- `excludedDomains` is avoided: broken getter, surprising matching.
+
+Testing and diagnostics:
+
+- `make test-policy` — 90 host-only unit tests (~2s, no sim/xcframework).
+  `make test` runs it first.
+- **Settings → Routing** shows the live rules and answers "proxy or direct?" for
+  any host you type. This is the on-device diagnostic for devices that can't be
+  attached to a Mac.
+- **The Exit Node toggle doubles as the routing control.** Exit node ON => proxy
+  everything (public traffic must be proxied to egress via the exit node); OFF =>
+  tailnet only. That's the on-device way to A/B the bug, since launch arguments
+  can't be set on a physical device. `-ProxyEverything` does the same on the sim.
+- **iOS pre-filters by `matchDomains` against the literal host**, then resolves
+  unmatched hosts itself (applying system search domains). It never expands a
+  bare label for the proxy, and never asks the proxy to decide. Hence the URL
+  rewrite: a bare `http://ai/` must become `ai.<suffix>` to be routable.
+- `scripts/proxy-semantics/` — the SOCKS proxies + WebKit harnesses used to
+  measure all of the above.
+
 ## Other gotchas
 
 - **libtailscale logs** go through `TSNet/Logging.swift` to `os_log` under subsystem

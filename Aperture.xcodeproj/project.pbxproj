@@ -49,6 +49,7 @@
 				AuthManager.swift,
 				CrashCapture.swift,
 				Logging.swift,
+				TailnetProxyPolicy.swift,
 				TSNetManager.swift,
 				TSNetModel.swift,
 			);

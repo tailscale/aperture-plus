@@ -211,6 +211,23 @@ final class TSNetManager {
     }
 
     @MainActor var busErrorWatcher: AnyCancellable?
+
+    /// Watches `prefs` so flipping the Exit Node toggle re-scopes the proxy
+    /// immediately (exit node on => proxy everything so public traffic can
+    /// egress; off => tailnet only). Without this the change would only take
+    /// effect on the next 5s status poll.
+    @MainActor private var prefsWatcher: AnyCancellable?
+
+    /// Starts observing `prefs` for exit-node changes. Idempotent.
+    @MainActor
+    private func startPrefsObservation() {
+        guard prefsWatcher == nil else { return }
+        prefsWatcher = model.$prefs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshProxyPolicyIfNeeded()
+            }
+    }
     func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws  -> MessageProcessor {
         // This sets up a bus watcher to listen for changes in the netmap.  These will be sent to the given consumer, in
         // this case, a TSNetModel which will keep track of the changes and publish them.
@@ -270,6 +287,7 @@ final class TSNetManager {
     func setLocalAPIClient(_ client: TailscaleKit.LocalAPIClient) {
         self.localAPIClient = client
         startStatusPolling()
+        startPrefsObservation()
     }
 
     /// Polls `backendStatus()` every few seconds and publishes it on the model,
@@ -296,6 +314,13 @@ final class TSNetManager {
                                self.model.state != s {
                                 self.model.state = s
                             }
+                            // Fold newly-discovered peers / the MagicDNS suffix
+                            // into the proxy's split-tunnel rules. The proxy is
+                            // published before the first poll, so without this
+                            // the rule set would stay IP-ranges-only and bare
+                            // MagicDNS names (`http://ai/`) would load DIRECT
+                            // and fail. No-op when the rules are unchanged.
+                            self.refreshProxyPolicyIfNeeded()
                         }
                     }
                 }
@@ -321,19 +346,97 @@ final class TSNetManager {
         return self.node!
     }
 
+    /// Builds the SOCKS5 `ProxyConfiguration` for WebKit, scoped by
+    /// `TailnetProxyPolicy` so ONLY tailnet destinations are proxied and the
+    /// public internet loads DIRECT.
+    ///
+    /// The scoping is what fixes the iPad `-1000` ("invalid URL") bug. Measured
+    /// fact: `-1000` is what WebKit/CFNetwork report for ANY SOCKS5 CONNECT
+    /// failure, so it means "the proxy could not connect" — not "bad URL".
+    /// Public hosts therefore must not depend on the tsnet proxy at all. See
+    /// the file comment in `TailnetProxyPolicy.swift` for the candidate
+    /// mechanisms and the verified `matchDomains` semantics.
+    ///
+    /// `-ProxyEverything` restores the old proxy-everything behaviour, so the
+    /// two modes can be A/B'd on a real device with no rebuild (the iPad in
+    /// the bug report can't be attached to a Mac).
     func proxyConfig(_ loopbackConfig: TailscaleNode.LoopbackConfig) -> ProxyConfiguration? {
-        if let ip = loopbackConfig.ip,
-           let port = loopbackConfig.port {
-            let proxy = NWEndpoint.hostPort(host: NWEndpoint.Host(ip),
-                                            port: NWEndpoint.Port("\(port)")!)
-
-            let proxyConfig = ProxyConfiguration(socksv5Proxy: proxy)
-            proxyConfig.applyCredential(username: "tsnet",
-                                        password: loopbackConfig.proxyCredential)
-            return proxyConfig
+        guard let ip = loopbackConfig.ip, let port = loopbackConfig.port else {
+            return nil
         }
 
-        return nil
+        let proxy = NWEndpoint.hostPort(host: NWEndpoint.Host(ip),
+                                        port: NWEndpoint.Port("\(port)")!)
+
+        var proxyConfig = ProxyConfiguration(socksv5Proxy: proxy)
+        proxyConfig.applyCredential(username: "tsnet",
+                                    password: loopbackConfig.proxyCredential)
+
+        let policy = TailnetProxyPolicy.make(from: model.localStatus,
+                                             exitNodeEnabled: proxyEverythingRequested())
+        if policy.proxiesEverything {
+            model.proxyPolicy = policy
+            logger.log("proxyConfig: proxying ALL hosts (exit node on, or -ProxyEverything). Public traffic egresses via the exit node; with no working exit node it will fail.")
+            return proxyConfig
+        }
+        proxyConfig.matchDomains = policy.matchDomains
+        model.proxyPolicy = policy
+        logger.log("proxyConfig: split tunnel, proxying \(policy.matchDomains.count) rule(s): \(policy.matchDomains.joined(separator: ", "))")
+        if !policy.shortNamesWithheldAsPublicTLD.isEmpty {
+            logger.log("proxyConfig: short names withheld (public-TLD collision), reachable via FQDN: \(policy.shortNamesWithheldAsPublicTLD.joined(separator: ", "))")
+        }
+        return proxyConfig
+    }
+
+    /// Re-derives the proxy's `matchDomains` from the latest peer status and
+    /// republishes it if the rule set changed.
+    ///
+    /// The proxy is published as soon as the node starts — before the first
+    /// `/status` poll — so the initial rule set is only the tailnet IP ranges.
+    /// Once peers are known (and whenever they change: a peer joins, or
+    /// MagicDNS arrives) the short names and MagicDNS suffix must be folded in,
+    /// or bare names like `http://ai/` would load DIRECT and fail.
+    @MainActor
+    func refreshProxyPolicyIfNeeded() {
+        guard model.proxyConfiguration != nil else { return }
+        let policy = TailnetProxyPolicy.make(from: model.localStatus,
+                                             exitNodeEnabled: proxyEverythingRequested())
+        guard policy != model.proxyPolicy else { return }
+        guard var updated = model.proxyConfiguration else { return }
+        updated.matchDomains = policy.matchDomains
+        model.proxyPolicy = policy
+        model.proxyConfiguration = updated
+        logger.log("proxyConfig: policy updated — \(policy.matchDomains.joined(separator: ", "))")
+        if !policy.shortNamesWithheldAsPublicTLD.isEmpty {
+            logger.log("proxyConfig: short names withheld (public-TLD collision), reachable via FQDN: \(policy.shortNamesWithheldAsPublicTLD.joined(separator: ", "))")
+        }
+    }
+
+    /// Whether ALL traffic (not just tailnet) should go through the proxy.
+    ///
+    /// True when an **exit node is enabled** — the only legitimate reason to send
+    /// public traffic through the tailnet, since that's how it egresses. This is
+    /// why the Exit Node toggle doubles as the routing control: with no exit
+    /// node, proxied public traffic simply fails.
+    ///
+    /// Also true for the `-ProxyEverything` launch override (simulator/CI only;
+    /// launch args can't be set on a physical device — use the toggle there).
+    @MainActor
+    func proxyEverythingRequested() -> Bool {
+        if Self.proxyEverythingOverride() { return true }
+        return !(model.prefs?.ExitNodeID ?? "").isEmpty
+    }
+
+    /// Debug/diagnostic escape hatch: `-ProxyEverything` (launch arg) or
+    /// `APERTURE_PROXY_EVERYTHING=1` restores the pre-fix behaviour of routing
+    /// every request through the tsnet proxy. Used to demonstrate the -1000 bug
+    /// and to verify the split tunnel is what fixes it. Not settable on a real
+    /// device — the Exit Node toggle is the on-device equivalent.
+    nonisolated static func proxyEverythingOverride() -> Bool {
+        if ProcessInfo.processInfo.environment["APERTURE_PROXY_EVERYTHING"] == "1" {
+            return true
+        }
+        return ProcessInfo.processInfo.arguments.contains("-ProxyEverything")
     }
 
     func willEnterBackground() {
@@ -341,7 +444,10 @@ final class TSNetManager {
         startInFlight = false
         stopStatusPolling()
         busErrorWatcher?.cancel()
+        prefsWatcher?.cancel()
+        prefsWatcher = nil
         model.proxyConfiguration = nil
+        model.proxyPolicy = nil
         let nodeTmp = self.node
         self.node = nil
         Task {

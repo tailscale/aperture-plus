@@ -560,6 +560,97 @@ confirmed and the fix is the entitlement (production needs it) — PAC for split
 tunnel in the meantime. If `http://a/` also -1000s, H3 is dead and the block is
 "public-web/non-browser" broadly (H1′ + H4), not single-label.
 
+### RESOLVED: measured `matchDomains` semantics + what `-1000` actually means
+
+Everything below this section was hypothesis. This section is **measurement**,
+run on macOS 26.5 against a purpose-built logging SOCKS5 proxy
+(`/tmp/pxprobe/socks.py`) that records every CONNECT it receives, driven from
+both `URLSession` and `WKWebsiteDataStore.proxyConfigurations` (WebKit). It
+settles two things: how to scope the proxy, and what `-1000` really is.
+
+**1. `-1000` is NOT specific to Local Network Access, and NOT a URL problem.**
+A SOCKS5 proxy that accepts the connection and then answers CONNECT with a
+failure reply makes WebKit report `NSURLErrorDomain -1000` (`NSURLErrorBadURL`,
+rendered as "invalid URL") for **every** SOCKS failure code — general failure,
+not-allowed, network-unreachable, host-unreachable, connection-refused (1–5),
+for both short names and public names. So `-1000` is simply CFNetwork's generic
+mapping for **"the proxy could not establish this connection"**. It says
+nothing about the URL and does not require the LNA mechanism to explain it.
+
+That reframes the whole investigation. The reasoning above — "-1000 is a
+pre-dial URL-validity rejection, so the request never reached tsnet" — was the
+load-bearing assumption behind H1/H3/H4/H-LNA, and it is **wrong**. The
+observation is equally consistent with the much simpler H5: the request DOES
+reach tsnet, and tsnet's `UserDial` fails for non-tailnet hosts on real iOS
+(Go's cgo `getaddrinfo` is unreliable there; MagicDNS names resolve in-memory
+and so keep working). Both stories predict "tailnet works, internet -1000"; the
+device-to-device split is then just whether that device's tsnet can resolve
+public DNS, not an OS policy difference.
+
+**This is worth knowing regardless of mechanism:** the fix below is correct
+under *either* story, because in both cases the mistake is sending public
+traffic through the tsnet proxy at all. But the docs should not keep asserting
+LNA as established fact — H-LNA remains plausible and is well-sourced, it is
+just no longer *implied* by the error code.
+
+To distinguish them on the iPad with the shipped build: Settings → Routing now
+shows the live rules, and `-ProxyEverything` restores the old behaviour. If
+public sites load with the split tunnel on and `-1000` only with
+`-ProxyEverything`, the proxy path is the culprit either way.
+
+**1b. Who applies search domains? The OS — but only AFTER deciding not to proxy.**
+Measured on a Mac where `corp.ts.net` is a system search domain (`scutil --dns`)
+and `ai.corp.ts.net` is a real peer:
+
+| request | `matchDomains` | reached proxy? | as what |
+| --- | --- | --- | --- |
+| `http://ai/` | `[corp.ts.net]` | **no** | (OS expanded + dialed it itself) |
+| `http://ai.corp.ts.net/` | `[corp.ts.net]` | yes | `ai.corp.ts.net` |
+| `http://ai/` | `[ai]` | yes | **`ai`** (bare label, NOT expanded) |
+| `http://onlyviaproxy/` | `[somethingelse]` | **no** → `-1003` | — |
+| `http://onlyviaproxy/` | `[onlyviaproxy]` | yes → `-1000` | `onlyviaproxy` |
+
+So the sequence is: **iOS matches `matchDomains` against the LITERAL host string
+first**; on a miss it resolves/dials itself (applying its own search domains); on
+a match it hands the literal string to the proxy, unexpanded. The OS never
+expands a name *for* the proxy, and never asks the proxy to adjudicate.
+
+Consequences:
+- **iOS pre-filters.** The proxy is not consulted about hosts that don't match —
+  so the two error codes have distinct meanings: `-1003` = pre-filtered, the OS
+  couldn't resolve it; `-1000` = it reached the proxy and the proxy couldn't dial.
+- **Search domains ≠ match domains.** Suffixing is *resolution*; `matchDomains`
+  is *routing*. Anything relying on a bare label reaching the proxy must either
+  list the bare label as a rule (which over-captures that TLD — see below) or
+  rewrite the URL to the FQDN before loading. Aperture rewrites.
+- **A bare-label rule captures the whole TLD.** With a peer named `ai`,
+  `matchDomains=[ai]` sent `openai.ai` and `www.elevenlabs.ai` to the proxy.
+  With FQDN-only rules (`ai.corp.ts.net`, `corp.ts.net`) they correctly went
+  DIRECT.
+
+**2. `ProxyConfiguration.matchDomains` behaves as needed (all verified):**
+
+| behaviour | measured |
+| --- | --- |
+| no entries | proxies **everything** (the old, broken config) |
+| any entries | proxies **only** matches; everything else goes DIRECT |
+| name matching | label-wise **suffix**: `example.com` matches `www.example.com`, `a.b.example.com`, not `notexample.com` |
+| **single-label entry** | `ai` matches host `ai` **and `openai.ai`** — a peer named `ai` would capture the whole `.ai` TLD |
+| CIDR entries | **supported**, with exact boundaries: `100.64.0.0/10` covers `100.101.102.103` and `100.127.255.254`, excludes `100.5.5.5` / `142.250.80.46` |
+| IPv6 CIDR | supported (`fd7a:115c:a1e0::/48`) |
+| case / trailing dot | insensitive / tolerated |
+| empty-string entry | matches **everything** — never emit one |
+| invalid entry | ignored, does not poison the config |
+| `excludedDomains` | **avoid**: getter reads back `matchDomains`, and matching fires in surprising directions |
+| WebKit vs URLSession | **identical** behaviour |
+
+**The fix (implemented in `TSNet/TailnetProxyPolicy.swift`):** scope the SOCKS
+proxy to tailnet destinations only — the CGNAT/ULA ranges, the MagicDNS suffix,
+peer FQDNs, and peer short names (minus public-TLD collisions, which are
+reached by rewriting to the FQDN). Public hosts then load DIRECT and never
+depend on the proxy. Unit tests: `scripts/test-proxy-policy.sh` (90 checks,
+mutation-tested). On-device diagnostic: Settings → Routing.
+
 ### Follow-up: the decisive new fact + the sourced mechanism (H-LNA)
 
 The user ran a fuller matrix on the real iPad: **ALL tailnet URLs work** —
@@ -709,6 +800,12 @@ is an App-Store-signed build with the entitlement granted by Apple. A
 provisioning profile with the entitlement from the dev portal is the dev path.)
 
 ### The -1000 (badURL) result + the iPhone/iPad split
+
+> **Superseded — see "RESOLVED" above.** The premise of this section (that
+> `-1000` is a CFURL-layer rejection happening *before* the SOCKS dial, and
+> therefore proves the request never reached tsnet) was tested directly and is
+> **false**: a SOCKS proxy that fails the CONNECT produces `-1000` for every
+> failure code. Kept for the record.
 
 On a REAL iPad (and macOS-Designed-for-iPad), `https://www.google.com/` fails
 with **`NSURLErrorDomain -1000` = `NSURLErrorBadURL`** (surfaced via WebKit's

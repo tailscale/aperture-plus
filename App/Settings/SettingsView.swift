@@ -9,6 +9,7 @@ struct SettingsView: View {
 
     @State private var showLogoutAlert: Bool = false
     @State private var togglingExitNode: Bool = false
+    @State private var routeTestHost: String = ""
 
     var body: some View {
         NavigationStack {
@@ -90,6 +91,11 @@ struct SettingsView: View {
                                  color: .red)
                         .accessibilityIdentifier("logout-button")
                 }
+
+                // Diagnostics last: this section is informational and can be
+                // long (it lists every proxy rule), so keeping it below Logout
+                // leaves the primary controls above the fold.
+                routingSection
             }
             .navigationTitle("Settings")
             .toolbar {
@@ -113,6 +119,64 @@ struct SettingsView: View {
             // Seed the exit-node diagnostic (availability + egress IP) so the
             // banner is populated when Settings opens, not only after a toggle.
             viewModel.runExitNodeDiagnostic()
+        }
+    }
+
+    // MARK: - Routing (split tunnel) diagnostic
+
+    /// Shows which hosts are routed through the tsnet proxy and lets the user
+    /// test any host. This exists because the iPad that hit the `-1000`
+    /// ("invalid URL") bug can't be attached to a Mac, so `log stream` is
+    /// unavailable — this is the on-device ground truth for the split tunnel.
+    @ViewBuilder
+    private var routingSection: some View {
+        Section(header: Text("Routing")) {
+            if viewModel.proxyEverything {
+                Text("⚠️ ALL traffic is going through the tailnet (Exit Node is on). Public sites only work if the exit node is actually working — otherwise they fail with “invalid URL”. Turn Exit Node off to browse the internet directly.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("routing-proxy-everything-warning")
+            } else if let policy = viewModel.proxyPolicy {
+                Text("Tailnet hosts go through the proxy; everything else loads directly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("\(policy.matchDomains.count) proxy rule(s)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("routing-rule-count")
+                DisclosureGroup("Show rules") {
+                    ForEach(policy.matchDomains, id: \.self) { rule in
+                        Text(rule)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption)
+                .accessibilityIdentifier("routing-rules-disclosure")
+                if !policy.shortNamesWithheldAsPublicTLD.isEmpty {
+                    Text("Short names also matching a public domain (reached via their full tailnet name): \(policy.shortNamesWithheldAsPublicTLD.joined(separator: ", "))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("routing-withheld-names")
+                }
+            } else {
+                Text("Not connected yet — no routing rules applied.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("routing-not-connected")
+            }
+
+            TextField("Test a host or URL", text: $routeTestHost)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .accessibilityIdentifier("routing-test-field")
+            if let explanation = viewModel.routeExplanation(for: routeTestHost) {
+                Text(explanation)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(explanation.contains("DIRECT") ? Color.secondary : Color.green)
+                    .accessibilityIdentifier("routing-test-result")
+            }
         }
     }
 
