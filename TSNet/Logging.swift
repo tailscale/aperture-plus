@@ -1,6 +1,7 @@
 //  Created by Jonathan Nobels on 2025-12-18.
 //
 
+import Foundation
 import TailscaleKit
 import os
 
@@ -52,5 +53,79 @@ struct Logger: TailscaleKit.LogSink {
         // captured by `log stream` / Console.app / `log show` during UI tests
         // (where the app's stdout isn't always easy to read in real time).
         os_log("%{public}@", log: ApertureLog.tsnet, type: .default, message)
+
+        // And keep a copy in memory so the in-app log viewer can show it. This
+        // is the ONLY way to read these messages on a device that can't be
+        // attached to a Mac (no `log stream`, no Console.app).
+        LogRing.shared.append(message)
+    }
+}
+
+/// A bounded in-memory ring buffer of the most recent log lines, so the app can
+/// show its own logs (Settings → Logs). Every libtailscale/tsnet message and
+/// every `logger.log(…)` call in the app funnels through `Logger.log`, so this
+/// captures both.
+///
+/// Exists because the iPad that reported the "invalid URL" bug has a broken USB
+/// port: `log stream`/Console.app aren't available, so on-device inspection is
+/// the only diagnostic channel.
+///
+/// Thread-safety: `Logger.log` is called from libtailscale's Go-backed threads
+/// as well as the main actor, so this is a `final class` guarded by an
+/// `NSLock` rather than actor-isolated (callers are `nonisolated` and can't
+/// await). Lock hold times are a few pointer writes.
+nonisolated final class LogRing: @unchecked Sendable {
+    nonisolated(unsafe) static let shared = LogRing()
+
+    /// Keep well over the 1000 lines needed to see a full connect + browse
+    /// cycle; each entry is short, so a few thousand costs little memory.
+    private let capacity = 4000
+    private let lock = NSLock()
+    private var entries: [String] = []
+    /// Index of the oldest entry once the buffer has wrapped.
+    private var start = 0
+    /// Total lines ever logged (so the UI can show how many were dropped).
+    private var total = 0
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    nonisolated func append(_ message: String) {
+        let line = "\(Self.timeFormatter.string(from: Date())) \(message)"
+        lock.lock()
+        defer { lock.unlock() }
+        total += 1
+        if entries.count < capacity {
+            entries.append(line)
+        } else {
+            entries[start] = line
+            start = (start + 1) % capacity
+        }
+    }
+
+    /// The buffered lines, oldest first.
+    nonisolated func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard entries.count == capacity else { return entries }
+        return Array(entries[start...] + entries[..<start])
+    }
+
+    /// Total lines logged since launch (may exceed the buffered count).
+    nonisolated var totalLogged: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return total
+    }
+
+    nonisolated func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        entries.removeAll()
+        start = 0
+        total = 0
     }
 }

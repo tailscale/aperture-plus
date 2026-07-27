@@ -53,6 +53,12 @@ final class TSNetManager {
     /// in the logs. MainActor so the check-and-set is atomic.
     @MainActor private var startInFlight = false
 
+    /// Logging SOCKS5 relay in front of tsnet's proxy, so every connection
+    /// attempt + outcome is visible in Settings → Logs on a device that can't
+    /// be attached to a Mac. See `SocksLogProxy`.
+    @MainActor private var socksLogProxy: SocksLogProxy?
+    @MainActor private var socksLogProxyPort: UInt16?
+
     /// Creates a per-workspace tsnet controller. `config.path` is the
     /// workspace's state dir (Application Support — persistent, unlike the
     /// old `NSTemporaryDirectory` location; see `WorkspaceStore.stateDir`);
@@ -365,8 +371,30 @@ final class TSNetManager {
             return nil
         }
 
-        let proxy = NWEndpoint.hostPort(host: NWEndpoint.Host(ip),
-                                        port: NWEndpoint.Port("\(port)")!)
+        // Route WebKit through the logging relay (Settings → Logs) so every
+        // connection attempt that reaches the tailnet proxy is recorded with
+        // its outcome. tsnet's own SOCKS server logs only failures and not the
+        // reply code, so without this the absence of a log line is ambiguous:
+        // it could mean "iOS never sent it to us" OR "it succeeded".
+        var proxyHost = ip
+        var proxyPort = port
+        if SocksLogProxy.isEnabled() {
+            if socksLogProxy == nil,
+               let upstreamPort = UInt16(exactly: port) {
+                let relay = SocksLogProxy(upstreamHost: ip, upstreamPort: upstreamPort)
+                if let localPort = relay.start() {
+                    socksLogProxy = relay
+                    socksLogProxyPort = localPort
+                }
+            }
+            if let localPort = socksLogProxyPort {
+                proxyHost = "127.0.0.1"
+                proxyPort = Int(localPort)
+            }
+        }
+
+        let proxy = NWEndpoint.hostPort(host: NWEndpoint.Host(proxyHost),
+                                        port: NWEndpoint.Port("\(proxyPort)")!)
 
         var proxyConfig = ProxyConfiguration(socksv5Proxy: proxy)
         proxyConfig.applyCredential(username: "tsnet",
@@ -448,6 +476,9 @@ final class TSNetManager {
         prefsWatcher = nil
         model.proxyConfiguration = nil
         model.proxyPolicy = nil
+        socksLogProxy?.stop()
+        socksLogProxy = nil
+        socksLogProxyPort = nil
         let nodeTmp = self.node
         self.node = nil
         Task {

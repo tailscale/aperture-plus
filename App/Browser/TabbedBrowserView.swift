@@ -147,6 +147,9 @@ private struct BrowserRootContent: View {
     @State private var showingTabOverview = false
     @State private var showingBookmarks = false
     @State private var showingBookmarkEditor = false
+    /// In-app log viewer (Settings → Logs / the "more" menu). The only way to
+    /// read the app's logs on a device that can't be attached to a Mac.
+    @State private var showingLogs = false
 
     init(workspace: Workspace,
          tabManager: TabManager,
@@ -198,6 +201,14 @@ private struct BrowserRootContent: View {
                             .accessibilityLabel("Bookmarks")
 
                             Button {
+                                showingLogs = true
+                            } label: {
+                                Image(systemName: "doc.text.magnifyingglass")
+                            }
+                            .accessibilityIdentifier("logs-button")
+                            .accessibilityLabel("Logs")
+
+                            Button {
                                 onSettings()
                             } label: {
                                 Image(systemName: "gearshape")
@@ -225,7 +236,8 @@ private struct BrowserRootContent: View {
                             onTabOverview: { showingTabOverview = true },
                             onBookmarks: { showingBookmarks = true },
                             onAddBookmark: { showingBookmarkEditor = true },
-                            onSettings: onSettings
+                            onSettings: onSettings,
+                            onLogs: { showingLogs = true }
                         )
                         .id(tab.id)
                     }
@@ -240,6 +252,9 @@ private struct BrowserRootContent: View {
                         ReconnectingBanner()
                     }
                 }
+        }
+        .sheet(isPresented: $showingLogs) {
+            LogViewer(dismissAction: { showingLogs = false })
         }
         .fullScreenCover(isPresented: $showingTabOverview) {
             TabOverview(

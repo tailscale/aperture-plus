@@ -869,6 +869,59 @@ final class ApertureUITests: XCTestCase {
     /// suspected cause of the reported iPad-only 'invalid URL' on a real
     /// device — the toolbar TextField's input traits aren't always honored).
     /// It does guard the normalization + load path on both layouts.
+    /// The in-app log viewer must show real `socks[n]` lines — i.e. it must
+    /// actually prove, on-device, which hosts reached the tailnet proxy and what
+    /// the proxy said. This is the only diagnostic channel on a device that
+    /// can't be attached to a Mac, so if it comes up empty it is useless.
+    func testLogViewerShowsSocksActivity() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+
+        // Let the home page load so there is proxy traffic to report.
+        _ = app.webViews.firstMatch.waitForExistence(timeout: 30)
+
+        // Logs: a toolbar button on iPad (regular), in the "more" menu on iPhone.
+        if app.buttons["logs-button"].waitForExistence(timeout: 5) {
+            app.buttons["logs-button"].tap()
+        } else {
+            XCTAssertTrue(app.buttons["more-menu-button"].waitForExistence(timeout: 5),
+                          "Either a logs-button or the more-menu should be present")
+            app.buttons["more-menu-button"].tap()
+            let asMenuItem = app.menuItems["Logs"]
+            let asButton = app.buttons["Logs"]
+            if asMenuItem.waitForExistence(timeout: 5) { asMenuItem.tap() }
+            else if asButton.waitForExistence(timeout: 5) { asButton.tap() }
+            else { XCTFail("Logs entry not found in the more menu"); return }
+        }
+
+        XCTAssertTrue(app.navigationBars["Logs"].waitForExistence(timeout: 10),
+                      "Log viewer should open")
+
+        // The filter defaults to "socks", so the visible lines should be the
+        // proxy-connection records. Wait for at least one to show up.
+        let status = app.staticTexts["log-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10), "Log status line should exist")
+
+        let sawSocksLine = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { obj, _ in
+                guard let app = obj as? XCUIApplication else { return false }
+                // Any line mentioning the proxy relay counts.
+                return app.staticTexts.allElementsBoundByIndex.contains {
+                    $0.label.contains("socks[") || $0.label.contains("sockslog:")
+                }
+            }, object: app)], timeout: 30)
+
+        attachScreenshot(app, named: sawSocksLine == .completed ? "logs-with-socks" : "logs-empty")
+        XCTAssertEqual(sawSocksLine, .completed,
+                       "The log viewer should show socks proxy activity after the " +
+                       "home page loads — these lines are the on-device evidence " +
+                       "of which hosts reached the tailnet proxy. Status line said: " +
+                       "\(status.label)")
+
+        app.buttons["log-done-button"].tap()
+    }
+
     /// The Settings → Routing diagnostic must show that tailnet hosts are
     /// proxied and public hosts are NOT. This is the split tunnel that fixes
     /// the iPad `-1000` ("invalid URL") bug: sending public traffic through the

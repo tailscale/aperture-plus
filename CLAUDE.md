@@ -136,6 +136,12 @@ Testing and diagnostics:
   everything (public traffic must be proxied to egress via the exit node); OFF =>
   tailnet only. That's the on-device way to A/B the bug, since launch arguments
   can't be set on a physical device. `-ProxyEverything` does the same on the sim.
+- **Settings -> Logs / the "more" menu -> Logs** shows the app's own recent log
+  lines (`LogRing` in `TSNet/Logging.swift`), including the `socks[n]` lines from
+  `TSNet/SocksLogProxy.swift` — a pass-through SOCKS5 relay in front of tsnet
+  that logs EVERY connection attempt and its outcome. tsnet's own SOCKS server
+  logs only failures and not the reply code, so without the relay the absence of
+  a log line is ambiguous. Disable the relay with `-NoSocksLog`.
 - **iOS pre-filters by `matchDomains` against the literal host**, then resolves
   unmatched hosts itself (applying system search domains). It never expands a
   bare label for the proxy, and never asks the proxy to decide. Hence the URL

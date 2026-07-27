@@ -28,6 +28,9 @@ struct CompactBrowserToolbar: View {
     let onBookmarks: () -> Void
     let onAddBookmark: () -> Void
     let onSettings: () -> Void
+    /// Opens the in-app log viewer — the only way to read the app's logs on a
+    /// device that can't be attached to a Mac (no `log stream`/Console.app).
+    let onLogs: () -> Void
 
     @State private var isEditing = false
     @State private var urlFieldText = ""
@@ -149,6 +152,11 @@ struct CompactBrowserToolbar: View {
                     Label("Bookmarks", systemImage: "book")
                 }
                 Divider()
+                Button {
+                    onLogs()
+                } label: {
+                    Label("Logs", systemImage: "doc.text.magnifyingglass")
+                }
                 Button {
                     onSettings()
                 } label: {
