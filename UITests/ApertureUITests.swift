@@ -644,6 +644,194 @@ final class ApertureUITests: XCTestCase {
     }
 
 
+    /// Repro/regression for the software-keyboard layout bug: with the
+    /// simulator's hardware keyboard disconnected, tapping the chat input makes
+    /// the page scroll the focused input too far off the top (it should sit
+    /// just above the URL bar) and can push the native URL bar off-screen.
+    /// Root cause: the SwiftUI `WebView`'s frame shrinks for the keyboard (safe
+    /// area) AND WebKit independently adds a keyboard `contentInset` to its
+    /// scroll view + scrolls the focused element into the "visible" region —
+    /// so the input is scrolled up by ~2× the keyboard height (double
+    /// accounting). See `BrowserView.swift` / the fix that ignores the keyboard
+    /// safe area on the webview.
+    ///
+    /// This is primarily a *visual* repro: it taps the chat input, waits for
+    /// the software keyboard, and attaches before/after screenshots so a
+    /// vision pass can see where the input and URL bar end up. The hard
+    /// requirements are connection + page load + input found; the keyboard /
+    /// layout outcome is captured (screenshots + logs) but not hard-asserted,
+    /// so the suite stays green while we iterate on the fix. Run with the sim's
+    /// "Connect Hardware Keyboard" OFF so the software keyboard appears:
+    ///
+    ///   /usr/libexec/PlistBuddy -c 'Add :DevicePreferences:<UDID>:ConnectHardwareKeyboard bool false' \
+    ///     ~/Library/Preferences/com.apple.iphonesimulator.plist
+    ///
+    /// (then restart Simulator.app so it re-reads the pref) and target that
+    /// sim: `xcodebuild test … -destination 'platform=iOS Simulator,name=iPhone 17'`.
+    func testChatInputKeyboardLayoutRepro() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        // Wait for the chat home page (http://ai/chat) to reach the URL pill.
+        let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
+        attachScreenshot(app, named: reached ? "repro-page-loaded" : "repro-page-load-failed")
+        XCTAssertTrue(reached, "Chat home page did not load; can't repro keyboard layout.")
+
+        // Give the SPA a moment to render the input + accessibility-bridge it
+        // (the webview a11y bridge lags ~10–30s behind DOM readiness).
+        let input = findChatInput(in: app)
+        guard let input = input else {
+            attachScreenshot(app, named: "repro-no-input-found")
+            // Soft-fail: the webview a11y bridge is inconsistently slow to
+            // surface the textarea (sometimes a textView, sometimes an
+            // otherElement, sometimes not bridged within the timeout). This is
+            // a *visual* repro, not a functional gate, so don't fail the suite
+            // on it — the screenshots + logs are still useful.
+            let tf = app.webViews.textFields.count
+            let tv = app.webViews.textViews.count
+            let oe = app.webViews.otherElements.count
+            print("REPRO: chat input not found (textFields=\(tf), textViews=\(tv), otherElements=\(oe)) — a11y bridge lag; skipping keyboard repro.")
+            return
+        }
+        print("REPRO: home input frame = \(input.frame) label=\(input.label)")
+
+        // The home page centers the input in the middle of the viewport, so
+        // focusing it doesn't trigger WebKit's scroll-to-focus (the input is
+        // already above the keyboard) and the bug doesn't show. The reported
+        // bug is on a *conversation* page (`/chat/<id>`) where the input pins
+        // to the BOTTOM. Start a conversation so the input repositions to the
+        // bottom, then focus it there. Type a message and submit via the send
+        // button (the chat UI's textarea inserts a newline on Return, so we
+        // can't rely on the Return key).
+        input.tap()
+        input.typeText("keyboard layout repro")
+        // Enumerate the webview's buttons so we can identify the send button.
+        let buttons = app.webViews.buttons.allElementsBoundByIndex
+        let buttonDesc = buttons.map { b -> String in "\(b.label)@\(b.frame)" }
+        print("REPRO: webview buttons = \(buttonDesc)")
+        // The send button is the one labeled "Send". Fall back to the enabled
+        // button whose frame sits just below the input and is rightmost (send
+        // buttons are conventionally on the trailing edge), then the last button.
+        let sendButton = buttons.first(where: { $0.label.lowercased() == "send" })
+            ?? buttons.filter({ $0.frame.minY > input.frame.minY && $0.isEnabled })
+                  .max(by: { $0.frame.minX < $1.frame.minX })
+            ?? buttons.last
+        if let send = sendButton {
+            print("REPRO: tapping send button \(send.label)@\(send.frame)")
+            send.tap()
+        } else {
+            print("REPRO: no send button found; pressing Return")
+            input.typeText("\n")
+        }
+        // Wait for the SPA to route to the conversation and reposition the
+        // input to the bottom. The url pill only shows the host, so detect the
+        // transition by the input's frame moving down (y grows).
+        let repositioned = waitForInputRepositioned(in: app, from: input.frame, timeout: 20)
+        attachScreenshot(app, named: repositioned ? "repro-chat-started" : "repro-chat-not-started")
+        saveScreenshot(app, to: "/tmp/repro-chat-started.png")
+        print("REPRO: chat started (input repositioned) = \(repositioned)")
+
+        // Re-find the (now bottom-anchored) input.
+        guard let bottomInput = findChatInput(in: app, timeout: 20) else {
+            attachScreenshot(app, named: "repro-no-bottom-input")
+            print("REPRO: chat input not found after starting a conversation — skipping measured focus.")
+            return
+        }
+        print("REPRO: bottom input frame = \(bottomInput.frame) label=\(bottomInput.label)")
+
+        // Dismiss any keyboard from the typing above before the measured tap.
+        if app.keyboards.firstMatch.exists { app.toolbars["Accessory"].buttons["Done"].tap() }
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 0.5)
+        attachScreenshot(app, named: "repro-before-bottom-tap")
+        saveScreenshot(app, to: "/tmp/repro-before-bottom-tap.png")
+
+        // The measured focus: tap the bottom input and let the keyboard come up.
+        let webView = app.webViews.firstMatch
+        print("REPRO: webview frame before focus = \(webView.frame)")
+        bottomInput.tap()
+
+        // Wait for the software keyboard. With the hardware keyboard connected
+        // this never appears — log that case explicitly so a vision pass knows
+        // the repro didn't actually exercise the keyboard.
+        let keyboard = app.keyboards.firstMatch
+        let kbAppeared = keyboard.waitForExistence(timeout: 15)
+        // Immediate screenshot (before settle) to catch the keyboard mid-show.
+        saveScreenshot(app, to: "/tmp/repro-focused-immediate.png")
+        // Let the WebKit scroll-to-focus + inset animation settle.
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 1.5)
+        print("REPRO: webview frame after focus = \(webView.frame)")
+        attachScreenshot(app, named: kbAppeared ? "repro-input-focused" : "repro-no-software-keyboard")
+        saveScreenshot(app, to: kbAppeared ? "/tmp/repro-input-focused.png" : "/tmp/repro-no-software-keyboard.png")
+        print("REPRO: software keyboard appeared = \(kbAppeared)")
+        if kbAppeared { print("REPRO: keyboard frame = \(keyboard.frame)") }
+        print("REPRO: bottom input frame after focus = \(bottomInput.frame)")
+
+        // The surprising symptom: the native URL bar (url-pill) disappearing.
+        // It lives in a `.safeAreaInset(.bottom)` toolbar outside the webview,
+        // so it must stay on-screen and hittable regardless of page scroll.
+        let pill = app.buttons["url-pill"]
+        print("REPRO: url-pill exists=\(pill.exists) hittable=\(pill.isHittable) frame=\(pill.frame)")
+        attachScreenshot(app, named: "repro-settled")
+        saveScreenshot(app, to: "/tmp/repro-settled.png")
+    }
+
+    /// Writes `app`'s screenshot to `path` as PNG so a non-vision agent can
+    /// inspect it directly (XCTAttachments stay buried in the .xcresult bundle).
+    private func saveScreenshot(_ app: XCUIApplication, to path: String) {
+        let png = app.screenshot().pngRepresentation
+        try? png.write(to: URL(fileURLWithPath: path))
+        print("REPRO: wrote screenshot → \(path)")
+    }
+
+    /// Finds the Aperture chat input inside the webview. The chat UI's input has
+    /// placeholder "Ask anything…" and is rendered as a `<textarea>` (maps to a
+    /// web `textField`); fall back to a `textView` / `otherElement` with the
+    /// placeholder text in case the element type changes. Returns nil if none
+    /// is hittable within the timeout.
+    private func findChatInput(in app: XCUIApplication, timeout: TimeInterval = 30) -> XCUIElement? {
+        let webView = app.webViews.firstMatch
+        guard webView.waitForExistence(timeout: timeout) else { return nil }
+
+        // Primary: a web text field carrying the "Ask anything" placeholder.
+        // The chat input's a11y label is "Message input" (an aria-label); its
+        // placeholder is "Ask anything…" on the home page and "Reply…" on a
+        // conversation. The webview a11y bridge is inconsistent about the
+        // element TYPE (sometimes a textView, sometimes an otherElement for a
+        // contenteditable div), so search all three query types for any of
+        // those strings before falling back to "any editable control".
+        let labels = ["Message input", "Ask anything", "Reply"]
+        for q in [app.webViews.textFields, app.webViews.textViews, app.webViews.otherElements] {
+            for label in labels {
+                let m = q.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", label, label)).firstMatch
+                if m.waitForExistence(timeout: 4) { return m }
+            }
+        }
+        // Fallback: any web textField / textView (the input is the only edit
+        // control on the chat home page).
+        for q in [app.webViews.textFields.firstMatch,
+                  app.webViews.textViews.firstMatch] {
+            if q.waitForExistence(timeout: 3) { return q }
+        }
+        return nil
+    }
+
+    /// Polls until the chat input's vertical position has grown past `from.minY`
+    /// by at least 120pt (i.e. it moved down — the SPA routed from the centered
+    /// home hero to a bottom-anchored conversation input), or `timeout` elapses.
+    private func waitForInputRepositioned(in app: XCUIApplication, from: CGRect,
+                                          timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let i = findChatInput(in: app, timeout: 3), i.frame.minY > from.minY + 120 {
+                return true
+            }
+            _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 0.5)
+        }
+        return false
+    }
+
     /// Opening a new Aperture-chat tab from the "+" button works and selects
     /// the new tab. Requires the connected browser.
     func testOpenNewChatTab() throws {

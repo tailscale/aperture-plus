@@ -151,6 +151,19 @@ private struct BrowserRootContent: View {
     /// read the app's logs on a device that can't be attached to a Mac.
     @State private var showingLogs = false
 
+    /// Software-keyboard height, so the bottom URL toolbar can float above the
+    /// keyboard when a web text field is focused. See `KeyboardObserver` for
+    /// why SwiftUI's built-in keyboard avoidance doesn't reach a
+    /// `.safeAreaInset(.bottom)` toolbar when the first responder is inside the
+    /// full-screen `WKWebView`.
+    @StateObject private var keyboardObserver = KeyboardObserver()
+    /// Whether the compact URL toolbar's own text field is being edited, hoisted
+    /// out of `CompactBrowserToolbar` so the keyboard spacer can be gated off
+    /// in that case (SwiftUI's keyboard avoidance handles a native text field;
+    /// the spacer is only for a web input inside the WKWebView). Reset on tab
+    /// switch to match the toolbar's per-tab `.id(tab.id)` re-creation.
+    @State private var toolbarEditing = false
+
     init(workspace: Workspace,
          tabManager: TabManager,
          tab: BrowserTab,
@@ -229,17 +242,37 @@ private struct BrowserRootContent: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     if hSizeClass == .compact {
-                        CompactBrowserToolbar(
-                            tab: tab,
-                            tabManager: tabManager,
-                            onNewChat: { tabManager.openChatTab() },
-                            onTabOverview: { showingTabOverview = true },
-                            onBookmarks: { showingBookmarks = true },
-                            onAddBookmark: { showingBookmarkEditor = true },
-                            onSettings: onSettings,
-                            onLogs: { showingLogs = true }
-                        )
-                        .id(tab.id)
+                        // Float the URL toolbar above the software keyboard and
+                        // grow the bottom safe area by the keyboard height so the
+                        // webview's scroll-view `contentInset` includes it — then
+                        // WebKit scrolls the focused input to just above the
+                        // toolbar (input → URL bar → keyboard) instead of leaving
+                        // the input floating above an empty gap with the toolbar
+                        // pinned (and covered) at the bottom. The transparent
+                        // spacer reserves the room; the keyboard renders over it.
+                        VStack(spacing: 0) {
+                            CompactBrowserToolbar(
+                                tab: tab,
+                                tabManager: tabManager,
+                                onNewChat: { tabManager.openChatTab() },
+                                onTabOverview: { showingTabOverview = true },
+                                onBookmarks: { showingBookmarks = true },
+                                onAddBookmark: { showingBookmarkEditor = true },
+                                onSettings: onSettings,
+                                onLogs: { showingLogs = true },
+                                isEditingURL: $toolbarEditing
+                            )
+                            .id(tab.id)
+                            if keyboardObserver.keyboardHeight > 0 && !toolbarEditing {
+                                Color.clear
+                                    .frame(height: keyboardObserver.keyboardHeight)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        // Animate the spacer growing/shrinking so the toolbar
+                        // rises with the keyboard (~0.25s) instead of jumping.
+                        .animation(.easeInOut(duration: 0.25),
+                                   value: keyboardObserver.keyboardHeight)
                     }
                 }
                 .navigationTitle(hSizeClass == .compact ? "" : (tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle))
@@ -251,6 +284,13 @@ private struct BrowserRootContent: View {
                     } else if !tab.viewModel.isConnected {
                         ReconnectingBanner()
                     }
+                }
+                // Reset the hoisted URL-editing flag when the active tab changes
+                // so the keyboard spacer isn't wrongly gated off for the new
+                // tab (the toolbar is re-created per tab via `.id(tab.id)`, but
+                // this @State lives on the persistent `BrowserRootContent`).
+                .onChange(of: tab.id) { _, _ in
+                    toolbarEditing = false
                 }
         }
         .sheet(isPresented: $showingLogs) {

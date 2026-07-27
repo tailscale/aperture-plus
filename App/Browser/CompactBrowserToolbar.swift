@@ -33,6 +33,11 @@ struct CompactBrowserToolbar: View {
     let onLogs: () -> Void
 
     @State private var isEditing = false
+    /// Mirrors `isEditing` out to the parent so it can gate the keyboard
+    /// spacer (see `TabbedBrowserView`): the spacer must NOT apply when the
+    /// keyboard is up for THIS field (SwiftUI's own keyboard avoidance handles
+    /// it then), only when it's up for a web input inside the WKWebView.
+    @Binding var isEditingURL: Bool
     @State private var urlFieldText = ""
     @State private var backPressed = false
     @State private var forwardPressed = false
@@ -219,11 +224,13 @@ struct CompactBrowserToolbar: View {
     private func startEditing() {
         urlFieldText = page.url?.absoluteString ?? tab.displayURL
         isEditing = true
+        isEditingURL = true
         urlFieldFocused = true
     }
 
     private func cancelEditing() {
         isEditing = false
+        isEditingURL = false
         urlFieldText = ""
     }
 
@@ -241,6 +248,7 @@ struct CompactBrowserToolbar: View {
             viewModel.reportURLParseFailure(normalized)
         }
         isEditing = false
+        isEditingURL = false
     }
 
     // MARK: - Subviews
