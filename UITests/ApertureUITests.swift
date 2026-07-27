@@ -740,6 +740,7 @@ final class ApertureUITests: XCTestCase {
             return
         }
         print("REPRO: bottom input frame = \(bottomInput.frame) label=\(bottomInput.label)")
+        let bottomInputFrameBeforeTap = bottomInput.frame
 
         // Dismiss any keyboard from the typing above before the measured tap.
         if app.keyboards.firstMatch.exists { app.toolbars["Accessory"].buttons["Done"].tap() }
@@ -775,6 +776,42 @@ final class ApertureUITests: XCTestCase {
         print("REPRO: url-pill exists=\(pill.exists) hittable=\(pill.isHittable) frame=\(pill.frame)")
         attachScreenshot(app, named: "repro-settled")
         saveScreenshot(app, to: "/tmp/repro-settled.png")
+
+        // --- Dismiss case (the reported "doesn't go back" symptom) ---
+        // Dismiss the keyboard and measure whether the input + URL toolbar
+        // return to their pre-focus positions. The fix drives the spacer on the
+        // keyboard's own animation duration so the webview's contentInset
+        // collapses in lockstep with the keyboard; WebKit then auto-clamps the
+        // scroll offset back (Safari-style restore). A desynced hardcoded
+        // animation leaves the page scrolled up after dismiss.
+        guard kbAppeared else {
+            print("REPRO: no software keyboard appeared; skipping dismiss measurement.")
+            return
+        }
+        let inputFrameFocused = bottomInput.frame
+        let pillFrameFocused = pill.frame
+        // Dismiss via the keyboard accessory "Done" if present, else tap above
+        // the input (blur) — the first thing that works.
+        let done = app.toolbars["Accessory"].buttons["Done"]
+        if done.waitForExistence(timeout: 3) {
+            done.tap()
+        } else {
+            // Tap the top-center of the webview (above the conversation) to blur.
+            let wf = webView.frame
+            let topTap = CGVector(dx: wf.midX, dy: wf.minY + 40)
+            app.coordinate(withNormalizedOffset: .zero).withOffset(topTap).tap()
+        }
+        // Wait for the keyboard to go away (the dismiss animation + restore).
+        let dismissExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !app.keyboards.firstMatch.exists },
+            object: nil)
+        let kbDismissed = XCTWaiter().wait(for: [dismissExpectation], timeout: 6) == .completed
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 1.0)  // settle
+        saveScreenshot(app, to: "/tmp/repro-dismissed.png")
+        attachScreenshot(app, named: "repro-dismissed")
+        print("REPRO: keyboard dismissed = \(kbDismissed)")
+        print("REPRO: bottom input frame after dismiss = \(bottomInput.frame) (was focused=\(inputFrameFocused), before-tap=\(bottomInputFrameBeforeTap))")
+        print("REPRO: url-pill frame after dismiss = \(pill.frame) (was focused=\(pillFrameFocused))")
     }
 
     /// Writes `app`'s screenshot to `path` as PNG so a non-vision agent can
