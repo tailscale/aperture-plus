@@ -293,6 +293,115 @@ final class ApertureUITests: XCTestCase {
                       "Should return to the root (settings gear hittable) after Done")
     }
 
+    /// End-to-end exit-node functional test. Requires the connected browser
+    /// (auth key automates login) AND at least one exit-node-capable peer in
+    /// the tailnet. Verifies that toggling the exit node on CHANGES the egress
+    /// IP (routes through WireGuard → exit node), proving the exit node is
+    /// actually working.
+    ///
+    /// TODO: This test currently FAILS because of a known tsnet bug: the
+    /// route-table branch in `Dialer.UserDial`/`dialOneUser` (tsdial.go) uses
+    /// `getPeerDialer()` (direct OS dial, bypasses WireGuard) instead of
+    /// `NetstackDialTCP` (gVisor → WireGuard → exit node peer). The TODO has
+    /// been in tsdial.go since 2024-04-07 (commit b0fbd8559) with no fix.
+    /// See `README.tsnet-exit-nodes-dont-work.md` for the full analysis.
+    /// The test will start passing when the upstream tsnet fix lands.
+    func testExitNodeChangesEgressIP() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        XCTAssertTrue(openSettings(app), "Settings should open")
+        defer { app.buttons["settings-done-button"].tap() }
+
+        let toggle = app.switches["exit-node-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10),
+                      "Exit node toggle should be present")
+
+        // --- (a) Skip if no exit nodes available ---
+        // The test is meaningless without exit-node peers. This is a
+        // configuration issue, not a code bug — skip with a warning.
+        let countLabel = app.descendants(matching: .any)
+            .matching(identifier: "exit-node-available-count").firstMatch
+        let noneAvailable = app.descendants(matching: .any)
+            .matching(identifier: "exit-node-none-available").firstMatch
+
+        let availabilityShown = countLabel.waitForExistence(timeout: 20)
+            || noneAvailable.waitForExistence(timeout: 3)
+        XCTAssertTrue(availabilityShown,
+                      "Exit node diagnostic banner should show availability")
+
+        if noneAvailable.exists {
+            attachScreenshot(app, named: "exit-node-none-available-skip")
+            // Skip, not fail: the test env has no exit nodes. This is a
+            // configuration issue — the test should be run against a tailnet
+            // that has exit-node peers. (XCTest has no native skip; we emit
+            // a warning via print and return without failing.)
+            print("⚠️ SKIP testExitNodeChangesEgressIP: no exit nodes in this " +
+                  "tailnet. Run against a tailnet with exit-node peers.")
+            return
+        }
+
+        // --- Helper: wait for the egress-IP label to settle, return the IP ---
+        func waitForEgressIP(timeout: TimeInterval = 30) -> String? {
+            let egressIP = app.descendants(matching: .any)
+                .matching(identifier: "exit-node-egress-ip").firstMatch
+            let fetchError = app.descendants(matching: .any)
+                .matching(identifier: "exit-node-fetch-error").firstMatch
+            if egressIP.waitForExistence(timeout: timeout) {
+                return egressIP.label.replacingOccurrences(of: "tsnet egress IP: ",
+                                                           with: "")
+            }
+            if fetchError.exists {
+                return nil
+            }
+            return nil
+        }
+
+        // --- (b) Read egress IP with toggle OFF ---
+        if toggle.value as? String == "1" {
+            toggle.tap()
+            _ = waitForEgressIP()
+        }
+        XCTAssertTrue(toggle.value as? String == "0",
+                      "Toggle should be OFF")
+
+        guard let ipOff = waitForEgressIP() else {
+            attachScreenshot(app, named: "exit-node-off-no-ip")
+            XCTFail("With exit node OFF, the egress-IP fetch should succeed " +
+                    "(normal system dial for internet). Got no IP.")
+            return
+        }
+        attachScreenshot(app, named: "exit-node-off-ip")
+        XCTAssertFalse(ipOff.isEmpty, "OFF egress IP should not be empty")
+
+        // --- (c) Toggle ON, read egress IP again, verify it CHANGED ---
+        toggle.tap()
+        Thread.sleep(forTimeInterval: 5.0)  // 5s for pref + route install
+        guard let ipOn = waitForEgressIP(timeout: 30) else {
+            attachScreenshot(app, named: "exit-node-on-no-ip")
+            XCTFail("With exit node ON and an available exit node peer, the " +
+                    "egress-IP fetch should succeed (routed through the exit " +
+                    "node via WireGuard). Got no IP — the fetch failed, which " +
+                    "may indicate the exit node route isn't working in tsnet.")
+            return
+        }
+        attachScreenshot(app, named: "exit-node-on-ip")
+
+        // TODO(known-bug): The IP MUST change when toggling the exit node on.
+        // This assertion currently FAILS because of the tsnet UserDial bug
+        // (getPeerDialer → direct OS dial instead of NetstackDialTCP → WireGuard).
+        // See README.tsnet-exit-nodes-dont-work.md for the full analysis.
+        // The test will start passing when the upstream tsnet fix lands.
+        XCTAssertNotEqual(ipOff, ipOn,
+                          "Egress IP should CHANGE when toggling exit node ON. " +
+                          "OFF IP: \(ipOff), ON IP: \(ipOn). If they're the same, " +
+                          "the exit node is not routing traffic through WireGuard — " +
+                          "the known tsnet UserDial getPeerDialer() bug. See " +
+                          "README.tsnet-exit-nodes-dont-work.md.")
+    }
+
     /// Editing the Home Page in Settings and then dismissing **without**
     /// pressing Return should still persist — the value must survive a fresh
     /// app launch, which re-seeds the field from UserDefaults (the on-disk
