@@ -98,12 +98,12 @@ struct TimingHarnessView: View {
         // macOS-Designed-for-iPad but work on real iPhone.
         //
         // By default fetches via URLSession + the CFNetwork SOCKS proxy
-        // dictionary. Add `-TimingWeb` to fetch via the APP'S ACTUAL WebKit
-        // path (BrowserViewModel/WebPage + WKWebsiteDataStore.proxyConfigurations
-        // + Network.ProxyConfiguration) — a different proxy mechanism than
-        // URLSession, and the one the reported bug reproduces through. Run on
-        // a real iPad with `-TimingWeb` to capture the exact WebPage.
-        // NavigationError / NSError domain+code.
+        // dictionary. Add `-TimingWeb` to fetch via the app's actual raw
+        // WKWebView path (BrowserViewModel + WKWebsiteDataStore.
+        // proxyConfigurations + Network.ProxyConfiguration) — a different
+        // proxy mechanism than URLSession, and the one the reported bug
+        // reproduces through. Run on a real iPad with `-TimingWeb` to capture
+        // the exact NSError domain+code.
         if ProcessInfo.processInfo.arguments.contains("-TimingInternet") {
             let url = Self.parseArg("-TimingInternet")  // nil -> built-in battery
             let useWeb = ProcessInfo.processInfo.arguments.contains("-TimingWeb")
@@ -409,11 +409,11 @@ struct TimingHarnessView: View {
     /// work on a real iPhone / the simulator.
     ///
     /// `useWeb=false` (default) fetches via URLSession + the CFNetwork SOCKS
-    /// proxy dictionary. `useWeb=true` fetches via the APP'S ACTUAL WebKit
-    /// path (BrowserViewModel/WebPage + WKWebsiteDataStore.proxyConfigurations
-    /// + Network.ProxyConfiguration) — a different proxy mechanism, and the
-    /// one the reported bug reproduces through. Run on a real iPad with
-    /// `-TimingWeb` to capture the exact WebPage.NavigationError / NSError.
+    /// proxy dictionary. `useWeb=true` fetches via the app's actual raw
+    /// WKWebView path (`BrowserViewModel` + `WKWebsiteDataStore` proxy
+    /// configurations) — a different proxy mechanism, and the one the reported
+    /// bug reproduces through. Run on a real iPad with `-TimingWeb` to capture
+    /// the exact NSError.
     ///
     /// With no `-TimingInternet` url arg, runs a built-in battery that
     /// distinguishes the failure modes in ONE launch: a tailnet host (should
@@ -421,7 +421,7 @@ struct TimingHarnessView: View {
     /// IP (bypasses DNS), and an internet host over plain HTTP (isolates TLS).
     @MainActor
     private func runInternetMode(runs: Int, url: String?, useWeb: Bool, authKey: String) async {
-        emit("timing-swift internet: \(runs) runs, via=\(useWeb ? "WebKit/WebPage" : "URLSession/SOCKS"), key=\(authKey.prefix(14))…")
+        emit("timing-swift internet: \(runs) runs, via=\(useWeb ? "WKWebView" : "URLSession/SOCKS"), key=\(authKey.prefix(14))…")
         emit("")
         var okCount = 0, total = 0
         if let urlStr = url, let url = URL(string: urlStr) {
@@ -499,18 +499,13 @@ struct TimingHarnessView: View {
         }
     }
 
-    /// Fetches `url` via the app's ACTUAL WebKit path — a `BrowserViewModel`
-    /// (WebPage + WKWebsiteDataStore.proxyConfigurations + Network.
-    /// ProxyConfiguration), the same mechanism the reported bug reproduces
-    /// through (distinct from the URLSession/CFNetwork-SOCKS path). Loads the
-    /// URL off-screen (WebPage loads without a view hierarchy) and waits for
-    /// either a successful finish or a `WebPage.NavigationError`, logging the
-    /// full error: the NavigationError case + the underlying NSError domain+code
-    /// + the app's NavErrorKind category. This is the faithful reproduction of
-    /// typing the URL in the app's URL bar.
+    /// Fetches `url` via the app's actual raw-WKWebView path, distinct from
+    /// URLSession/CFNetwork SOCKS. The view is created off-screen so navigation
+    /// can run, then this waits for a committed URL or navigation error and logs
+    /// its NSError domain/code plus the app's NavErrorKind category.
     @MainActor
     private func fetchViaWebKit(_ run: Int, url: URL, model: TSNetModel) async -> Bool {
-        emit("  [r\(run)] loading \(url.absoluteString) via WebKit/WebPage…")
+        emit("  [r\(run)] loading \(url.absoluteString) via WKWebView…")
         // Per-fetch data store so each fetch is isolated (matches the app's
         // per-workspace WKWebsiteDataStore(forIdentifier:)).
         let ds = WKWebsiteDataStore(forIdentifier: UUID())
@@ -521,33 +516,20 @@ struct TimingHarnessView: View {
         if let proxy = model.proxyConfiguration {
             vm.applyProxy(proxy)
         }
+        _ = vm.makeWebView()
         vm.load(url: url)
-        // Wait up to 30s for either a finish or a navigation error.
+        // Wait up to 30s for either a committed URL or a navigation error.
         let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
             if let err = vm.navError {
                 let kind = vm.navErrorKind.map(String.init(describing:)) ?? "(nil)"
                 let msg = vm.navErrorMessage ?? "(nil)"
-                // Extract the underlying NSError for .failedProvisionalNavigation
-                // (the case that carries it) so we log domain+code directly.
-                var underStr = ""
-                if let navErr = err.err as? WebPage.NavigationError {
-                    if case .failedProvisionalNavigation(let underlying) = navErr {
-                        let u = underlying as NSError
-                        underStr = " underlying=[\(u.domain) \(u.code)] \(u.localizedDescription)"
-                    }
-                    emit("  [r\(run)]   FAIL: navError=\(navErr) kind=\(kind)\(underStr)")
-                    emit("  [r\(run)]          msg=\(msg)")
-                } else {
-                    let ns = err.err as NSError
-                    emit("  [r\(run)]   FAIL: kind=\(kind) msg=\(msg) [\(ns.domain) \(ns.code)]")
-                }
+                let ns = err.err as NSError
+                emit("  [r\(run)]   FAIL: kind=\(kind) msg=\(msg) [\(ns.domain) \(ns.code)]")
                 vm.clearNavError()
                 return false
             }
-            // Success heuristic: the page title is non-empty AND no error. The
-            // WebPage doesn't expose a clean "finished" flag to the ViewModel
-            // without rendering, so use the page's title/url as a loaded signal.
+            // Success heuristic: a committed URL or non-empty page title.
             let title = vm.title
             let loadedURL = vm.url?.absoluteString ?? ""
             if !title.isEmpty || (!loadedURL.isEmpty && loadedURL != url.absoluteString) {

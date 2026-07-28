@@ -22,6 +22,12 @@ struct BrowserView: View {
             // Pages using `viewport-fit=cover` can consume the real CSS safe-
             // area environment values, matching Safari's edge-to-edge model.
             RawWebView(model: model)
+                // UIViewRepresentable otherwise reuses the previous tab's
+                // UIView when its `model` input changes. A WKWebView belongs to
+                // exactly one tab, so changing tabs must install that tab's
+                // distinct view rather than attaching the old page to the new
+                // model (the "+ duplicates current frame" bug).
+                .id(ObjectIdentifier(model))
                 .ignoresSafeArea(.container, edges: .top)
 
             // Navigation error overlay. Driven directly by `model.navError`

@@ -13,9 +13,8 @@ enum NavErrorKind: Sendable, Equatable {
     case other
 }
 
-/// Browser state for the raw-WKWebView spike. Unlike the iOS 26 SwiftUI
-/// `WebView`/`WebPage` wrapper, this model owns the actual `WKWebView`, so its
-/// UIKit frame and scroll view are no longer hidden from us.
+/// Browser state backed by an owned `WKWebView`. Its UIKit frame, scroll view,
+/// navigation lifecycle, and committed URL remain available to the app.
 @MainActor
 final class BrowserViewModel: NSObject, ObservableObject {
     @Published var failedInitialURL: URL?
@@ -27,6 +26,11 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
+    /// Security-sensitive, user-visible URL. This advances only after WebKit
+    /// commits a navigation, never merely because a provisional load was
+    /// requested. A failed navigation therefore leaves the address bar showing
+    /// the page that is still rendered; the attempted URL appears only in the
+    /// error overlay.
     @Published private(set) var url: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var estimatedProgress = 0.0
@@ -72,10 +76,14 @@ final class BrowserViewModel: NSObject, ObservableObject {
         configuration.upgradeKnownHostsToHTTPS = false
 
         let view = WKWebView(frame: .zero, configuration: configuration)
-        // Let the page's viewport-fit=cover / env(safe-area-inset-*) CSS own
-        // notch padding instead of UIKit inserting scroll-view safe-area
-        // content insets on top of the web layout.
-        view.scrollView.contentInsetAdjustmentBehavior = .never
+        // Match Safari's subtle feathering as content scrolls beneath the
+        // status indicators. This is iOS 26's public scroll-edge effect, not a
+        // hand-built blur/gradient overlay.
+        view.scrollView.topEdgeEffect.style = .soft
+        // Keep UIKit's default automatic adjustment. With the WKWebView laid
+        // out beneath the notch, WebKit can then distinguish ordinary pages
+        // (safe rectangular viewport) from viewport-fit=cover pages (edge to
+        // edge with CSS env(safe-area-inset-*) values), as Safari does.
         attach(view)
 
         if let pendingLoadURL {
@@ -100,9 +108,6 @@ final class BrowserViewModel: NSObject, ObservableObject {
         webViewObservations = [
             view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
                 Task { @MainActor in self?.title = view.title ?? "" }
-            },
-            view.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.url = view.url }
             },
             view.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
                 Task { @MainActor in self?.isLoading = view.isLoading }
@@ -165,6 +170,13 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func reload() {
+        // Retry the attempted URL shown in the error overlay. Do not ask
+        // WKWebView to reload its still-committed old page: that mismatch is
+        // both confusing and dangerous in browser chrome.
+        if let failedURL = navError?.url {
+            load(url: failedURL)
+            return
+        }
         guard let webView else {
             load(url: initialURL)
             return
@@ -233,9 +245,11 @@ final class BrowserViewModel: NSObject, ObservableObject {
         navErrorURLString = nil
     }
 
-    private func refreshState(from view: WKWebView) {
+    private func refreshState(from view: WKWebView, includeCommittedURL: Bool = false) {
         title = view.title ?? ""
-        url = view.url
+        if includeCommittedURL {
+            url = view.url
+        }
         isLoading = view.isLoading
         estimatedProgress = view.estimatedProgress
         canGoBack = view.canGoBack
@@ -253,6 +267,17 @@ final class BrowserViewModel: NSObject, ObservableObject {
 }
 
 extension BrowserViewModel: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // A new attempt supersedes any old failure UI, but deliberately does
+        // not alter the committed URL rendered in browser chrome.
+        clearNavError()
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        refreshState(from: webView, includeCommittedURL: true)
+        failedInitialURL = nil
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") {
@@ -274,16 +299,23 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        refreshState(from: webView)
+        refreshState(from: webView, includeCommittedURL: true)
         maybeDumpLoadedPage(webView)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        navigationError(error, for: webView.url ?? initialURL)
+        let ns = error as NSError
+        guard !(ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) else { return }
+        navigationError(error, for: ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        navigationError(error, for: (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url ?? initialURL)
+        let ns = error as NSError
+        guard !(ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) else { return }
+        // Prefer the failing URL carried by CFNetwork. `webView.url` can be the
+        // provisional destination or the old committed page depending on the
+        // failure phase, so it is never used as address-bar truth here.
+        navigationError(error, for: ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

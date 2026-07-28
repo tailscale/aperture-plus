@@ -2,9 +2,9 @@
 //  RawWebView.swift
 //  Aperture
 //
-//  Temporary spike: render the browser with an owned WKWebView instead of the
-//  iOS 26 SwiftUI WebView/WebPage wrapper. This gives WebKit an ordinary UIKit
-//  view whose frame exactly matches the SwiftUI slot we assign it.
+//  SwiftUI bridge for the tab's owned WKWebView. Keeping the actual UIKit view
+//  gives WebKit the exact frame SwiftUI assigns to the browser region and lets
+//  its native keyboard, viewport, and safe-area handling work together.
 //
 
 import SwiftUI

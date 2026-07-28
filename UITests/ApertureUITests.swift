@@ -651,24 +651,11 @@ final class ApertureUITests: XCTestCase {
     /// → keyboard, top to bottom — with the URL bar neither flung to the top of
     /// the screen nor covered by the keyboard.
     ///
-    /// History (see `webview-plan.md` for the full probe matrix): an early fix
-    /// manually floated the URL bar by the keyboard height, which double-counted
-    /// with SwiftUI's implicit keyboard avoidance and flung the bar to the top.
-    /// A later fix removed the manual float and relied on SwiftUI's implicit
-    /// avoidance for an `.overlay(.bottom)` bar — that kept the bar at the right
-    /// spot (y≈434, above the keyboard) BUT the implicit avoidance DESYNCS
-    /// after a UIKit (web) field is focused then blurred, parking the bar under
-    /// the keyboard (Bug B, covered by `testURLBarSurvivesWebFocusBlurCycle`).
-    ///
-    /// The current fix: the webview `.ignoresSafeArea(.keyboard)` (frame stays
-    /// full-screen; UIKit's own keyboard contentInset handles the input at 1×),
-    /// and the compact URL bar is a sibling in a `ZStack(.bottom)` that floats
-    /// DETERMINISTICALLY via an explicit `.offset(y: -(keyboardHeight -
-    /// homeIndicator))` driven by `KeyboardObserver` (animated on the keyboard's
-    /// own clock). The ZStack (not `.overlay`) is what lets
-    /// `.ignoresSafeArea(.keyboard)` on the bar actually stop the implicit
-    /// float, so the explicit offset is the sole driver — no double-count, no
-    /// desync. See `TabbedBrowserView.swift` / `KeyboardObserver.swift`.
+    /// The browser now owns a raw `WKWebView` in a normal vertical layout with
+    /// the compact URL bar as a bottom sibling. SwiftUI performs ordinary
+    /// keyboard avoidance while WebKit coordinates focused DOM controls with
+    /// its actual UIKit frame; no keyboard observer, spacer, or manual offset is
+    /// involved. This test guards the original mixed WebKit/native focus cycle.
     ///
     /// This is primarily a *visual* repro: it taps the chat input, waits for
     /// the software keyboard, and attaches before/after screenshots so a
@@ -1772,8 +1759,8 @@ final class ApertureUITests: XCTestCase {
     }
 
     /// Waits for at least one tab-overview card to show a title containing
-    /// `substring` (the cards' title text is the page title, mirrored from the
-    /// WebPage). Guards the tab-title-mirroring fix (#5b) — a regression would
+    /// `substring` (the cards' title text is mirrored from the tab's WKWebView).
+    /// Guards the tab-title-mirroring fix (#5b) — a regression would
     /// leave cards showing the host fallback (e.g. "ai") instead of the real
     /// SPA title.
     @discardableResult

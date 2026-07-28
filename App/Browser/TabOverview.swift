@@ -76,7 +76,7 @@ private struct TabCard: View {
             onSelect()
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                // Card "preview" area — a placeholder glyph (WebPage doesn't
+                // Card "preview" area — a placeholder glyph (WKWebView doesn't
                 // expose a snapshot API). The title/url below identify the tab.
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)

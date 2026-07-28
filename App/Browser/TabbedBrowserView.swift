@@ -40,7 +40,7 @@ struct TabbedBrowserView: View {
                     // Key by workspace id so switching the active workspace
                     // (Phase 3) tears down this subtree and creates a fresh
                     // `WorkspaceRoot` with its own `@StateObject` tab manager /
-                    // status VM / WebPage for the new identity. Within one
+                    // status VM / WKWebView for the new identity. Within one
                     // workspace the id is stable, so the WebView survives.
                     .id(ws.id)
                     // Inject the workspace's bookmarks container at this
@@ -89,7 +89,7 @@ private struct WorkspaceRoot: View {
         self.workspace = workspace
         // Create the per-workspace tab manager + status VM here (first render)
         // — NOT in `Workspace.init` (which runs at app launch, before the
-        // window/view hierarchy exists). Creating the WebPage/WKWebView before
+        // window/view hierarchy exists). Creating the WKWebView before
         // the window existed left WebKit's gesture recognizers in a corrupt
         // state and crashed the app on the first tap (see
         // `testTapOnLoadedHomePageDoesNotCrash`). `@StateObject` runs this
@@ -170,10 +170,8 @@ private struct BrowserRootContent: View {
             // owned WKWebView should now coordinate that resize correctly.
             VStack(spacing: 0) {
                 BrowserView(model: tab.viewModel)
-                    // WebKit's SwiftUI wrapper does not always yield its ideal
-                    // height during keyboard/responder transitions. Make this
-                    // the explicitly flexible, compressible child so the fixed
-                    // chrome below is allocated first.
+                    // The browser is the flexible child; fixed chrome below is
+                    // allocated first when the keyboard reduces available room.
                     .frame(minHeight: 0, maxHeight: .infinity)
                     .layoutPriority(-1)
                     .safeAreaInset(edge: .top) {
@@ -260,15 +258,6 @@ private struct BrowserRootContent: View {
                         onLogs: { showingLogs = true }
                     )
                     .fixedSize(horizontal: false, vertical: true)
-                    .overlay(alignment: .topTrailing) {
-                        Text("RAW WKWEBVIEW / NATIVE KEYBOARD TEST")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background(Color.pink)
-                            .accessibilityIdentifier("raw-wkwebview-test-marker")
-                    }
                     .id(tab.id)
                 }
             }

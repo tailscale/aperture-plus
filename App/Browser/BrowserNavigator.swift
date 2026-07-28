@@ -219,14 +219,14 @@ struct BrowserNavigator: View {
     }
 
     /// Normalizes a URL-bar input into a string suitable for `URL(string:)` /
-    /// `WebPage.load`. Prepends `https://` when there's no scheme, and — to
+    /// `WKWebView.load`. Prepends `https://` when there's no scheme, and — to
     /// survive real-keyboard input mangling on iPad (where the toolbar
     /// TextField's `.textInputAutocapitalization(.never)`/`.autocorrectionDisabled()`
     /// are not always honored, so autocorrect can mutate `https` into a
     /// non-http scheme) — if the parsed scheme is anything other than http or
     /// https, strips that scheme and prepends `https://` instead. A non-http
-    /// scheme would otherwise parse as a valid `URL` but be rejected by WebKit's
-    /// `WebPage.load` as `.invalidURL` ("That URL is invalid."), which is the
+    /// scheme would otherwise parse as a valid `URL` but be rejected by
+    /// `WKWebView` as an invalid URL, which is the
     /// reported iPad symptom.
     static func normalizedURLString(from input: String) -> String {
         // Fast path: already explicitly http(s) — the overwhelmingly common case.
