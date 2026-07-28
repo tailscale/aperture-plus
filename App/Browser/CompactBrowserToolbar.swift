@@ -2,7 +2,7 @@
 //  CompactBrowserToolbar.swift
 //  Aperture
 //
-//  The single, combined bottom bar for iPhone (compact width): back/forward,
+//  The single, combined browser bar used on iPhone and iPad: back/forward,
 //  a *narrow* URL pill that pops out to a full-width editable field when
 //  tapped, and the tab/action cluster (new chat tab, tab overview, add
 //  bookmark, and a "more" menu for bookmarks list / reload / settings).
@@ -13,8 +13,8 @@
 //  browser the URL is usually an internal Aperture/chat address; the full URL
 //  is revealed by tapping the pill to edit.
 //
-//  iPad (regular width) keeps the separate TabBar + BrowserNavigator layout
-//  (see TabbedBrowserView), so this view is only used when compact.
+//  `TabbedBrowserView` places this below the page on iPhone and above it on
+//  iPad. Sharing one implementation keeps behavior and accessibility stable.
 //
 
 import SwiftUI

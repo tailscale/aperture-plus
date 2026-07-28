@@ -15,10 +15,11 @@
 //
 //  - First tab is always an Aperture chat (the workspace's home page).
 //  - "+" opens an additional Aperture-chat tab.
-//  - iPhone (compact): tabs are managed via the tab-overview button
-//    (`square.on.square`); the overview is a full-screen card grid.
-//  - iPad (regular): a persistent `TabBar` of tab chips is shown atop the
-//    content, in addition to the overview button.
+//  - Tabs are managed via the tab-overview button (`square.on.square`); the
+//    overview is a full-screen card grid on both iPhone and iPad.
+//  - Both size classes use the same compact browser chrome. It sits below the
+//    page on iPhone and above it on iPad, where an address bar conventionally
+//    belongs.
 //
 
 import SwiftUI
@@ -164,103 +165,27 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Raw-WKWebView experiment: the compact URL toolbar is a real
-            // bottom sibling and normal SwiftUI keyboard avoidance shrinks the
-            // available browser region. Unlike the opaque SwiftUI WebView, the
-            // owned WKWebView should now coordinate that resize correctly.
-            VStack(spacing: 0) {
-                BrowserView(model: tab.viewModel)
-                    // The browser is the flexible child; fixed chrome below is
-                    // allocated first when the keyboard reduces available room.
-                    .frame(minHeight: 0, maxHeight: .infinity)
-                    .layoutPriority(-1)
-                    .safeAreaInset(edge: .top) {
-                    // Persistent tab bar on iPad / regular width only.
-                    if hSizeClass == .regular {
-                        TabBar(tabManager: tabManager, onNewChat: { tabManager.openChatTab() })
+            Group {
+                if hSizeClass == .regular {
+                    // Conventional desktop/tablet placement. This is a normal
+                    // sibling because the top bar never needs to follow the
+                    // software keyboard.
+                    VStack(spacing: 0) {
+                        browserToolbar
+                        browserContent
                     }
-                }
-                .toolbar {
-                    if hSizeClass == .regular {
-                        // iPad: keep the top action cluster + bottom URL bar.
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            Button {
-                                tabManager.openChatTab()
-                            } label: {
-                                Image(systemName: "plus")
-                            }
-                            .accessibilityIdentifier("new-chat-tab-button")
-                            .accessibilityLabel("New Chat Tab")
-
-                            Button {
-                                showingTabOverview = true
-                            } label: {
-                                tabOverviewIcon
-                            }
-                            .accessibilityIdentifier("tab-overview-button")
-                            .accessibilityLabel("Tabs")
-
-                            Button {
-                                showingBookmarks = true
-                            } label: {
-                                Image(systemName: "book")
-                            }
-                            .accessibilityIdentifier("bookmarks-button")
-                            .accessibilityLabel("Bookmarks")
-
-                            Button {
-                                showingLogs = true
-                            } label: {
-                                Image(systemName: "doc.text.magnifyingglass")
-                            }
-                            .accessibilityIdentifier("logs-button")
-                            .accessibilityLabel("Logs")
-
-                            Button {
-                                onSettings()
-                            } label: {
-                                Image(systemName: "gearshape")
-                            }
-                            .accessibilityIdentifier("settings-button")
-                            .accessibilityLabel("Settings")
-                        }
-
-                        ToolbarItemGroup(placement: .bottomBar) {
-                            // Key by tab id so the URL field re-seeds on tab switch.
-                            BrowserNavigator(
-                                model: tab.viewModel,
-                                onAddBookmark: { showingBookmarkEditor = true }
-                            )
-                            .id(tab.id)
-                        }
+                } else {
+                    // Preserve the known-good iPhone arrangement: the raw web
+                    // view and toolbar are ordinary vertical siblings. Do not
+                    // add keyboard observers, offsets, or safe-area indirection
+                    // here; WebKit and SwiftUI already coordinate this layout.
+                    VStack(spacing: 0) {
+                        browserContent
+                        browserToolbar
                     }
-                }
-                .navigationTitle(hSizeClass == .compact ? "" : (tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar(hSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
-                .overlay(alignment: .top) {
-                    if statusViewModel.needsAuth {
-                        LoginBanner(onLogin: { statusViewModel.showAuth() })
-                    } else if !tab.viewModel.isConnected {
-                        ReconnectingBanner()
-                    }
-                }
-
-                if hSizeClass == .compact {
-                    CompactBrowserToolbar(
-                        tab: tab,
-                        tabManager: tabManager,
-                        onNewChat: { tabManager.openChatTab() },
-                        onTabOverview: { showingTabOverview = true },
-                        onBookmarks: { showingBookmarks = true },
-                        onAddBookmark: { showingBookmarkEditor = true },
-                        onSettings: onSettings,
-                        onLogs: { showingLogs = true }
-                    )
-                    .fixedSize(horizontal: false, vertical: true)
-                    .id(tab.id)
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
@@ -290,20 +215,32 @@ private struct BrowserRootContent: View {
         }
     }
 
-    /// Safari-style overlapping-squares icon with a count badge.
-    private var tabOverviewIcon: some View {
-        ZStack(alignment: .topTrailing) {
-            Image(systemName: "square.on.square")
-            if tabManager.tabCount > 1 {
-                Text("\(tabManager.tabCount)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 4)
-                    .frame(height: 14, alignment: .center)
-                    .background(Capsule().fill(Color.blue))
-                    .offset(x: 6, y: -6)
+    private var browserContent: some View {
+        BrowserView(model: tab.viewModel)
+            .frame(minHeight: 0, maxHeight: .infinity)
+            .layoutPriority(-1)
+            .overlay(alignment: .top) {
+                if statusViewModel.needsAuth {
+                    LoginBanner(onLogin: { statusViewModel.showAuth() })
+                } else if !tab.viewModel.isConnected {
+                    ReconnectingBanner()
+                }
             }
-        }
+    }
+
+    private var browserToolbar: some View {
+        CompactBrowserToolbar(
+            tab: tab,
+            tabManager: tabManager,
+            onNewChat: { tabManager.openChatTab() },
+            onTabOverview: { showingTabOverview = true },
+            onBookmarks: { showingBookmarks = true },
+            onAddBookmark: { showingBookmarkEditor = true },
+            onSettings: onSettings,
+            onLogs: { showingLogs = true }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .id(tab.id)
     }
 }
 
