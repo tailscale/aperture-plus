@@ -581,6 +581,52 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
     }
 
+    /// Home-page settings belong to a workspace, not the app globally.
+    func testWorkspaceHomePagesAreIsolated() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app))
+
+        let homePage = app.textFields["home-page-field"]
+        XCTAssertTrue(homePage.waitForExistence(timeout: 10))
+        let marker = "https://example.test/\(UUID().uuidString.prefix(8))"
+        homePage.clearAndType(text: marker)
+
+        let add = app.buttons["add-workspace-button"]
+        scrollToElement(add, in: app)
+        let firstID = workspaceRows(in: app).first?.identifier
+        XCTAssertNotNil(firstID)
+        add.tap()
+
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app))
+        let secondHomePage = app.textFields["home-page-field"]
+        XCTAssertTrue(secondHomePage.waitForExistence(timeout: 10))
+        XCTAssertEqual(secondHomePage.value as? String, "http://ai/chat",
+                       "A new workspace should start with its own default home page")
+
+        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        guard let firstID,
+              let firstRow = workspaceRows(in: app).first(where: { $0.identifier == firstID })
+        else {
+            XCTFail("The original workspace should remain selectable")
+            return
+        }
+        firstRow.tap()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app))
+        XCTAssertEqual(app.textFields["home-page-field"].value as? String, marker,
+                       "Switching back should restore that workspace's home page")
+        attachScreenshot(app, named: "workspace-home-pages-isolated")
+
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+    }
+
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)
 
     /// The connected browser is up when its bottom-toolbar bookmark button
