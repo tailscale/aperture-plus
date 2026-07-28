@@ -572,6 +572,13 @@ final class ApertureUITests: XCTestCase {
         XCTAssertEqual(persistedFirst.value as? String, "Selected",
                        "The selected workspace should persist across relaunch")
         attachScreenshot(app, named: "workspaces-add-switch-persisted")
+
+        // Restore the one-workspace baseline so this test cannot make every
+        // later test start an extra tsnet node or alter interactive-login flow.
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
     }
 
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)
