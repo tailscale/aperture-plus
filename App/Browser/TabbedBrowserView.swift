@@ -164,14 +164,12 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Diagnostic: keep the web view at its original full-size,
-            // zero-origin geometry and overlay the compact URL toolbar at the
-            // top. The outer stack ignores the keyboard so WebKit is the only
-            // component accommodating focused DOM fields. This intentionally
-            // lets page content run underneath the toolbar; the experiment is
-            // only testing whether changing the web view's frame/origin caused
-            // the incorrect focus scrolling.
-            ZStack(alignment: .top) {
+            // Diagnostic: the compact URL toolbar is a real bottom sibling, so
+            // the page receives a viewport that permanently ends above it. The
+            // entire stack ignores the keyboard safe area, keeping that shorter
+            // web-view frame perfectly stable while WebKit alone accommodates a
+            // focused DOM field. No keyboard observer or moving overlay.
+            VStack(spacing: 0) {
                 BrowserView(model: tab.viewModel)
                     // WebKit's SwiftUI wrapper does not always yield its ideal
                     // height during keyboard/responder transitions. Make this
@@ -252,29 +250,27 @@ private struct BrowserRootContent: View {
                 }
 
                 if hSizeClass == .compact {
-                    VStack(spacing: 0) {
-                        Text("TOP OVERLAY / FULL WEBVIEW TEST")
-                            .font(.caption2.bold())
+                    CompactBrowserToolbar(
+                        tab: tab,
+                        tabManager: tabManager,
+                        onNewChat: { tabManager.openChatTab() },
+                        onTabOverview: { showingTabOverview = true },
+                        onBookmarks: { showingBookmarks = true },
+                        onAddBookmark: { showingBookmarkEditor = true },
+                        onSettings: onSettings,
+                        onLogs: { showingLogs = true }
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .overlay(alignment: .topTrailing) {
+                        Text("STABLE BOTTOM TEST")
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
                             .background(Color.pink)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("top-overlay-full-webview-test-marker")
-
-                        CompactBrowserToolbar(
-                            tab: tab,
-                            tabManager: tabManager,
-                            onNewChat: { tabManager.openChatTab() },
-                            onTabOverview: { showingTabOverview = true },
-                            onBookmarks: { showingBookmarks = true },
-                            onAddBookmark: { showingBookmarkEditor = true },
-                            onSettings: onSettings,
-                            onLogs: { showingLogs = true }
-                        )
-                        .fixedSize(horizontal: false, vertical: true)
-                        .id(tab.id)
+                            .accessibilityIdentifier("stable-bottom-test-marker")
                     }
+                    .id(tab.id)
                 }
             }
             .ignoresSafeArea(.keyboard, edges: hSizeClass == .compact ? .bottom : [])
