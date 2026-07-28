@@ -164,13 +164,36 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Deliberately plain layout: the web page and compact URL bar are
-            // ordinary, non-overlapping vertical siblings. SwiftUI reduces the
-            // available height when the keyboard appears; the flexible browser
-            // gets the remaining space while the fixed-height toolbar stays at
-            // the bottom. There is no keyboard observer, safe-area override,
-            // overlay, spacer, or manual offset.
+            // Compact-layout experiment: keep the native URL toolbar at the
+            // top and keep the outer browser geometry stable while the keyboard
+            // is visible. The keyboard may cover the bottom of the web view;
+            // WebKit alone is responsible for bringing a focused DOM field into
+            // view. The toolbar remains an ordinary, non-overlapping sibling.
             VStack(spacing: 0) {
+                if hSizeClass == .compact {
+                    Text("TOP BAR / STABLE WEBVIEW TEST")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 3)
+                        .background(Color.pink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("top-bar-stable-webview-test-marker")
+
+                    CompactBrowserToolbar(
+                        tab: tab,
+                        tabManager: tabManager,
+                        onNewChat: { tabManager.openChatTab() },
+                        onTabOverview: { showingTabOverview = true },
+                        onBookmarks: { showingBookmarks = true },
+                        onAddBookmark: { showingBookmarkEditor = true },
+                        onSettings: onSettings,
+                        onLogs: { showingLogs = true }
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id(tab.id)
+                }
+
                 BrowserView(model: tab.viewModel)
                     // WebKit's SwiftUI wrapper does not always yield its ideal
                     // height during keyboard/responder transitions. Make this
@@ -249,33 +272,11 @@ private struct BrowserRootContent: View {
                         ReconnectingBanner()
                     }
                 }
-
-                if hSizeClass == .compact {
-                    Text("FLEXIBLE WEBVIEW TEST BUILD")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 3)
-                        .background(Color.pink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .layoutPriority(1)
-                        .accessibilityIdentifier("flexible-webview-test-marker")
-
-                    CompactBrowserToolbar(
-                        tab: tab,
-                        tabManager: tabManager,
-                        onNewChat: { tabManager.openChatTab() },
-                        onTabOverview: { showingTabOverview = true },
-                        onBookmarks: { showingBookmarks = true },
-                        onAddBookmark: { showingBookmarkEditor = true },
-                        onSettings: onSettings,
-                        onLogs: { showingLogs = true }
-                    )
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(1)
-                    .id(tab.id)
-                }
             }
+            // On iPhone, do not let SwiftUI shrink this stack for the keyboard.
+            // The top toolbar therefore never needs keyboard avoidance, and the
+            // web view retains exactly the same frame before and after focus.
+            .ignoresSafeArea(.keyboard, edges: hSizeClass == .compact ? .bottom : [])
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
