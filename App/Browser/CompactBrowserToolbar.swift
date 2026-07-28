@@ -120,6 +120,7 @@ struct CompactBrowserToolbar: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("url-pill")
             .accessibilityLabel("Address: \(pillText)")
+            .accessibilityValue(tab.connectionType.accessibilityDescription)
 
             toolbarIcon("plus", action: onNewChat)
                 .accessibilityIdentifier("new-chat-tab-button")

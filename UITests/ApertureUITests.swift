@@ -1237,24 +1237,24 @@ final class ApertureUITests: XCTestCase {
         guard requireBrowserReady(app) else { return }
 
         // Wait for the home page to load, then poll for the indicator to flip
-        // off "internet" (the default before the status poll runs).
+        // off "internet" (the default before the status poll runs). The icon is
+        // nested inside the URL-pill Button, so SwiftUI combines the subtree
+        // into that button rather than exposing a separately queryable icon.
+        // CompactBrowserToolbar publishes the classification as the pill's
+        // accessibility value to provide one stable, explicit signal.
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60),
+                      "Home page should load before checking its connection type")
         let internet = "Internet (off tailnet)"
+        let pill = app.buttons["url-pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 10),
+                      "The compact URL pill should be present on iPhone")
         let predicate = NSPredicate { obj, _ -> Bool in
-            guard let app = obj as? XCUIApplication else { return false }
-            // The indicator is an accessibility element with one of three labels.
-            // After the home page loads on the tailnet it must not be "internet".
-            let labels: [String] = [
-                "Direct tailnet connection",
-                "Tailnet connection via relay"
-            ]
-            for label in labels {
-                if app.descendants(matching: .any).matching(identifier: label).firstMatch.exists {
-                    return true
-                }
-            }
-            return false
+            guard let pill = obj as? XCUIElement,
+                  let classification = pill.value as? String else { return false }
+            return classification == "Direct tailnet connection"
+                || classification == "Tailnet connection via relay"
         }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: pill)
         let result = XCTWaiter().wait(for: [expectation], timeout: 60)
         attachScreenshot(app, named: result == .completed ? "conn-type-tailnet" : "conn-type-stuck-internet")
         XCTAssertTrue(result == .completed,

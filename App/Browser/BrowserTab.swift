@@ -39,8 +39,9 @@ final class BrowserTab: Identifiable, ObservableObject {
             .store(in: &cancellables)
 
         model.$localStatus
+            .combineLatest(model.$proxyPolicy)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.refreshConnectionType() }
+            .sink { [weak self] _, _ in self?.refreshConnectionType() }
             .store(in: &cancellables)
     }
 
@@ -62,6 +63,10 @@ final class BrowserTab: Identifiable, ObservableObject {
     }
 
     private func refreshConnectionType() {
-        connectionType = ConnectionTypeResolver.resolve(host: viewModel.url?.host, status: model.localStatus)
+        connectionType = ConnectionTypeResolver.resolve(
+            host: viewModel.url?.host,
+            status: model.localStatus,
+            proxyPolicy: model.proxyPolicy
+        )
     }
 }

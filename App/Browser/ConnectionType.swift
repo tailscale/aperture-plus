@@ -23,6 +23,14 @@ enum ConnectionType: Equatable, Sendable {
     case direct
     case derped
     case internet
+
+    var accessibilityDescription: String {
+        switch self {
+        case .direct: "Direct tailnet connection"
+        case .derped: "Tailnet connection via relay"
+        case .internet: "Internet (off tailnet)"
+        }
+    }
 }
 
 enum ConnectionTypeResolver {
@@ -31,7 +39,8 @@ enum ConnectionTypeResolver {
     /// status (`IpnState.Status`, which carries `Relay`/`CurAddr` per peer) and
     /// the netmap (for the self node / fallback). Returns `.internet` if the
     /// host isn't a known tailnet peer.
-    static func resolve(host: String?, status: IpnState.Status?) -> ConnectionType {
+    static func resolve(host: String?, status: IpnState.Status?,
+                        proxyPolicy: TailnetProxyPolicy? = nil) -> ConnectionType {
         guard let host, !host.isEmpty else { return .internet }
 
         // Find the matching peer status. `IpnState.Status.Peer` is keyed by
@@ -46,11 +55,15 @@ enum ConnectionTypeResolver {
             return .derped
         }
 
-        // No peer status (e.g. status not fetched yet). Fall back to the
-        // netmap: if the host matches a peer NAME there, assume tailnet
-        // (derped, conservatively) — otherwise internet.
-        // (TSNetModel.netmap peers are Tailcfg.Node, which don't decode
-        // DERP/Endpoints, so we can't be more precise without the status.)
+        // A status response can transiently omit a peer while the independently
+        // maintained split-tunnel policy still knows the destination belongs to
+        // the tailnet. The policy is authoritative for routing; conservatively
+        // report relay rather than incorrectly labeling proxied traffic as
+        // Internet until a later status poll supplies CurAddr.
+        if proxyPolicy?.matchingRule(for: host) != nil {
+            return .derped
+        }
+
         return .internet
     }
 
