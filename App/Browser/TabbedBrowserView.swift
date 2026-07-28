@@ -164,36 +164,14 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Compact-layout experiment: keep the native URL toolbar at the
-            // top and keep the outer browser geometry stable while the keyboard
-            // is visible. The keyboard may cover the bottom of the web view;
-            // WebKit alone is responsible for bringing a focused DOM field into
-            // view. The toolbar remains an ordinary, non-overlapping sibling.
-            VStack(spacing: 0) {
-                if hSizeClass == .compact {
-                    Text("TOP BAR / STABLE WEBVIEW TEST")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 3)
-                        .background(Color.pink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("top-bar-stable-webview-test-marker")
-
-                    CompactBrowserToolbar(
-                        tab: tab,
-                        tabManager: tabManager,
-                        onNewChat: { tabManager.openChatTab() },
-                        onTabOverview: { showingTabOverview = true },
-                        onBookmarks: { showingBookmarks = true },
-                        onAddBookmark: { showingBookmarkEditor = true },
-                        onSettings: onSettings,
-                        onLogs: { showingLogs = true }
-                    )
-                    .fixedSize(horizontal: false, vertical: true)
-                    .id(tab.id)
-                }
-
+            // Diagnostic: keep the web view at its original full-size,
+            // zero-origin geometry and overlay the compact URL toolbar at the
+            // top. The outer stack ignores the keyboard so WebKit is the only
+            // component accommodating focused DOM fields. This intentionally
+            // lets page content run underneath the toolbar; the experiment is
+            // only testing whether changing the web view's frame/origin caused
+            // the incorrect focus scrolling.
+            ZStack(alignment: .top) {
                 BrowserView(model: tab.viewModel)
                     // WebKit's SwiftUI wrapper does not always yield its ideal
                     // height during keyboard/responder transitions. Make this
@@ -272,10 +250,33 @@ private struct BrowserRootContent: View {
                         ReconnectingBanner()
                     }
                 }
+
+                if hSizeClass == .compact {
+                    VStack(spacing: 0) {
+                        Text("TOP OVERLAY / FULL WEBVIEW TEST")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 3)
+                            .background(Color.pink)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("top-overlay-full-webview-test-marker")
+
+                        CompactBrowserToolbar(
+                            tab: tab,
+                            tabManager: tabManager,
+                            onNewChat: { tabManager.openChatTab() },
+                            onTabOverview: { showingTabOverview = true },
+                            onBookmarks: { showingBookmarks = true },
+                            onAddBookmark: { showingBookmarkEditor = true },
+                            onSettings: onSettings,
+                            onLogs: { showingLogs = true }
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                        .id(tab.id)
+                    }
+                }
             }
-            // On iPhone, do not let SwiftUI shrink this stack for the keyboard.
-            // The top toolbar therefore never needs keyboard avoidance, and the
-            // web view retains exactly the same frame before and after focus.
             .ignoresSafeArea(.keyboard, edges: hSizeClass == .compact ? .bottom : [])
         }
         .sheet(isPresented: $showingLogs) {
