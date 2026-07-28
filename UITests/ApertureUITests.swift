@@ -313,11 +313,28 @@ final class ApertureUITests: XCTestCase {
         guard requireBrowserReady(app) else { return }
 
         XCTAssertTrue(openSettings(app), "Settings should open")
-        defer { app.buttons["settings-done-button"].tap() }
 
         let toggle = app.switches["exit-node-toggle"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 10),
                       "Exit node toggle should be present")
+        let exitNodeWasEnabled = toggle.value as? String == "1"
+        defer {
+            // This setting changes routing for the entire app and persists
+            // across launches. Restore the state we found even when the test
+            // returns early, fails, or throws XCTSkip for the upstream bug.
+            let exitNodeIsEnabled = toggle.value as? String == "1"
+            if toggle.exists, exitNodeIsEnabled != exitNodeWasEnabled {
+                toggle.tap()
+                let restoredValue = exitNodeWasEnabled ? "1" : "0"
+                let restored = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "value == %@", restoredValue),
+                    object: toggle
+                )
+                _ = XCTWaiter().wait(for: [restored], timeout: 10)
+            }
+            let done = app.buttons["settings-done-button"]
+            if done.exists { done.tap() }
+        }
 
         // --- (a) Skip if no exit nodes available ---
         // The test is meaningless without exit-node peers. This is a
