@@ -151,16 +151,6 @@ private struct BrowserRootContent: View {
     /// read the app's logs on a device that can't be attached to a Mac.
     @State private var showingLogs = false
 
-    /// Software-keyboard height + animation duration, so the bottom URL toolbar
-    /// can float above the keyboard in lockstep with the keyboard's own
-    /// animation — for a web input OR the native URL field (uniformly). See
-    /// `KeyboardObserver` for why SwiftUI's built-in keyboard avoidance doesn't
-    /// reach a `.safeAreaInset(.bottom)` toolbar when the first responder is
-    /// inside the full-screen `WKWebView`, and why the spacer must move on the
-    /// keyboard's clock (not a hardcoded one) to keep the inset, the keyboard,
-    /// and WebKit's scroll-to-focus synchronized.
-    @StateObject private var keyboardObserver = KeyboardObserver()
-
     init(workspace: Workspace,
          tabManager: TabManager,
          tab: BrowserTab,
@@ -175,13 +165,15 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Ignore the keyboard safe area on the webview content so
-            // SwiftUI's own keyboard avoidance doesn't double-float the
-            // native URL toolbar when its own field is focused — the
-            // `KeyboardObserver` spacer below is the single uniform driver
-            // for both native and web inputs (one code path, no per-field
-            // gating). The top safe area (notch / Dynamic Island) is still
-            // respected; only the keyboard is ignored here.
+            // The webview ignores the keyboard safe area so its frame stays
+            // full-screen and does NOT shrink for the keyboard. UIKit's OWN
+            // keyboard contentInset (the full keyboard-assembly height) then
+            // handles the focused input at 1×, keeping it visible. Without
+            // this, the SwiftUI `WebView`'s safe-area change makes WebKit's
+            // scroll-to-focus overshoot and scroll the input off the top of
+            // the screen. The top safe area (notch / Dynamic Island) is still
+            // respected; only the keyboard is ignored here. See
+            // `webview-plan.md` for the probe matrix that established this.
             BrowserView(model: tab.viewModel)
                 .ignoresSafeArea(.keyboard)
                 .safeAreaInset(edge: .top) {
@@ -245,46 +237,36 @@ private struct BrowserRootContent: View {
                         }
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
+                .overlay(alignment: .bottom) {
                     if hSizeClass == .compact {
-                        // Float the URL toolbar above the software keyboard and
-                        // grow the bottom safe area by the keyboard height so the
-                        // webview's scroll-view `contentInset` includes it — then
-                        // WebKit scrolls the focused input to just above the
-                        // toolbar (input → URL bar → keyboard). The transparent
-                        // spacer reserves the room; the keyboard renders over it.
-                        //
-                        // The spacer height is driven on the keyboard's OWN
-                        // animation duration (from KeyboardObserver), so the
-                        // inset collapses in lockstep with the keyboard — keeping
-                        // the inset, the keyboard, and WebKit's scroll-to-focus
-                        // on one clock. A hardcoded easeInOut desyncs and (on
-                        // dismiss) leaves the page scrolled up because the inset
-                        // hits 0 while the keyboard still covers the bottom.
-                        // Synchronized, WebKit auto-clamps the offset back as the
-                        // inset retreats — Safari-style restore.
-                        VStack(spacing: 0) {
-                            CompactBrowserToolbar(
-                                tab: tab,
-                                tabManager: tabManager,
-                                onNewChat: { tabManager.openChatTab() },
-                                onTabOverview: { showingTabOverview = true },
-                                onBookmarks: { showingBookmarks = true },
-                                onAddBookmark: { showingBookmarkEditor = true },
-                                onSettings: onSettings,
-                                onLogs: { showingLogs = true }
-                            )
-                            .id(tab.id)
-                            // Always present (0-height when no keyboard) so the
-                            // float is a pure height animation, not a structural
-                            // insert/remove — cleaner transition both ways.
-                            Color.clear
-                                .frame(height: keyboardObserver.keyboardHeight)
-                                .accessibilityHidden(true)
-                        }
-                        .animation(
-                            .easeInOut(duration: keyboardObserver.animationDuration),
-                            value: keyboardObserver.keyboardHeight)
+                        // The URL bar is a plain bottom overlay — NOT a
+                        // `.safeAreaInset(.bottom)` — with NO manual spacer,
+                        // offset, or animation. Two reasons (see
+                        // `webview-plan.md` for the probe matrix):
+                        //  - `.overlay` (unlike `.safeAreaInset(.bottom)`)
+                        //    preserves the webview's UIKit keyboard contentInset,
+                        //    so the focused input stays visible. `safeAreaInset`
+                        //    would replace that inset with just the toolbar
+                        //    height and WebKit's scroll-to-focus would scroll
+                        //    the input off the top.
+                        //  - With no manual float, SwiftUI's keyboard avoidance
+                        //    floats the bar above the keyboard ON ITS OWN. A
+                        //    manual spacer/offset of the keyboard height
+                        //    double-counts and flings the bar to the top of the
+                        //    screen (the former "url bar flies to the top" bug).
+                        //    The keyboard's own animation drives the transition,
+                        //    so there is no manual clock to desync.
+                        CompactBrowserToolbar(
+                            tab: tab,
+                            tabManager: tabManager,
+                            onNewChat: { tabManager.openChatTab() },
+                            onTabOverview: { showingTabOverview = true },
+                            onBookmarks: { showingBookmarks = true },
+                            onAddBookmark: { showingBookmarkEditor = true },
+                            onSettings: onSettings,
+                            onLogs: { showingLogs = true }
+                        )
+                        .id(tab.id)
                     }
                 }
                 .navigationTitle(hSizeClass == .compact ? "" : (tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle))

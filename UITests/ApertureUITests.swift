@@ -644,16 +644,24 @@ final class ApertureUITests: XCTestCase {
     }
 
 
-    /// Repro/regression for the software-keyboard layout bug: with the
-    /// simulator's hardware keyboard disconnected, tapping the chat input makes
-    /// the page scroll the focused input too far off the top (it should sit
-    /// just above the URL bar) and can push the native URL bar off-screen.
-    /// Root cause: the SwiftUI `WebView`'s frame shrinks for the keyboard (safe
-    /// area) AND WebKit independently adds a keyboard `contentInset` to its
-    /// scroll view + scrolls the focused element into the "visible" region —
-    /// so the input is scrolled up by ~2× the keyboard height (double
-    /// accounting). See `BrowserView.swift` / the fix that ignores the keyboard
-    /// safe area on the webview.
+    /// Regression for the software-keyboard layout bug: with the simulator's
+    /// hardware keyboard disconnected, tapping a bottom-anchored chat input and
+    /// raising the software keyboard must leave the focused input visible just
+    /// above the URL bar, which sits just above the keyboard — input → URL bar
+    /// → keyboard, top to bottom — with the URL bar neither flung to the top of
+    /// the screen nor covered by the keyboard.
+    ///
+    /// Root cause (established by the probes in `webview-plan.md`): the prior
+    /// fix manually floated the URL bar by the keyboard height. But SwiftUI's
+    /// keyboard avoidance already floats a bottom-anchored bar on its own, so
+    /// the manual push double-counted and flung the bar to the top of the
+    /// screen. Separately, placing the bar in `.safeAreaInset(.bottom)` had
+    /// replaced the webview's UIKit keyboard contentInset with just the toolbar
+    /// height, which made WebKit's scroll-to-focus overshoot and scroll the
+    /// input off the top. The fix: `.ignoresSafeArea(.keyboard)` on the webview
+    /// (frame stays full-screen; UIKit's own contentInset handles the input) +
+    /// the URL bar in a plain `.overlay(.bottom)` with no manual float (SwiftUI
+    /// floats it on its own). See `TabbedBrowserView.swift` / `webview-plan.md`.
     ///
     /// This is primarily a *visual* repro: it taps the chat input, waits for
     /// the software keyboard, and attaches before/after screenshots so a
