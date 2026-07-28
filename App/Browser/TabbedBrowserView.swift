@@ -89,18 +89,12 @@ private struct WorkspaceRoot: View {
 
     init(workspace: Workspace, showingSettings: Binding<Bool>) {
         self.workspace = workspace
-        // Create the per-workspace tab manager + status VM here (first render)
-        // — NOT in `Workspace.init` (which runs at app launch, before the
-        // window/view hierarchy exists). Creating the WKWebView before
-        // the window existed left WebKit's gesture recognizers in a corrupt
-        // state and crashed the app on the first tap (see
-        // `testTapOnLoadedHomePageDoesNotCrash`). `@StateObject` runs this
-        // `wrappedValue` only on the view's first appearance, matching the
-        // pre-refactor timing where `TabManager` was built in
-        // `TabbedBrowserView.init`.
-        _tabManager = StateObject(wrappedValue: TabManager(
-            model: workspace.model, homePage: workspace.homePage, dataStore: workspace.dataStore))
-        _statusViewModel = StateObject(wrappedValue: StatusViewModel(manager: workspace.manager))
+        // Resolve the workspace-owned session lazily here (first render), NOT
+        // in `Workspace.init` before the window exists. This preserves the
+        // gesture-recognizer crash fix while allowing tabs to survive when a
+        // different workspace is selected and this view subtree disappears.
+        _tabManager = StateObject(wrappedValue: workspace.tabManager)
+        _statusViewModel = StateObject(wrappedValue: workspace.statusViewModel)
         self._showingSettings = showingSettings
     }
 

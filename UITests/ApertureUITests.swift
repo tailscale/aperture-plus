@@ -581,6 +581,58 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
     }
 
+    /// Browser tabs stay attached to their workspace when another account is
+    /// selected and then the user switches back.
+    func testWorkspaceTabsSurviveSwitching() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetHomePage"]
+        if let key = Self.resolvedTestAuthKey() {
+            app.launchEnvironment["APERTURE_AUTHKEY"] = key
+            app.launchEnvironment["APERTURE_EPHEMERAL"] = Self.resolvedTestEphemeral()
+        }
+        app.launch()
+        guard requireBrowserReady(app) else { return }
+
+        app.buttons["new-chat-tab-button"].tap()
+        app.buttons["tab-overview-button"].tap()
+        XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
+        XCTAssertTrue(tabOverviewShowsCount(2, in: app),
+                      "The original workspace should have two tabs")
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(openSettings(app))
+        let add = app.buttons["add-workspace-button"]
+        scrollToElement(add, in: app)
+        let firstID = workspaceRows(in: app).first?.identifier
+        add.tap()
+        guard requireBrowserReady(app) else { return }
+
+        XCTAssertTrue(openSettings(app))
+        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        guard let firstID,
+              let firstRow = workspaceRows(in: app).first(where: { $0.identifier == firstID })
+        else {
+            XCTFail("The original workspace should remain selectable")
+            return
+        }
+        firstRow.tap()
+        guard requireBrowserReady(app) else { return }
+
+        app.buttons["tab-overview-button"].tap()
+        XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
+        XCTAssertTrue(tabOverviewShowsCount(2, in: app),
+                      "Switching back should restore the original workspace's tabs")
+        attachScreenshot(app, named: "workspace-tabs-survived-switch")
+
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        // With an auth key still in launchEnvironment the reset workspace can
+        // connect immediately, so accept either gate branding or browser chrome.
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20)
+                      || app.buttons["add-bookmark-button"].waitForExistence(timeout: 20))
+    }
+
     /// Home-page settings belong to a workspace, not the app globally.
     func testWorkspaceHomePagesAreIsolated() throws {
         let app = XCUIApplication()
@@ -1915,6 +1967,19 @@ final class ApertureUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
         return result == .completed
+    }
+
+    private func tabOverviewShowsCount(_ expected: Int, in app: XCUIApplication) -> Bool {
+        let predicate = NSPredicate { obj, _ -> Bool in
+            guard let app = obj as? XCUIApplication else { return false }
+            return app.buttons.matching(
+                NSPredicate(format: "label CONTAINS %@", " — ")
+            ).count == expected
+        }
+        return XCTWaiter().wait(
+            for: [XCTNSPredicateExpectation(predicate: predicate, object: app)],
+            timeout: 10
+        ) == .completed
     }
 
     /// Waits for at least one tab-overview card to show a title containing

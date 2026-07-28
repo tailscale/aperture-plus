@@ -43,6 +43,15 @@ final class Workspace: ObservableObject, Identifiable {
     /// Per-workspace SwiftData container for bookmarks.
     let modelContainer: ModelContainer
 
+    /// Browser/session state is lazy so its first WKWebView is still created
+    /// from `WorkspaceRoot.init`, after a window exists. Unlike a view-local
+    /// StateObject, workspace ownership keeps tabs alive while another account
+    /// is selected.
+    lazy var tabManager = TabManager(model: model,
+                                     homePage: homePage,
+                                     dataStore: dataStore)
+    lazy var statusViewModel = StatusViewModel(manager: manager)
+
     /// Called whenever the definition changes, so `WorkspaceManager` can
     /// persist the workspace list. Set after init to avoid a retain cycle.
     var onChange: ((WorkspaceDefinition) -> Void)?
