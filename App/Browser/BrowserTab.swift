@@ -64,7 +64,11 @@ final class BrowserTab: Identifiable, ObservableObject {
 
     private func refreshConnectionType() {
         connectionType = ConnectionTypeResolver.resolve(
-            host: viewModel.url?.host,
+            // A provisional navigation failure can leave `viewModel.url` nil
+            // even though the tab still represents and displays its initial
+            // destination. Classify that destination rather than reverting the
+            // indicator to Internet while tsnet retries the tailnet peer.
+            host: viewModel.url?.host ?? initialURL.host,
             status: model.localStatus,
             proxyPolicy: model.proxyPolicy
         )

@@ -60,8 +60,19 @@ enum ConnectionTypeResolver {
         // the tailnet. The policy is authoritative for routing; conservatively
         // report relay rather than incorrectly labeling proxied traffic as
         // Internet until a later status poll supplies CurAddr.
-        if proxyPolicy?.matchingRule(for: host) != nil {
-            return .derped
+        if let proxyPolicy {
+            if proxyPolicy.matchingRule(for: host) != nil {
+                return .derped
+            }
+            // Short names that collide with public TLDs (notably the `ai`
+            // home-page peer) are intentionally absent from matchDomains and
+            // rewritten to their FQDN at load time. The URL model can still
+            // briefly retain the user-entered short name, so classify that
+            // known tailnet peer conservatively instead of calling it Internet.
+            let normalizedHost = TailnetProxyPolicy.normalizeDomain(host)
+            if proxyPolicy.shortNamesWithheldAsPublicTLD.contains(normalizedHost) {
+                return .derped
+            }
         }
 
         return .internet

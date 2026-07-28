@@ -1262,12 +1262,16 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(pill.waitForExistence(timeout: 10),
                       "The compact URL pill should be present on iPhone")
         let predicate = NSPredicate { obj, _ -> Bool in
-            guard let pill = obj as? XCUIElement,
-                  let classification = pill.value as? String else { return false }
+            guard let app = obj as? XCUIApplication,
+                  let classification = app.buttons["url-pill"].value as? String
+            else { return false }
             return classification == "Direct tailnet connection"
                 || classification == "Tailnet connection via relay"
         }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: pill)
+        // Re-query the pill from the application on every poll. Holding one
+        // XCUIElement here can retain its initial accessibility value on iOS
+        // Simulator even after SwiftUI updates the button.
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: app)
         let result = XCTWaiter().wait(for: [expectation], timeout: 60)
         attachScreenshot(app, named: result == .completed ? "conn-type-tailnet" : "conn-type-stuck-internet")
         XCTAssertTrue(result == .completed,
