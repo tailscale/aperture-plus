@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject var workspaceManager: WorkspaceManager
     var dismissAction: () -> Void
 
     @State private var showLogoutAlert: Bool = false
@@ -92,6 +93,10 @@ struct SettingsView: View {
                         .accessibilityIdentifier("logout-button")
                 }
 
+                // Keep the existing primary controls above the fold; workspace
+                // management is available below Logout without moving them.
+                workspaceSection
+
                 // Diagnostics last: this section is informational and can be
                 // long (it lists every proxy rule), so keeping it below Logout
                 // leaves the primary controls above the fold.
@@ -119,6 +124,56 @@ struct SettingsView: View {
             // Seed the exit-node diagnostic (availability + egress IP) so the
             // banner is populated when Settings opens, not only after a toggle.
             viewModel.runExitNodeDiagnostic()
+        }
+    }
+
+    // MARK: - Workspaces
+
+    /// Minimal account switcher. Selecting another row dismisses Settings so
+    /// the browser immediately presents that workspace; every tsnet instance
+    /// remains alive. More elaborate iPhone tab-group/iPad sidebar chrome can
+    /// build on these same manager actions later.
+    @ViewBuilder
+    private var workspaceSection: some View {
+        Section(header: Text("Workspaces")) {
+            ForEach(workspaceManager.workspaces) { workspace in
+                Button {
+                    workspaceManager.selectWorkspace(id: workspace.id)
+                    dismissAction()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(workspace.identifier)
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                            if workspace.identifier != workspace.definition.hostname {
+                                Text(workspace.definition.hostname)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if workspaceManager.activeWorkspace?.id == workspace.id {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workspace-row-\(workspace.id.uuidString)")
+                .accessibilityValue(
+                    workspaceManager.activeWorkspace?.id == workspace.id ? "Selected" : ""
+                )
+            }
+
+            Button {
+                workspaceManager.addWorkspace()
+                dismissAction()
+            } label: {
+                Label("Add Workspace", systemImage: "plus")
+            }
+            .accessibilityIdentifier("add-workspace-button")
         }
     }
 

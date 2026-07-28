@@ -518,6 +518,62 @@ final class ApertureUITests: XCTestCase {
         app.buttons["settings-done-button"].tap()
     }
 
+    /// Adds a second workspace, switches back to the first, and verifies that
+    /// the active selection survives a process relaunch. Connection-independent:
+    /// it exercises only the persisted workspace list and Settings switcher.
+    func testAddAndSwitchWorkspacePersists() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.launch()
+
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app), "Settings should open")
+
+        let add = app.buttons["add-workspace-button"]
+        scrollToElement(add, in: app)
+        XCTAssertTrue(add.waitForExistence(timeout: 10),
+                      "Settings should offer Add Workspace")
+        let initialRows = workspaceRows(in: app)
+        XCTAssertEqual(initialRows.count, 1, "The reset should seed one workspace")
+        let firstID = initialRows[0].identifier
+
+        add.tap() // Adds, activates, and dismisses Settings.
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
+                      "The newly active workspace should render")
+        XCTAssertTrue(openSettings(app), "Settings should reopen for the new workspace")
+
+        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        let rowsAfterAdd = workspaceRows(in: app)
+        XCTAssertEqual(rowsAfterAdd.count, 2,
+                       "Adding should create a second persisted workspace")
+        guard let firstRow = rowsAfterAdd.first(where: { $0.identifier == firstID }) else {
+            XCTFail("The original workspace row should remain after adding")
+            return
+        }
+        firstRow.tap() // Selects the original and dismisses Settings.
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+
+        // Relaunch without resetting workspaces: both rows and the original
+        // active selection must be restored from workspaces.json.
+        app.launchArguments = ["-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app))
+
+        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        let persistedRows = workspaceRows(in: app)
+        XCTAssertEqual(persistedRows.count, 2,
+                       "Both workspaces should persist across relaunch")
+        guard let persistedFirst = persistedRows.first(where: { $0.identifier == firstID }) else {
+            XCTFail("The original workspace should persist across relaunch")
+            return
+        }
+        XCTAssertEqual(persistedFirst.value as? String, "Selected",
+                       "The selected workspace should persist across relaunch")
+        attachScreenshot(app, named: "workspaces-add-switch-persisted")
+    }
+
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)
 
     /// The connected browser is up when its bottom-toolbar bookmark button
@@ -1763,6 +1819,19 @@ final class ApertureUITests: XCTestCase {
     static func resolvedTestEphemeral() -> String {
         let v = ProcessInfo.processInfo.environment["APERTURE_TEST_EPHEMERAL"]
         return (v?.isEmpty == false) ? v! : "1"
+    }
+
+    private func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<8 where !element.exists || !element.isHittable {
+            app.swipeUp()
+        }
+    }
+
+    /// Returns workspace rows in their visible Settings order.
+    private func workspaceRows(in app: XCUIApplication) -> [XCUIElement] {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "workspace-row-")
+        ).allElementsBoundByIndex
     }
 
     /// Waits for the brand header (the "Aperture" logo lockup) to appear. It's

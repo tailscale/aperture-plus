@@ -24,6 +24,8 @@ final class WorkspaceManager: ObservableObject {
     @Published private(set) var activeWorkspace: Workspace?
 
     private var activeId: UUID?
+    /// Shared launch-only auth key used by automation. Never persisted.
+    private let authKey: String?
 
     init() {
         // App-level one-time setup — MUST run before any TailscaleNode is
@@ -33,7 +35,7 @@ final class WorkspaceManager: ObservableObject {
         let args = ProcessInfo.processInfo.arguments
 
         // Load the workspace list (or seed a single default on first launch).
-        var loaded = WorkspaceStore.load()
+        let loaded = WorkspaceStore.load()
         var defs: [WorkspaceDefinition]
         if let loaded {
             defs = loaded.workspaces
@@ -43,6 +45,15 @@ final class WorkspaceManager: ObservableObject {
             defs = [d]
             activeId = d.id
             WorkspaceStore.save(defs, activeId: activeId)
+        }
+
+        // Hermetic multi-workspace UI-test hook. Remove all prior workspace
+        // data and seed one fresh definition before any tsnet node is created.
+        if args.contains("-UITestResetWorkspaces") {
+            for d in defs { WorkspaceStore.removeWorkspaceDir(d.id) }
+            let d = WorkspaceDefinition.makeDefault()
+            defs = [d]
+            activeId = d.id
         }
 
         // UI-test hook: wipe every workspace's tsnet state dir so the next
@@ -73,6 +84,7 @@ final class WorkspaceManager: ObservableObject {
         // differing only by hostname. Real (non-test) workspaces have a nil
         // key and authenticate via web auth. NOT persisted.
         let authKey = TSNetManager.launchAuthKey()
+        self.authKey = authKey
 
         // Ephemeral is a launch-time input for test nodes (the APERTURE_EPHEMERAL
         // env / -Ephemeral arg), re-resolved every launch — matching the
@@ -102,6 +114,37 @@ final class WorkspaceManager: ObservableObject {
         // Persist once up front so the test-reset home-page edits (above) and
         // any default seeding are written even if nothing else changes.
         persist()
+    }
+
+    // MARK: - Workspace actions
+
+    /// Creates and immediately activates a fresh, independently persisted
+    /// tsnet identity. Constructing `Workspace` starts its node; existing
+    /// workspaces remain alive and are not torn down when selection changes.
+    @discardableResult
+    func addWorkspace() -> Workspace {
+        let workspace = makeWorkspace(from: .makeDefault())
+        workspaces.append(workspace)
+        activeWorkspace = workspace
+        activeId = workspace.id
+        persist()
+        return workspace
+    }
+
+    /// Changes only which workspace is rendered. Every workspace's tsnet node
+    /// continues running in the background.
+    func selectWorkspace(id: UUID) {
+        guard let workspace = workspaces.first(where: { $0.id == id }),
+              workspace.id != activeId else { return }
+        activeWorkspace = workspace
+        activeId = workspace.id
+        persist()
+    }
+
+    private func makeWorkspace(from definition: WorkspaceDefinition) -> Workspace {
+        Workspace(definition: definition, authKey: authKey) { [weak self] updated in
+            self?.handleDefinitionChange(updated)
+        }
     }
 
     // MARK: - Lifecycle

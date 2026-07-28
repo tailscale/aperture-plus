@@ -64,6 +64,7 @@ struct TabbedBrowserView: View {
         .fullScreenCover(isPresented: $showingSettings) {
             if let ws = workspaceManager.activeWorkspace {
                 SettingsView(viewModel: SettingsViewModel(workspace: ws),
+                             workspaceManager: workspaceManager,
                              dismissAction: { showingSettings = false })
             }
         }
