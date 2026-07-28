@@ -422,3 +422,105 @@ Verification (run 2026-07-27, iPhone 17 sim, software keyboard on):
    acceptable, or is "url bar always visible above keyboard" a hard
    requirement? Assumed hard requirement (matches the stated webpage | url bar
    | keyboard model).
+
+## Follow-up (run 2026-07-28): the two real-device bugs
+
+The Probe-2d fix (overlay, no manual float, rely on SwiftUI's implicit
+avoidance) shipped as f291f99. On a real device two bugs remained:
+
+- **Bug A — URL bar overlaps the focused input.** Tapping the chat input
+  raises the keyboard; the input moves to (roughly) where Safari puts it, but
+  the URL bar is *superimposed* over the bottom of the input. "It's like the
+  URL box is not affecting the layout at all other than being superimposed."
+- **Bug B — URL bar disappears after a web-focus/blur cycle.** Tap URL bar →
+  keyboard rises, bar floats up (✓). Cancel → bar returns (✓). Tap the web
+  text editor → keyboard rises (✓). Tap outside → keyboard falls (✓). Tap the
+  URL bar again → **the bar vanishes**. Tap outside, tap URL bar again → works.
+
+### Bug B — reproduced on sim, root-caused, FIXED
+
+`testURLBarSurvivesWebFocusBlurCycle` drives the exact sequence. Measured
+(implicit-avoidance build, iPhone 17 sim, software keyboard):
+
+- step 1 (first URL-pill tap): url-field y=530, hittable. ✓
+- step 5 (URL-pill tap AFTER a web-focus/blur): url-field **y=598, NOT
+  hittable**, keyboard up. ✗ — the bar floated to 598, *below* the keyboard's
+  visible top (583), i.e. parked UNDER the keyboard. That's the "disappears."
+
+So SwiftUI's implicit keyboard avoidance for an `.overlay(.bottom)` bar
+desyncs after a UIKit (web) field is focused then blurred: on the next SwiftUI
+field focus it floats the bar by the wrong amount. The 5→6→7 asymmetry (broken,
+outside-tap, works) is the desync being cleared by an unconditional keyboard
+dismissal.
+
+**Fix — drive the float explicitly from the keyboard notifications.** The bar
+moves to a `ZStack(.bottom)` sibling of the webview (NOT `.overlay(.bottom)`)
+with `.ignoresSafeArea(.keyboard)` on the bar + `.offset(y:
+-(keyboardHeight - homeIndicator))` driven by `KeyboardObserver`, animated on
+the keyboard's own duration. The ZStack is the key: `.overlay(.bottom)`
+positions its content at the safe-area bottom *regardless* of the content's own
+`ignoresSafeArea`, so the explicit offset double-counted with the implicit
+float and flung the bar to the top (y=31, the old "flies to top" bug reborn).
+In a `ZStack`, `.ignoresSafeArea(.keyboard)` on the bar actually stops the
+implicit float, so the explicit offset is the sole driver — deterministic, no
+desync. Verified: step 1 and step 5 both give url-field y=530, hittable
+(identical); step 3 (web focus) url-pill y=434 (no flies-to-top).
+
+### Bug A — NOT reproducible on sim; contentInset proven not to move the input
+
+`testHomePageInputKeyboardNoOverlap` focuses the HOME input (the user's case)
+and the conversation input and asserts no overlap. On the sim the input always
+lands ABOVE the URL bar (home: input 199..272 vs url-pill 434, gap 162;
+conversation: input 350..396 vs url-pill 434, gap 38). **The sim never
+overlaps**, so Bug A cannot be reproduced or verified here.
+
+Probes to find a sim-verifiable fix for Bug A all failed:
+
+1. **`scrollView.contentInset` does NOT move the focused input.** A
+   `UIViewRepresentable` (`WebViewInsetManager`, since deleted) walked the
+   view hierarchy to the `WKWebView` and set `scrollView.contentInset.bottom`
+   to `keyboardHeight + toolbarHeight` (and forced
+   `contentInsetAdjustmentBehavior = .never` + managed the top notch inset).
+   The inset stuck (verified via a Documents/inset.log pulled from the sim
+   container: bottom went 0 → 453 → 803 as the toolbar-height param grew).
+   The focused input's position was **invariant at y=350** across
+   contentInset.bottom = 0, 50, 453, and 803. WebKit's scroll-to-focus ignores
+   `scrollView.contentInset`; it uses the keyboard safe area / its own internal
+   handling. So the contentInset approach cannot fix Bug A.
+
+2. **Frame-shrink (URL bar in `.safeAreaInset(.bottom)`, no
+   `ignoresSafeArea(.keyboard)`) scrolls the conversation input OFF THE TOP.**
+   Measured y=−62. This is NOT the "2× contentInset double-count" the original
+   plan's Theory A claimed: forcing `.never` (which disables WebKit's own
+   contentInset) did **not** help — the input still went to y=−62. The
+   over-scroll is the chat SPA + WebKit reacting to the webview frame/safe-area
+   changing for the keyboard. Safari avoids this because it OWNS the WKWebView
+   and configures it (contentInsetAdjustmentBehavior, the layout viewport) in a
+   way the SwiftUI `WebView` does not expose.
+
+So Bug A's root cause is that the URL bar is a sibling overlay (the only
+placement that keeps the input on-screen on the sim) and therefore does NOT
+enter the page's layout viewport — the SPA positions the focused input from
+`visualViewport`, which excludes the keyboard but not the bar, so on devices
+where the SPA lands the input at the keyboard's edge the bar overlaps it. The
+sim lands the input higher (above the bar), masking the bug.
+
+**The robust fix is to own a raw `WKWebView` (drop `WebPage`) and configure it
+like Safari** so the URL bar is part of the layout viewport without the
+over-scroll — a larger refactor (`BrowserViewModel` is built on `WebPage`:
+`load`, `backForwardList`, `callJavaScript`, `navigations`, `NavigationError`,
+`NavigationDeciding`, `Configuration`). Not done in this pass: the explicit
+float above is the safe, sim-verifiable change, and it may already reduce Bug A
+on devices where the implicit-avoidance desync was mispositioning the bar (a
+milder form of Bug B). Bug A proper needs real-device validation of the
+frame-shrink model or the raw-WKWebView migration.
+
+### Verification (run 2026-07-28, iPhone 17 sim, software keyboard on)
+
+Full UI suite: **18/20 passed.** The two failures are the pre-existing
+networking tests (`testExitNodeChangesEgressIP` — the documented tsnet
+exit-node routing bug; `testHTTPSCertMismatchShowsError` — TLS cert
+verification on a bare hostname), unrelated to this UI-layout change.
+`testURLBarSurvivesWebFocusBlurCycle` and `testHomePageInputKeyboardNoOverlap`
+both pass. `testChatInputKeyboardLayoutRepro` passes (input y=350, url-pill
+y=434, no flies-to-top).

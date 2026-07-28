@@ -150,6 +150,18 @@ private struct BrowserRootContent: View {
     /// In-app log viewer (Settings → Logs / the "more" menu). The only way to
     /// read the app's logs on a device that can't be attached to a Mac.
     @State private var showingLogs = false
+    /// Drives the compact URL bar's float above the keyboard DETERMINISTICALLY
+    /// (explicit offset on the keyboard's own animation clock), instead of
+    /// relying on SwiftUI's implicit keyboard avoidance for an overlay — which
+    /// desyncs after a UIKit (web) field is focused then blurred and parks the
+    /// bar under the keyboard (the "URL bar disappears" bug, Bug B). See
+    /// `KeyboardObserver.swift`.
+    @StateObject private var keyboardObserver = KeyboardObserver()
+    /// The bottom safe-area inset (home indicator) of the browser content area,
+    /// captured via a background `GeometryReader`. Used to offset the URL bar
+    /// by `keyboardHeight - bottomSafeInset` so its bottom lands exactly at the
+    /// keyboard's top (not overshooting by the home-indicator height).
+    @State private var bottomSafeInset: CGFloat = 0
 
     init(workspace: Workspace,
          tabManager: TabManager,
@@ -166,17 +178,46 @@ private struct BrowserRootContent: View {
     var body: some View {
         NavigationStack {
             // The webview ignores the keyboard safe area so its frame stays
-            // full-screen and does NOT shrink for the keyboard. UIKit's OWN
-            // keyboard contentInset (the full keyboard-assembly height) then
-            // handles the focused input at 1×, keeping it visible. Without
-            // this, the SwiftUI `WebView`'s safe-area change makes WebKit's
-            // scroll-to-focus overshoot and scroll the input off the top of
-            // the screen. The top safe area (notch / Dynamic Island) is still
-            // respected; only the keyboard is ignored here. See
-            // `webview-plan.md` for the probe matrix that established this.
-            BrowserView(model: tab.viewModel)
-                .ignoresSafeArea(.keyboard)
-                .safeAreaInset(edge: .top) {
+            // full-screen (the URL bar is a sibling in the ZStack, not a
+            // safe-area inset, so it does NOT contribute to the webview's
+            // contentInset — keeping WebKit's own keyboard handling at 1× and
+            // the focused input visible). This is the only placement that keeps
+            // the focused input on-screen on the sim: putting the bar in
+            // `.safeAreaInset(.bottom)` OR letting the webview frame shrink for
+            // the keyboard makes the chat SPA + WebKit scroll the input off the
+            // TOP of the screen (measured: y≈−60), so the bar stays an overlay.
+            //
+            // Residual (Bug A, device-only): because the bar is an overlay it
+            // does NOT affect the page's layout (the SPA positions the focused
+            // input from the visualViewport, which excludes the keyboard but
+            // not the bar), so on some devices the input lands at the bar's y
+            // and the bar overlaps its bottom. The sim never reproduces this
+            // (the input always lands above the bar), so it can't be verified
+            // here. The robust fix is to own a raw `WKWebView` and configure it
+            // like Safari (URL bar in the layout viewport); see `webview-plan.md`.
+            //
+            // The compact URL bar floats above the keyboard DETERMINISTICALLY
+            // via an explicit `.offset` driven by `KeyboardObserver` (see the
+            // toolbar below) — NOT via SwiftUI's implicit keyboard avoidance,
+            // which desyncs after a UIKit (web) field is focused then blurred
+            // and parks the bar under the keyboard (Bug B). The bar lives in a
+            // `ZStack(.bottom)` (not `.overlay(.bottom)`) so that
+            // `.ignoresSafeArea(.keyboard)` on the toolbar actually stops the
+            // implicit float (an overlay positions its content at the safe-area
+            // bottom regardless of the content's own ignoresSafeArea, which
+            // double-counted with the explicit offset and flung the bar to the
+            // top).
+            ZStack(alignment: .bottom) {
+                BrowserView(model: tab.viewModel)
+                    .ignoresSafeArea(.keyboard)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .onAppear { bottomSafeInset = geo.safeAreaInsets.bottom }
+                                .onChange(of: geo.safeAreaInsets.bottom) { _, v in bottomSafeInset = v }
+                        }
+                    )
+                    .safeAreaInset(edge: .top) {
                     // Persistent tab bar on iPad / regular width only.
                     if hSizeClass == .regular {
                         TabBar(tabManager: tabManager, onNewChat: { tabManager.openChatTab() })
@@ -237,38 +278,6 @@ private struct BrowserRootContent: View {
                         }
                     }
                 }
-                .overlay(alignment: .bottom) {
-                    if hSizeClass == .compact {
-                        // The URL bar is a plain bottom overlay — NOT a
-                        // `.safeAreaInset(.bottom)` — with NO manual spacer,
-                        // offset, or animation. Two reasons (see
-                        // `webview-plan.md` for the probe matrix):
-                        //  - `.overlay` (unlike `.safeAreaInset(.bottom)`)
-                        //    preserves the webview's UIKit keyboard contentInset,
-                        //    so the focused input stays visible. `safeAreaInset`
-                        //    would replace that inset with just the toolbar
-                        //    height and WebKit's scroll-to-focus would scroll
-                        //    the input off the top.
-                        //  - With no manual float, SwiftUI's keyboard avoidance
-                        //    floats the bar above the keyboard ON ITS OWN. A
-                        //    manual spacer/offset of the keyboard height
-                        //    double-counts and flings the bar to the top of the
-                        //    screen (the former "url bar flies to the top" bug).
-                        //    The keyboard's own animation drives the transition,
-                        //    so there is no manual clock to desync.
-                        CompactBrowserToolbar(
-                            tab: tab,
-                            tabManager: tabManager,
-                            onNewChat: { tabManager.openChatTab() },
-                            onTabOverview: { showingTabOverview = true },
-                            onBookmarks: { showingBookmarks = true },
-                            onAddBookmark: { showingBookmarkEditor = true },
-                            onSettings: onSettings,
-                            onLogs: { showingLogs = true }
-                        )
-                        .id(tab.id)
-                    }
-                }
                 .navigationTitle(hSizeClass == .compact ? "" : (tab.displayTitle.isEmpty ? "Aperture" : tab.displayTitle))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(hSizeClass == .compact ? .hidden : .visible, for: .navigationBar)
@@ -279,6 +288,33 @@ private struct BrowserRootContent: View {
                         ReconnectingBanner()
                     }
                 }
+
+                // Compact URL bar (iPhone only). Lives in the ZStack (not a
+                // `.overlay`) so `.ignoresSafeArea(.keyboard)` actually stops the
+                // implicit keyboard-avoidance float — the explicit `.offset` is
+                // then the SOLE driver (no double-count → no "flies to the top").
+                // The offset is the keyboard assembly height minus the bottom
+                // safe-area (home-indicator) inset, so the bar's bottom lands
+                // exactly at the keyboard's top edge (not overshooting by the
+                // home-indicator height). Animated on the keyboard's own clock.
+                if hSizeClass == .compact {
+                    CompactBrowserToolbar(
+                        tab: tab,
+                        tabManager: tabManager,
+                        onNewChat: { tabManager.openChatTab() },
+                        onTabOverview: { showingTabOverview = true },
+                        onBookmarks: { showingBookmarks = true },
+                        onAddBookmark: { showingBookmarkEditor = true },
+                        onSettings: onSettings,
+                        onLogs: { showingLogs = true }
+                    )
+                    .ignoresSafeArea(.keyboard)
+                    .offset(y: -max(0, keyboardObserver.keyboardHeight - bottomSafeInset))
+                    .animation(.easeInOut(duration: keyboardObserver.animationDuration),
+                               value: keyboardObserver.keyboardHeight)
+                    .id(tab.id)
+                }
+            }
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })

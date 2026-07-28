@@ -651,17 +651,24 @@ final class ApertureUITests: XCTestCase {
     /// → keyboard, top to bottom — with the URL bar neither flung to the top of
     /// the screen nor covered by the keyboard.
     ///
-    /// Root cause (established by the probes in `webview-plan.md`): the prior
-    /// fix manually floated the URL bar by the keyboard height. But SwiftUI's
-    /// keyboard avoidance already floats a bottom-anchored bar on its own, so
-    /// the manual push double-counted and flung the bar to the top of the
-    /// screen. Separately, placing the bar in `.safeAreaInset(.bottom)` had
-    /// replaced the webview's UIKit keyboard contentInset with just the toolbar
-    /// height, which made WebKit's scroll-to-focus overshoot and scroll the
-    /// input off the top. The fix: `.ignoresSafeArea(.keyboard)` on the webview
-    /// (frame stays full-screen; UIKit's own contentInset handles the input) +
-    /// the URL bar in a plain `.overlay(.bottom)` with no manual float (SwiftUI
-    /// floats it on its own). See `TabbedBrowserView.swift` / `webview-plan.md`.
+    /// History (see `webview-plan.md` for the full probe matrix): an early fix
+    /// manually floated the URL bar by the keyboard height, which double-counted
+    /// with SwiftUI's implicit keyboard avoidance and flung the bar to the top.
+    /// A later fix removed the manual float and relied on SwiftUI's implicit
+    /// avoidance for an `.overlay(.bottom)` bar — that kept the bar at the right
+    /// spot (y≈434, above the keyboard) BUT the implicit avoidance DESYNCS
+    /// after a UIKit (web) field is focused then blurred, parking the bar under
+    /// the keyboard (Bug B, covered by `testURLBarSurvivesWebFocusBlurCycle`).
+    ///
+    /// The current fix: the webview `.ignoresSafeArea(.keyboard)` (frame stays
+    /// full-screen; UIKit's own keyboard contentInset handles the input at 1×),
+    /// and the compact URL bar is a sibling in a `ZStack(.bottom)` that floats
+    /// DETERMINISTICALLY via an explicit `.offset(y: -(keyboardHeight -
+    /// homeIndicator))` driven by `KeyboardObserver` (animated on the keyboard's
+    /// own clock). The ZStack (not `.overlay`) is what lets
+    /// `.ignoresSafeArea(.keyboard)` on the bar actually stop the implicit
+    /// float, so the explicit offset is the sole driver — no double-count, no
+    /// desync. See `TabbedBrowserView.swift` / `KeyboardObserver.swift`.
     ///
     /// This is primarily a *visual* repro: it taps the chat input, waits for
     /// the software keyboard, and attaches before/after screenshots so a
@@ -820,6 +827,291 @@ final class ApertureUITests: XCTestCase {
         print("REPRO: keyboard dismissed = \(kbDismissed)")
         print("REPRO: bottom input frame after dismiss = \(bottomInput.frame) (was focused=\(inputFrameFocused), before-tap=\(bottomInputFrameBeforeTap))")
         print("REPRO: url-pill frame after dismiss = \(pill.frame) (was focused=\(pillFrameFocused))")
+    }
+
+    /// Regression for the "URL bar obscures the entry box" bug (Bug A) on the
+    /// HOME page (`http://ai/chat`): tapping the centered chat input, raising
+    /// the software keyboard, must leave the focused input fully visible ABOVE
+    /// the floating URL bar — not overlapping it. The URL bar is a `.overlay(.
+    /// bottom)` that does NOT contribute to the webview's safe area, so the SPA
+    /// positions the input from the visualViewport (which excludes the keyboard
+    /// but not the URL bar); on some devices the input lands at the URL bar's
+    /// y and the bar overlaps its bottom. This test focuses the HOME input
+    /// (the user's reported case — the existing `testChatInputKeyboardLayoutRepro`
+    /// instead drives a conversation to get a bottom-anchored input) and
+    /// hard-asserts the URL bar sits below the input (no vertical overlap) once
+    /// the keyboard is up. Soft on the webview a11y bridge.
+    func testHomePageInputKeyboardNoOverlap() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+
+        let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
+        attachScreenshot(app, named: reached ? "home-overlap-page-loaded" : "home-overlap-page-failed")
+        XCTAssertTrue(reached, "Chat home page did not load; can't exercise the home-input focus.")
+
+        guard let input = retryFindChatInput(in: app, totalTimeout: 90) else {
+            attachScreenshot(app, named: "home-overlap-no-input")
+            print("OVERLAP: home input not found — a11y bridge lag; skipping.")
+            return
+        }
+        let screen = app.frame
+        print("OVERLAP: screen=\(screen) home input frame=\(input.frame)")
+
+        // Dismiss any keyboard from the find, then focus the home input.
+        if app.keyboards.firstMatch.exists { blurWebInput(in: app, screen: screen) }
+        _ = waitForKeyboardDismissed(app, timeout: 5)
+        input.tap()
+        let keyboard = app.keyboards.firstMatch
+        let kbUp = keyboard.waitForExistence(timeout: 12)
+        // Let WebKit's scroll-to-focus + the SPA settle.
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 2.0)
+        attachScreenshot(app, named: kbUp ? "home-overlap-focused" : "home-overlap-no-keyboard")
+        saveScreenshot(app, to: "/tmp/home-overlap-focused.png")
+        print("OVERLAP: keyboard=\(kbUp) frame=\(keyboard.frame)")
+        print("OVERLAP: input after focus=\(input.frame)")
+        let pill = app.buttons["url-pill"]
+        print("OVERLAP: url-pill exists=\(pill.exists) hittable=\(pill.isHittable) frame=\(pill.frame)")
+
+        guard kbUp else {
+            print("OVERLAP: no software keyboard; can't assert overlap.")
+            return
+        }
+        // The desired layout is input → URL bar → keyboard (top to bottom), so
+        // the URL bar's top must be at or below the input's bottom (no overlap).
+        // Allow a tiny tolerance for sub-pixel / rounding.
+        let gap = pill.frame.minY - input.frame.maxY
+        print("OVERLAP: gap (url-pill.minY - input.maxY) = \(gap)  [negative => overlap]")
+        XCTAssertGreaterThanOrEqual(gap, -1.0,
+            "URL bar overlaps the focused home input (url-pill.minY=\(pill.frame.minY) < input.maxY=\(input.frame.maxY)). " +
+            "The URL bar should sit below the input, not over it.")
+        // Also assert the URL bar itself is on-screen and hittable (not flown off).
+        XCTAssertTrue(pill.isHittable, "URL bar should be hittable while the home input is focused.")
+        XCTAssertTrue(frameIsOnScreen(pill.frame, screen: screen), "URL bar should be on-screen; frame=\(pill.frame)")
+
+        // Dismiss.
+        blurWebInput(in: app, screen: screen)
+        _ = waitForKeyboardDismissed(app, timeout: 6)
+        attachScreenshot(app, named: "home-overlap-dismissed")
+        print("OVERLAP: after dismiss input=\(input.frame) url-pill=\(pill.frame)")
+    }
+
+    /// Regression for the "URL bar disappears after a web-focus/blur cycle" bug.
+    ///
+    /// Reported sequence (real device, http://ai/chat):
+    ///   1. Tap the URL pill → keyboard rises, URL bar floats up. ✓
+    ///   2. Tap Cancel → keyboard falls, URL bar returns to the bottom. ✓
+    ///   3. Tap the web page's text editor → keyboard rises (web focus). ✓
+    ///   4. Tap outside the text editor → keyboard falls (blur). ✓
+    ///   5. Tap the URL pill again → **the URL bar disappears entirely.** ✗
+    ///   6. Tap outside any editor → (keyboard dismisses / state resets).
+    ///   7. Tap the URL pill again → works fine. ✓
+    ///
+    /// The 5→6→7 asymmetry (broken, then a outside-tap, then works) is the tell
+    /// that a piece of SwiftUI keyboard-avoidance / focus state gets stuck after
+    /// a UIKit (web) field is focused then blurred, and is reset by an unconditional
+    /// keyboard dismissal. This test drives that exact sequence and hard-asserts
+    /// that the URL editor stays on-screen and hittable at step 5 (and again at
+    /// step 7). Soft on the webview a11y bridge (skips if the chat input can't be
+    /// found); hard on connection + page load + the native URL editor transitions.
+    func testURLBarSurvivesWebFocusBlurCycle() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+
+        guard requireBrowserReady(app) else { return }
+
+        let reached = waitForPageLoaded(in: app, contains: "ai", timeout: 60)
+        attachScreenshot(app, named: reached ? "cycle-page-loaded" : "cycle-page-load-failed")
+        XCTAssertTrue(reached, "Chat home page did not load; can't exercise the focus cycle.")
+
+        let screen = app.frame
+        print("CYCLE: screen = \(screen)")
+
+        // Find the web chat input FIRST, before any URL-bar interaction. The
+        // webview a11y bridge is inconsistently slow (tens of seconds) to
+        // surface the textarea, and a URL-pill focus/blur cycle can further
+        // disrupt it — so resolve a reference up front, while the page is fresh
+        // (this mirrors testChatInputKeyboardLayoutRepro, which finds it right
+        // after page load). Retry for up to ~90s.
+        guard let webInput = retryFindChatInput(in: app, totalTimeout: 90) else {
+            attachScreenshot(app, named: "cycle-no-web-input")
+            let tf = app.webViews.textFields.count
+            let tv = app.webViews.textViews.count
+            let oe = app.webViews.otherElements.count
+            print("CYCLE: chat input not found up front (textFields=\(tf), textViews=\(tv), otherElements=\(oe)) — a11y bridge lag; skipping.")
+            return
+        }
+        print("CYCLE: web input found up front, frame = \(webInput.frame) label=\(webInput.label)")
+
+        // --- Step 1: tap the URL pill, expect the editor to appear on-screen. ---
+        let pill = app.buttons["url-pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 10), "url-pill should exist")
+        print("CYCLE: step1 url-pill frame = \(pill.frame)")
+        pill.tap()
+        let urlField = app.textFields["url-field"].firstMatch
+        XCTAssertTrue(urlField.waitForExistence(timeout: 8), "url-field should appear after tapping the pill")
+        _ = waitForHittable(urlField, timeout: 8)
+        let kb1 = app.keyboards.firstMatch.waitForExistence(timeout: 8)
+        print("CYCLE: step1 url-field frame = \(urlField.frame) hittable=\(urlField.isHittable) keyboard=\(kb1)")
+        attachScreenshot(app, named: "cycle-step1-url-focused")
+        saveScreenshot(app, to: "/tmp/cycle-step1-url-focused.png")
+        XCTAssertTrue(urlField.isHittable, "URL editor should be hittable after tapping the pill (step 1)")
+        XCTAssertTrue(frameIsOnScreen(urlField.frame, screen: screen),
+                      "URL editor should be on-screen after tapping the pill (step 1); frame=\(urlField.frame)")
+
+        // --- Step 2: Cancel → URL bar returns to the bottom. ---
+        let cancel = app.buttons["url-cancel-button"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Cancel should appear in the editing bar")
+        cancel.tap()
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after Cancel")
+        _ = waitForKeyboardDismissed(app, timeout: 8)
+        print("CYCLE: step2 url-pill frame = \(pill.frame) hittable=\(pill.isHittable)")
+        attachScreenshot(app, named: "cycle-step2-cancelled")
+        saveScreenshot(app, to: "/tmp/cycle-step2-cancelled.png")
+        XCTAssertTrue(pill.isHittable, "url-pill should be hittable after Cancel (step 2)")
+
+        // --- Step 3: focus the web chat input → keyboard rises (web focus). ---
+        // Re-resolve in case the reference went stale during the URL cycle, but
+        // fall back to the up-front reference.
+        let webInputNow = retryFindChatInput(in: app, totalTimeout: 30) ?? webInput
+        print("CYCLE: step3 web input frame before tap = \(webInputNow.frame) label=\(webInputNow.label)")
+        webInputNow.tap()
+        let kb3 = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+        print("CYCLE: step3 web input frame after tap = \(webInputNow.frame) keyboard=\(kb3)")
+        print("CYCLE: step3 url-pill frame = \(pill.frame) (should have floated above the keyboard)")
+        attachScreenshot(app, named: kb3 ? "cycle-step3-web-focused" : "cycle-step3-no-keyboard")
+        saveScreenshot(app, to: "/tmp/cycle-step3-web-focused.png")
+        XCTAssertTrue(kb3, "Keyboard should appear when the web input is focused (step 3)")
+
+        // --- Step 4: blur the web input → keyboard falls. ---
+        blurWebInput(in: app, screen: screen)
+        let kb4 = waitForKeyboardDismissed(app, timeout: 8)
+        print("CYCLE: step4 keyboard dismissed=\(kb4) url-pill frame = \(pill.frame)")
+        attachScreenshot(app, named: "cycle-step4-blurred")
+        saveScreenshot(app, to: "/tmp/cycle-step4-blurred.png")
+        XCTAssertTrue(kb4, "Keyboard should dismiss after blurring the web input (step 4)")
+
+        // --- Step 5: tap the URL pill AGAIN → editor must stay on-screen. (Bug B) ---
+        // The bug: after the web-focus/blur cycle, this tap makes the URL bar
+        // vanish (floated off-screen or parked under the keyboard). Assert it
+        // stays visible + hittable.
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should exist before step-5 tap")
+        print("CYCLE: step5 url-pill frame before tap = \(pill.frame)")
+        pill.tap()
+        // Give the editor + keyboard a moment to present.
+        _ = urlField.waitForExistence(timeout: 8)
+        _ = waitForHittable(urlField, timeout: 6)
+        let kb5 = app.keyboards.firstMatch.waitForExistence(timeout: 8)
+        print("CYCLE: step5 url-field frame = \(urlField.frame) exists=\(urlField.exists) hittable=\(urlField.isHittable) keyboard=\(kb5)")
+        attachScreenshot(app, named: "cycle-step5-url-refocused")
+        saveScreenshot(app, to: "/tmp/cycle-step5-url-refocused.png")
+        XCTAssertTrue(urlField.exists, "URL editor should exist after re-tapping the pill (step 5)")
+        XCTAssertTrue(urlField.isHittable,
+                      "URL editor should be hittable after re-tapping the pill (step 5 — the reported disappear bug); frame=\(urlField.frame)")
+        XCTAssertTrue(frameIsOnScreen(urlField.frame, screen: screen),
+                      "URL editor should be on-screen after re-tapping the pill (step 5); frame=\(urlField.frame)")
+
+        // --- Step 6 + 7: dismiss, then tap the pill once more → still works. ---
+        // Dismiss the step-5 editor. Cancel if present, else blur.
+        if app.buttons["url-cancel-button"].waitForExistence(timeout: 4) {
+            app.buttons["url-cancel-button"].tap()
+        } else {
+            blurWebInput(in: app, screen: screen)
+        }
+        _ = waitForKeyboardDismissed(app, timeout: 8)
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after step-6 dismiss")
+        print("CYCLE: step6 url-pill frame = \(pill.frame)")
+        pill.tap()
+        _ = urlField.waitForExistence(timeout: 8)
+        _ = waitForHittable(urlField, timeout: 6)
+        print("CYCLE: step7 url-field frame = \(urlField.frame) hittable=\(urlField.isHittable)")
+        attachScreenshot(app, named: "cycle-step7-url-refocused-again")
+        saveScreenshot(app, to: "/tmp/cycle-step7-url-refocused-again.png")
+        XCTAssertTrue(urlField.isHittable, "URL editor should be hittable on the final tap (step 7)")
+        XCTAssertTrue(frameIsOnScreen(urlField.frame, screen: screen),
+                      "URL editor should be on-screen on the final tap (step 7); frame=\(urlField.frame)")
+    }
+
+    /// Returns true if `rect` overlaps the visible screen bounds (not fully off
+    /// any edge). Used to catch the URL bar being floated off-screen or parked
+    /// under the keyboard. Allows a little slop for the home-indicator area.
+    private func frameIsOnScreen(_ rect: CGRect, screen: CGRect) -> Bool {
+        let slop: CGFloat = 2
+        return rect.minX < screen.maxX - slop
+            && rect.maxX > screen.minX + slop
+            && rect.minY < screen.maxY - slop
+            && rect.maxY > screen.minY + slop
+            && rect.width > 0 && rect.height > 0
+    }
+
+    /// Waits for the keyboard to dismiss. Returns true if it went away in time.
+    @discardableResult
+    private func waitForKeyboardDismissed(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let pred = NSPredicate { _, _ in !app.keyboards.firstMatch.exists }
+        let exp = XCTNSPredicateExpectation(predicate: pred, object: nil)
+        return XCTWaiter().wait(for: [exp], timeout: timeout) == .completed
+    }
+
+    /// Blurs a focused web input to dismiss its keyboard. Web inputs have no
+    /// native "Done" accessory bar, so this tries (in order) the keyboard's
+    /// HideKeyboard button, tapping a blank area of the page ABOVE the input,
+    /// and the strip between the floated URL pill and the keyboard. It avoids
+    /// tapping the floated URL pill itself (which would switch focus to the
+    /// native URL field, not blur). Idempotent; the caller verifies the keyboard
+    /// actually dismissed.
+    private func blurWebInput(in app: XCUIApplication, screen: CGRect) {
+        // Diagnostics: enumerate the keyboard's buttons so we can find the hide
+        // key by its real identifier (it varies by iOS / locale).
+        let kbButtons = app.keyboards.firstMatch.buttons.allElementsBoundByIndex
+            .map { "\($0.identifier)=\($0.label)@\($0.frame)" }
+        print("CYCLE: keyboard buttons = \(kbButtons)")
+
+        // 1) The software keyboard's hide button (bottom-right keyboard icon).
+        //    Try the common identifiers.
+        for id in ["HideKeyboard", "hide keyboard", "Hide Keyboard", "DismissKeyboard"] {
+            let b = app.keyboards.buttons[id]
+            if b.waitForExistence(timeout: 1) {
+                print("CYCLE: blur via keyboard button '\(id)' @ \(b.frame)")
+                b.tap()
+                return
+            }
+        }
+
+        // 2) Tap a blank area ABOVE the chat input (the hero/header region on
+        //    the home page). The home input sits ~y=267, so y≈120 is safely
+        //    above it and below the notch. Tapping non-focusable page content
+        //    blurs the focused textarea.
+        let wf = app.webViews.firstMatch.frame
+        let above = CGVector(dx: wf.midX, dy: wf.minY + 120)
+        print("CYCLE: blur via above-input tap @ \(above)")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(above).tap()
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 0.8)
+        if !app.keyboards.firstMatch.exists { return }
+
+        // 3) Tap the strip between the floated URL pill (~y=434..465) and the
+        //    keyboard (~y=583), i.e. y≈500 — page content, not the pill.
+        let strip = CGVector(dx: wf.midX, dy: 500)
+        print("CYCLE: blur via strip tap @ \(strip)")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(strip).tap()
+        _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 0.8)
+        if !app.keyboards.firstMatch.exists { return }
+
+        // 4) Last resort: tap the very top of the webview.
+        let top = CGVector(dx: wf.midX, dy: wf.minY + 40)
+        print("CYCLE: blur via top tap @ \(top)")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(top).tap()
+    }
+
+    /// Polls `findChatInput` until it returns a hittable element or `totalTimeout`
+    /// elapses. The webview a11y bridge is inconsistently slow to surface the
+    /// chat textarea (sometimes tens of seconds), so a single call can miss it.
+    private func retryFindChatInput(in app: XCUIApplication, totalTimeout: TimeInterval) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(totalTimeout)
+        while Date() < deadline {
+            if let i = findChatInput(in: app, timeout: 20), i.isHittable { return i }
+            _ = XCTWaiter().wait(for: [XCTestExpectation()], timeout: 1.0)
+        }
+        return nil
     }
 
     /// Writes `app`'s screenshot to `path` as PNG so a non-vision agent can
