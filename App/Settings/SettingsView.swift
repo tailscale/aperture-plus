@@ -137,33 +137,13 @@ struct SettingsView: View {
     private var workspaceSection: some View {
         Section(header: Text("Workspaces")) {
             ForEach(workspaceManager.workspaces) { workspace in
-                Button {
-                    workspaceManager.selectWorkspace(id: workspace.id)
-                    dismissAction()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(workspace.identifier)
-                                .foregroundStyle(.primary)
-                                .lineLimit(2)
-                            if workspace.identifier != workspace.definition.hostname {
-                                Text(workspace.definition.hostname)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        if workspaceManager.activeWorkspace?.id == workspace.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.tint)
-                        }
+                WorkspaceSettingsRow(
+                    workspace: workspace,
+                    isSelected: workspaceManager.activeWorkspace?.id == workspace.id,
+                    onSelect: {
+                        workspaceManager.selectWorkspace(id: workspace.id)
+                        dismissAction()
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("workspace-row-\(workspace.id.uuidString)")
-                .accessibilityValue(
-                    workspaceManager.activeWorkspace?.id == workspace.id ? "Selected" : ""
                 )
             }
 
@@ -279,5 +259,37 @@ struct SettingsView: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("exit-node-diagnostic-banner")
+    }
+}
+
+private struct WorkspaceSettingsRow: View {
+    @ObservedObject var workspace: Workspace
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workspace.identifier)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    if workspace.identifier != workspace.definition.hostname {
+                        Text(workspace.definition.hostname)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.tint)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("workspace-row-\(workspace.id.uuidString)")
+        .accessibilityValue(isSelected ? "Selected" : "")
     }
 }
