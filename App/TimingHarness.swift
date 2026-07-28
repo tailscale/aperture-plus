@@ -548,15 +548,15 @@ struct TimingHarnessView: View {
             // Success heuristic: the page title is non-empty AND no error. The
             // WebPage doesn't expose a clean "finished" flag to the ViewModel
             // without rendering, so use the page's title/url as a loaded signal.
-            let title = vm.page.title ?? ""
-            let loadedURL = vm.page.url?.absoluteString ?? ""
+            let title = vm.title
+            let loadedURL = vm.url?.absoluteString ?? ""
             if !title.isEmpty || (!loadedURL.isEmpty && loadedURL != url.absoluteString) {
                 emit("  [r\(run)]   OK: loaded title=\(title.prefix(40)) url=\(loadedURL.prefix(60))")
                 return true
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
-        emit("  [r\(run)]   TIMEOUT (30s, no finish/error; title=\(vm.page.title ?? "") url=\(vm.page.url?.absoluteString ?? ""))")
+        emit("  [r\(run)]   TIMEOUT (30s, no finish/error; title=\(vm.title) url=\(vm.url?.absoluteString ?? ""))")
         return false
     }
 }

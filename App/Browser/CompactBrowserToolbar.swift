@@ -39,10 +39,9 @@ struct CompactBrowserToolbar: View {
     @FocusState private var urlFieldFocused: Bool
 
     private var viewModel: BrowserViewModel { tab.viewModel }
-    private var page: WebPage { viewModel.page }
 
-    private var canGoBack: Bool { page.backForwardList.backList.count > 0 }
-    private var canGoForward: Bool { page.backForwardList.forwardList.count > 0 }
+    private var canGoBack: Bool { viewModel.canGoBack }
+    private var canGoForward: Bool { viewModel.canGoForward }
 
     /// What the pill shows when not editing: the host, or a placeholder for an
     /// empty/unknown page.
@@ -53,7 +52,7 @@ struct CompactBrowserToolbar: View {
 
     /// A lock icon for https/wss, a globe for everything else (http, etc.).
     private var pillIcon: String {
-        let scheme = page.url?.scheme?.lowercased() ?? ""
+        let scheme = viewModel.url?.scheme?.lowercased() ?? ""
         return (scheme == "https" || scheme == "wss") ? "lock.fill" : "globe"
     }
 
@@ -69,8 +68,8 @@ struct CompactBrowserToolbar: View {
             .animation(.easeInOut(duration: 0.2), value: isEditing)
 
             // Thin progress bar under the bar while a page is loading.
-            if page.isLoading {
-                ProgressView(value: page.estimatedProgress)
+            if viewModel.isLoading {
+                ProgressView(value: viewModel.estimatedProgress)
                     .progressViewStyle(.linear)
                     .tint(.blue)
                     .frame(height: 2)
@@ -217,7 +216,7 @@ struct CompactBrowserToolbar: View {
     // MARK: - Editing helpers
 
     private func startEditing() {
-        urlFieldText = page.url?.absoluteString ?? tab.displayURL
+        urlFieldText = viewModel.url?.absoluteString ?? tab.displayURL
         isEditing = true
         urlFieldFocused = true
     }

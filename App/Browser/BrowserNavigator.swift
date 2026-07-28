@@ -25,13 +25,9 @@ struct BrowserNavigator: View {
         self.onAddBookmark = onAddBookmark
     }
 
-    var canGoBack: Bool {
-        model.page.backForwardList.backList.count > 0
-    }
+    var canGoBack: Bool { model.canGoBack }
 
-    var canGoForward: Bool {
-        model.page.backForwardList.forwardList.count > 0
-    }
+    var canGoForward: Bool { model.canGoForward }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -111,8 +107,8 @@ struct BrowserNavigator: View {
                                 model.reportURLParseFailure(normalized)
                             }
                         }
-                    if model.page.isLoading {
-                        ProgressView(value: model.page.estimatedProgress)
+                    if model.isLoading {
+                        ProgressView(value: model.estimatedProgress)
                             .progressViewStyle(.linear)
                             .tint(.blue)
                             .frame(height: 2)
@@ -132,8 +128,8 @@ struct BrowserNavigator: View {
                                 .contentTransition(.symbolEffect(.replace))
                         }
                         .buttonStyle(.plain)
-                    } else if model.page.isLoading {
-                        Button(action: { model.page.stopLoading() }) {
+                    } else if model.isLoading {
+                        Button(action: { model.stopLoading() }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.secondary)
                                 .contentTransition(.symbolEffect(.replace))
@@ -148,7 +144,7 @@ struct BrowserNavigator: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: model.page.isLoading)
+                .animation(.easeInOut(duration: 0.2), value: model.isLoading)
                 .animation(.easeInOut(duration: 0.2), value: isEditingURL)
             }
             .padding(.vertical, 8)
@@ -175,8 +171,8 @@ struct BrowserNavigator: View {
             .accessibilityLabel("Add Bookmark")
             .accessibilityIdentifier("add-bookmark-button")
         }
-        .animation(.snappy, value: model.page.backForwardList.backList.count)
-        .animation(.snappy, value: model.page.backForwardList.forwardList.count)
+        .animation(.snappy, value: model.canGoBack)
+        .animation(.snappy, value: model.canGoForward)
         // Seed the URL field from the current page whenever this navigator
         // appears (e.g. when switching tabs — the navigator is keyed by tab
         // id, so it re-appears with the new tab's page). Without this the
@@ -186,9 +182,9 @@ struct BrowserNavigator: View {
                 urlFieldText = currentURLString
             }
         }
-        .onChange(of: model.page.backForwardList.currentItem?.url) {
+        .onChange(of: model.url) {
             if !isEditingURL {
-                urlFieldText = model.page.backForwardList.currentItem?.url.absoluteString ?? ""
+                urlFieldText = model.url?.absoluteString ?? ""
             }
         }
         .onChange(of: model.failedInitialURL) {
@@ -201,7 +197,7 @@ struct BrowserNavigator: View {
     /// The URL to show in the field when not actively editing: the current
     /// back/forward item's URL, falling back to the failed-initial URL.
     private var currentURLString: String {
-        model.page.backForwardList.currentItem?.url.absoluteString
+        model.url?.absoluteString
             ?? model.failedInitialURL?.absoluteString
             ?? ""
     }

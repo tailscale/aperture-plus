@@ -164,11 +164,10 @@ private struct BrowserRootContent: View {
 
     var body: some View {
         NavigationStack {
-            // Diagnostic: the compact URL toolbar is a real bottom sibling, so
-            // the page receives a viewport that permanently ends above it. The
-            // entire stack ignores the keyboard safe area, keeping that shorter
-            // web-view frame perfectly stable while WebKit alone accommodates a
-            // focused DOM field. No keyboard observer or moving overlay.
+            // Raw-WKWebView experiment: the compact URL toolbar is a real
+            // bottom sibling and normal SwiftUI keyboard avoidance shrinks the
+            // available browser region. Unlike the opaque SwiftUI WebView, the
+            // owned WKWebView should now coordinate that resize correctly.
             VStack(spacing: 0) {
                 BrowserView(model: tab.viewModel)
                     // WebKit's SwiftUI wrapper does not always yield its ideal
@@ -262,18 +261,17 @@ private struct BrowserRootContent: View {
                     )
                     .fixedSize(horizontal: false, vertical: true)
                     .overlay(alignment: .topTrailing) {
-                        Text("STABLE BOTTOM TEST")
+                        Text("RAW WKWEBVIEW / NATIVE KEYBOARD TEST")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 2)
                             .background(Color.pink)
-                            .accessibilityIdentifier("stable-bottom-test-marker")
+                            .accessibilityIdentifier("raw-wkwebview-test-marker")
                     }
                     .id(tab.id)
                 }
             }
-            .ignoresSafeArea(.keyboard, edges: hSizeClass == .compact ? .bottom : [])
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
@@ -297,8 +295,8 @@ private struct BrowserRootContent: View {
         .sheet(isPresented: $showingBookmarkEditor) {
             BookmarkEditor(
                 dismissAction: { showingBookmarkEditor = false },
-                initialName: tab.viewModel.page.title,
-                initialURLString: tab.viewModel.page.url?.absoluteString ?? ""
+                initialName: tab.viewModel.title,
+                initialURLString: tab.viewModel.url?.absoluteString ?? ""
             )
         }
     }

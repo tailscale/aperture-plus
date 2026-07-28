@@ -18,29 +18,11 @@ struct BrowserView: View {
             // switches and can carry tab controls); this view is just the
             // page plus its error overlay.
             //
-            // The webview respects the top safe area (notch / Dynamic Island)
-            // so the page's top bar sits below it, not under it. The Aperture
-            // chat UI uses `viewport-fit=cover` + Tailwind `pt-[env(safe-area-
-            // inset-top)]`, but the iOS 26 WebKit SwiftUI `WebView` does not
-            // propagate the safe-area inset as `env()` (verified: it resolves
-            // to 0px even when the webview extends under the notch), so letting
-            // the webview go under the notch would put the page's top bar at
-            // top:0 = under the notch. Keeping the webview in the safe area
-            // avoids that. (Safari's "text scrolls under the notch while the
-            // header stays put" needs `env()` support we don't have yet — see
-            // TODO #6.)
-            //
-            // TODO(#6 notch): to get true Safari behavior (page content extends
-            // under the notch, page's own sticky header pins just below it via
-            // `env(safe-area-inset-top)`), we need `env()` to be non-zero.
-            // The iOS 26 SwiftUI `WebView` doesn't propagate the safe-area
-            // inset as `env()` (verified via JS: 0px even under the notch), so
-            // the fix is to drop down to a raw `WKWebView` wrapped in a
-            // `UIViewRepresentable`, set `scrollView.contentInsetAdjustment
-            // Behavior = .never`, and lay it out under the notch — then the
-            // page's `pt-[env(safe-area-inset-top)]` resolves to the real
-            // inset. Verify on a real device (sim safe-area may differ).
-            WebView(model.page)
+            // The owned WKWebView extends beneath the notch/Dynamic Island.
+            // Pages using `viewport-fit=cover` can consume the real CSS safe-
+            // area environment values, matching Safari's edge-to-edge model.
+            RawWebView(model: model)
+                .ignoresSafeArea(.container, edges: .top)
 
             // Navigation error overlay. Driven directly by `model.navError`
             // (set by `watchForNavitationErrors` on a failed load, cleared on
