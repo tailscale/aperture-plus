@@ -188,6 +188,10 @@ private struct BrowserRootContent: View {
                         browserToolbar
                         browserContent
                     }
+                    // The iPad toolbar is at the top, so the bottom safe area
+                    // belongs to the page. Without this the root layout leaves
+                    // an app-background strip beneath dark web content.
+                    .ignoresSafeArea(.container, edges: .bottom)
                 } else {
                     // Preserve the known-good iPhone arrangement: the raw web
                     // view and toolbar are ordinary vertical siblings. Do not

@@ -37,6 +37,7 @@ struct CompactBrowserToolbar: View {
     @State private var backPressed = false
     @State private var forwardPressed = false
     @FocusState private var urlFieldFocused: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var viewModel: BrowserViewModel { tab.viewModel }
 
@@ -76,7 +77,13 @@ struct CompactBrowserToolbar: View {
             }
         }
         .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        // The page/chrome color change already provides enough separation on
+        // iPad. Retain the divider for the bottom-mounted iPhone toolbar.
+        .overlay(alignment: .top) {
+            if horizontalSizeClass == .compact {
+                Divider()
+            }
+        }
     }
 
     // MARK: - Compact (non-editing) bar
@@ -172,7 +179,7 @@ struct CompactBrowserToolbar: View {
             .accessibilityLabel("More")
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 6)
+        .padding(.vertical, horizontalSizeClass == .regular ? 3 : 6)
     }
 
     // MARK: - Editing (expanded) bar
