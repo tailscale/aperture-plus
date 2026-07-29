@@ -1,6 +1,7 @@
 //  Created by Jonathan Nobels on 2025-12-18.
 //
 
+import Darwin
 import Foundation
 import TailscaleKit
 import os
@@ -75,57 +76,88 @@ struct Logger: TailscaleKit.LogSink {
 /// `NSLock` rather than actor-isolated (callers are `nonisolated` and can't
 /// await). Lock hold times are a few pointer writes.
 nonisolated final class LogRing: @unchecked Sendable {
-    nonisolated(unsafe) static let shared = LogRing()
+    nonisolated static let shared = LogRing()
+
+    /// Stable identity lets SwiftUI retain existing rows when a live snapshot
+    /// adds a line, instead of rebuilding every selectable Text view.
+    nonisolated struct Entry: Identifiable, Equatable, Sendable {
+        let id: UInt64
+        let line: String
+    }
+
+    /// Lines and their counters must come from one lock acquisition. Besides
+    /// being consistent, this keeps the UI from synchronously taking this lock
+    /// twice for every refresh.
+    nonisolated struct Snapshot: Sendable {
+        let entries: [Entry]
+        let total: Int
+        let version: UInt64
+    }
 
     /// Keep well over the 1000 lines needed to see a full connect + browse
     /// cycle; each entry is short, so a few thousand costs little memory.
     private let capacity = 4000
     private let lock = NSLock()
-    private var entries: [String] = []
+    private var entries: [Entry] = []
     /// Index of the oldest entry once the buffer has wrapped.
     private var start = 0
     /// Total lines ever logged (so the UI can show how many were dropped).
     private var total = 0
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f
-    }()
+    private var nextID: UInt64 = 0
+    private var version: UInt64 = 0
 
     nonisolated func append(_ message: String) {
-        let line = "\(Self.timeFormatter.string(from: Date())) \(message)"
+        // DateFormatter is both relatively expensive and unsafe to call
+        // concurrently. Logger.log arrives on multiple Go-backed threads, so a
+        // shared formatter could serialize or stall those threads (including
+        // the main actor). localtime_r is cheap and explicitly thread-safe.
+        var now = timeval()
+        gettimeofday(&now, nil)
+        var seconds = now.tv_sec
+        var local = tm()
+        localtime_r(&seconds, &local)
+        let timestamp = String(
+            format: "%02d:%02d:%02d.%03d",
+            local.tm_hour,
+            local.tm_min,
+            local.tm_sec,
+            Int(now.tv_usec / 1_000)
+        )
+        let line = "\(timestamp) \(message)"
+
         lock.lock()
         defer { lock.unlock() }
+        let entry = Entry(id: nextID, line: line)
+        nextID &+= 1
+        version &+= 1
         total += 1
         if entries.count < capacity {
-            entries.append(line)
+            entries.append(entry)
         } else {
-            entries[start] = line
+            entries[start] = entry
             start = (start + 1) % capacity
         }
     }
 
-    /// The buffered lines, oldest first.
-    nonisolated func snapshot() -> [String] {
+    /// A consistent copy of the buffered lines and counters, oldest first.
+    nonisolated func snapshot() -> Snapshot {
         lock.lock()
         defer { lock.unlock() }
-        guard entries.count == capacity else { return entries }
-        return Array(entries[start...] + entries[..<start])
-    }
-
-    /// Total lines logged since launch (may exceed the buffered count).
-    nonisolated var totalLogged: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return total
+        let ordered: [Entry]
+        if entries.count == capacity {
+            ordered = Array(entries[start...] + entries[..<start])
+        } else {
+            ordered = entries
+        }
+        return Snapshot(entries: ordered, total: total, version: version)
     }
 
     nonisolated func clear() {
         lock.lock()
         defer { lock.unlock() }
-        entries.removeAll()
+        entries.removeAll(keepingCapacity: true)
         start = 0
         total = 0
+        version &+= 1
     }
 }

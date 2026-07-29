@@ -25,8 +25,10 @@ struct LogViewer: View {
     /// Pre-filled with `socks` because that's the reason this screen exists;
     /// clear it to see everything.
     @State private var filter: String = "socks"
-    @State private var lines: [String] = []
+    @State private var lines: [LogRing.Entry] = []
+    @State private var filtered: [LogRing.Entry] = []
     @State private var total: Int = 0
+    @State private var snapshotVersion: UInt64 = 0
     @State private var autoRefresh: Bool = true
     @State private var copied: Bool = false
 
@@ -34,10 +36,9 @@ struct LogViewer: View {
     /// in another tab (the log keeps accumulating behind this sheet).
     private let tick = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
-    private var filtered: [String] {
-        let f = filter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !f.isEmpty else { return lines }
-        return lines.filter { $0.lowercased().contains(f) }
+    private struct FilterRequest: Equatable, Sendable {
+        let version: UInt64
+        let text: String
     }
 
     var body: some View {
@@ -79,13 +80,11 @@ struct LogViewer: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array(filtered.enumerated()), id: \.offset) { idx, line in
-                                    Text(line)
+                                ForEach(filtered) { entry in
+                                    Text(entry.line)
                                         .font(.system(size: 11, design: .monospaced))
-                                        .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .foregroundStyle(color(for: line))
-                                        .id(idx)
+                                        .foregroundStyle(color(for: entry.line))
                                 }
                                 // Anchor so we can pin to the newest line.
                                 Color.clear.frame(height: 1).id("log-bottom")
@@ -130,18 +129,32 @@ struct LogViewer: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        UIPasteboard.general.string = filtered.joined(separator: "\n")
-                        copied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                        let entries = filtered
+                        Task {
+                            let text = await Task.detached(priority: .userInitiated) {
+                                entries.map(\.line).joined(separator: "\n")
+                            }.value
+                            guard !Task.isCancelled else { return }
+                            UIPasteboard.general.string = text
+                            copied = true
+                            try? await Task.sleep(for: .seconds(1.5))
+                            copied = false
+                        }
                     } label: {
                         Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                     }
                     .accessibilityIdentifier("log-copy-button")
                 }
             }
-            .onAppear(perform: refresh)
+            .task {
+                await refresh()
+            }
+            .task(id: FilterRequest(version: snapshotVersion, text: filter)) {
+                await updateFilter()
+            }
             .onReceive(tick) { (_: Date) in
-                if autoRefresh { refresh() }
+                guard autoRefresh else { return }
+                Task { await refresh() }
             }
         }
     }
@@ -164,8 +177,31 @@ struct LogViewer: View {
         return .primary
     }
 
-    private func refresh() {
-        lines = LogRing.shared.snapshot()
-        total = LogRing.shared.totalLogged
+    /// Copying a wrapped ring can allocate and contend with log writers. Keep
+    /// all of that work off the main actor so presenting/dismissing the sheet
+    /// and its toolbar never wait for the logging lock.
+    private func refresh() async {
+        let snapshot = await Task.detached(priority: .utility) {
+            LogRing.shared.snapshot()
+        }.value
+        // Concurrent timer refreshes can finish out of order; never roll the
+        // view back to an older snapshot.
+        guard snapshot.version > snapshotVersion else { return }
+        lines = snapshot.entries
+        total = snapshot.total
+        snapshotVersion = snapshot.version
+    }
+
+    /// Lowercasing and searching thousands of lines is also background work.
+    /// `.task(id:)` cancels obsolete searches as the user types or logs arrive.
+    private func updateFilter() async {
+        let source = lines
+        let query = filter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let result = await Task.detached(priority: .userInitiated) {
+            guard !query.isEmpty else { return source }
+            return source.filter { $0.line.lowercased().contains(query) }
+        }.value
+        guard !Task.isCancelled else { return }
+        filtered = result
     }
 }
