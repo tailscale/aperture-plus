@@ -65,6 +65,8 @@ final class BrowserViewModel: NSObject, ObservableObject {
             .store(in: &observers)
     }
 
+    var hasWebView: Bool { webView != nil }
+
     /// Creates the tab's one WKWebView when SwiftUI installs it in a real view
     /// hierarchy. Creating it here (rather than in the model initializer) keeps
     /// the existing first-tap/crashed-gesture workaround intact.
@@ -93,6 +95,23 @@ final class BrowserViewModel: NSObject, ObservableObject {
             loadInitial()
         }
         return view
+    }
+
+    /// Releases the heavy page process/view when this tab is hidden. The tab's
+    /// committed URL/title stay in BrowserTab's lightweight metadata and the
+    /// page is recreated on demand when selected again.
+    func unloadWebView() {
+        guard let webView else { return }
+        webView.stopLoading()
+        if let committedURL = webView.url { pendingLoadURL = committedURL }
+        webView.navigationDelegate = nil
+        webViewObservations.removeAll()
+        self.webView = nil
+        isLoading = false
+        estimatedProgress = 0
+        canGoBack = false
+        canGoForward = false
+        didLoadInitial = false
     }
 
     /// Keeps delegates/observation attached if SwiftUI reuses the view.

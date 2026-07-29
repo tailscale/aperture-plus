@@ -22,7 +22,7 @@ import WebKit
 
 struct CompactBrowserToolbar: View {
     @ObservedObject var tab: BrowserTab
-    let tabManager: TabManager
+    @ObservedObject var tabManager: TabManager
     let onNewChat: () -> Void
     let onTabOverview: () -> Void
     let onBookmarks: () -> Void
@@ -123,6 +123,7 @@ struct CompactBrowserToolbar: View {
             .accessibilityValue(tab.connectionType.accessibilityDescription)
 
             toolbarIcon("plus", action: onNewChat)
+                .disabled(!tabManager.canOpenNewTab)
                 .accessibilityIdentifier("new-chat-tab-button")
                 .accessibilityLabel("New Chat Tab")
 

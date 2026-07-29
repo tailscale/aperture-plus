@@ -121,6 +121,11 @@ private struct WorkspaceRoot: View {
         .onChange(of: statusViewModel.running) { _, running in
             if running { hasConnected = true }
         }
+        .onDisappear {
+            // Switching workspaces keeps this workspace's lightweight tab
+            // session alive but releases all page views/processes.
+            tabManager.unloadAllWebViews()
+        }
         // The workspace's bookmarks container is injected by `TabbedBrowserView`
         // (see the comment there for why it must NOT live on this view).
     }

@@ -57,6 +57,7 @@ struct TabOverview: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .disabled(!tabManager.canOpenNewTab)
                     .accessibilityIdentifier("new-chat-tab-button")
                     .accessibilityLabel("New Chat Tab")
                 }
@@ -128,6 +129,7 @@ private struct TabCard: View {
             .accessibilityLabel("Close Tab")
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("tab-card-\(tab.id.uuidString)")
         .accessibilityLabel("\(tab.displayTitle) — \(tab.displayURL)")
     }
 }

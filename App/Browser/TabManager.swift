@@ -2,13 +2,9 @@
 //  TabManager.swift
 //  Aperture
 //
-//  Owns the ordered list of open browser tabs and the selected tab, and drives
-//  the "first tab is always an Aperture chat" rule.
-//
-//  Tabs are only loaded once the userspace Tailscale SOCKS5 proxy is available
-//  (`TSNetModel.proxyConfiguration`): loading before the proxy exists would
-//  fail (the home page lives on the tailnet). When the proxy arrives, any
-//  pending tabs are loaded; tabs opened after that load immediately.
+//  Owns one workspace's lightweight persisted tab list. At most ten tabs are
+//  retained. Only the selected tab is allowed to retain a WKWebView; restored
+//  and hidden tabs remain URL/title records until selected.
 //
 
 import Combine
@@ -18,88 +14,109 @@ import TailscaleKit
 
 @MainActor
 final class TabManager: ObservableObject {
-    @Published private(set) var tabs: [BrowserTab] = []
-    @Published var selectedIndex: Int = 0
+    static let maximumTabCount = 10
 
+    @Published private(set) var tabs: [BrowserTab] = []
+    @Published private(set) var selectedIndex: Int = 0
+
+    private let workspaceID: UUID
     private let model: TSNetModel
     private let homePage: HomePage
     private let dataStore: WKWebsiteDataStore
-    private var cancellables: Set<AnyCancellable> = []
 
-    /// The currently selected tab, if any.
     var currentTab: BrowserTab? {
         guard tabs.indices.contains(selectedIndex) else { return nil }
         return tabs[selectedIndex]
     }
 
     var tabCount: Int { tabs.count }
+    var canOpenNewTab: Bool { tabs.count < Self.maximumTabCount }
 
-    init(model: TSNetModel, homePage: HomePage, dataStore: WKWebsiteDataStore) {
+    init(workspaceID: UUID, model: TSNetModel, homePage: HomePage,
+         dataStore: WKWebsiteDataStore) {
+        self.workspaceID = workspaceID
         self.model = model
         self.homePage = homePage
         self.dataStore = dataStore
 
-        // The first tab is always the Aperture chat (home page).
-        openChatTab(select: true)
-
-        // Load any still-pending tabs the moment the proxy comes online.
-        model.$proxyConfiguration
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] proxy in
-                guard let self, proxy != nil else { return }
-                self.loadPendingTabs()
+        if let session = WorkspaceStore.loadTabs(workspaceID), !session.tabs.isEmpty {
+            let records = Array(session.tabs.prefix(Self.maximumTabCount))
+            tabs = records.compactMap { record in
+                guard let url = URL(string: record.url) else { return nil }
+                return makeTab(id: record.id, url: url, restoredTitle: record.title)
             }
-            .store(in: &cancellables)
-    }
-
-    private func loadPendingTabs() {
-        for tab in tabs where !tab.didLoadInitial {
-            tab.loadInitial()
+            selectedIndex = min(max(session.selectedIndex, 0), max(tabs.count - 1, 0))
         }
+        if tabs.isEmpty {
+            _ = openChatTab(select: true)
+        } else {
+            unloadHiddenTabs()
+        }
+        persist()
     }
 
-    /// Opens a new Aperture-chat tab (the home page) and selects it. Returns
-    /// the new tab. This is the "open an additional aperture chat tab" button.
     @discardableResult
-    func openChatTab(select: Bool = true) -> BrowserTab {
-        let urlString = homePage.url
-        let url = URL(string: urlString) ?? URL(string: HomePage.defaultURL)!
-        let tab = BrowserTab(model: model, initialURL: url, dataStore: dataStore)
+    func openChatTab(select: Bool = true) -> BrowserTab? {
+        guard canOpenNewTab else { return nil }
+        let url = URL(string: homePage.url) ?? URL(string: HomePage.defaultURL)!
+        let tab = makeTab(url: url)
         tabs.append(tab)
         if select {
             selectedIndex = tabs.count - 1
+            unloadHiddenTabs()
         }
-        // If the proxy is already up, load right away; otherwise TabManager
-        // will load it when the proxy arrives.
-        if model.proxyConfiguration != nil {
-            tab.loadInitial()
-        }
+        persist()
         return tab
     }
 
-    /// Selects the given tab (by identity).
     func select(_ tab: BrowserTab) {
-        if let i = tabs.firstIndex(where: { $0.id == tab.id }) {
-            selectedIndex = i
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        selectedIndex = index
+        unloadHiddenTabs()
+        persist()
+    }
+
+    func closeTab(_ tab: BrowserTab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        tab.unloadWebView()
+        tabs.remove(at: index)
+
+        if tabs.isEmpty {
+            _ = openChatTab(select: true)
+            return
+        }
+        if selectedIndex > tabs.count - 1 {
+            selectedIndex = tabs.count - 1
+        } else if index < selectedIndex {
+            selectedIndex -= 1
+        }
+        unloadHiddenTabs()
+        persist()
+    }
+
+    /// Called when its workspace leaves the visible pane.
+    func unloadAllWebViews() {
+        for tab in tabs { tab.unloadWebView() }
+    }
+
+    private func unloadHiddenTabs() {
+        for (index, tab) in tabs.enumerated() where index != selectedIndex {
+            tab.unloadWebView()
         }
     }
 
-    /// Closes a tab. If it was the last one, a fresh chat tab is opened so
-    /// there is always at least one tab (Safari behavior).
-    func closeTab(_ tab: BrowserTab) {
-        guard let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
-        tabs.remove(at: i)
-
-        if tabs.isEmpty {
-            openChatTab(select: true)
-            return
+    private func makeTab(id: UUID = UUID(), url: URL,
+                         restoredTitle: String? = nil) -> BrowserTab {
+        BrowserTab(id: id, model: model, initialURL: url,
+                   restoredTitle: restoredTitle, dataStore: dataStore) { [weak self] in
+            self?.persist()
         }
+    }
 
-        // Keep a valid selection.
-        if selectedIndex > tabs.count - 1 {
-            selectedIndex = tabs.count - 1
-        } else if i < selectedIndex {
-            selectedIndex -= 1
-        }
+    private func persist() {
+        WorkspaceStore.saveTabs(
+            StoredBrowserSession(tabs: tabs.map(\.stored), selectedIndex: selectedIndex),
+            workspaceID: workspaceID
+        )
     }
 }

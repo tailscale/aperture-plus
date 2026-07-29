@@ -18,6 +18,7 @@
 //        Workspaces/<id>/
 //            state/                       # tsnet state dir (tailscale_set_dir)
 //            Bookmarks.store              # per-workspace SwiftData file
+//            tabs.json                     # lightweight restored tab metadata
 //
 //  Auth keys are NEVER stored here — they come from launch args/env (tests) or
 //  persist implicitly inside each workspace's tsnet state dir (real logins).
@@ -35,6 +36,17 @@ struct WorkspaceIdentity: Codable, Equatable {
     var displayName: String?
     var tailnetName: String?
     var hostname: String?
+}
+
+struct StoredBrowserTab: Codable, Equatable, Identifiable {
+    var id: UUID
+    var url: String
+    var title: String
+}
+
+struct StoredBrowserSession: Codable, Equatable {
+    var tabs: [StoredBrowserTab]
+    var selectedIndex: Int
 }
 
 /// The persisted definition of a workspace. The in-memory `Workspace` object is
@@ -117,6 +129,20 @@ enum WorkspaceStore {
     /// `<workspaceDir>/Bookmarks.store` — this workspace's SwiftData file.
     static func bookmarksURL(_ id: UUID) -> URL {
         workspaceDir(id).appending(path: "Bookmarks.store")
+    }
+
+    static func tabsURL(_ id: UUID) -> URL {
+        workspaceDir(id).appending(path: "tabs.json")
+    }
+
+    static func loadTabs(_ id: UUID) -> StoredBrowserSession? {
+        guard let data = try? Data(contentsOf: tabsURL(id)) else { return nil }
+        return try? JSONDecoder().decode(StoredBrowserSession.self, from: data)
+    }
+
+    static func saveTabs(_ session: StoredBrowserSession, workspaceID: UUID) {
+        guard let data = try? JSONEncoder().encode(session) else { return }
+        try? data.write(to: tabsURL(workspaceID), options: .atomic)
     }
 
     // MARK: - Load / save

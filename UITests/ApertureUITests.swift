@@ -633,6 +633,49 @@ final class ApertureUITests: XCTestCase {
                       || app.buttons["add-bookmark-button"].waitForExistence(timeout: 20))
     }
 
+    /// Tabs are persisted as lightweight URL/title records, restore the active
+    /// selection after relaunch, and enforce the ten-tab per-workspace cap.
+    func testTabsPersistAcrossRelaunchAndCapAtTen() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetHomePage"]
+        if let key = Self.resolvedTestAuthKey() {
+            app.launchEnvironment["APERTURE_AUTHKEY"] = key
+            app.launchEnvironment["APERTURE_EPHEMERAL"] = Self.resolvedTestEphemeral()
+        }
+        app.launch()
+        guard requireBrowserReady(app) else { return }
+
+        let newTab = app.buttons["new-chat-tab-button"]
+        let maximumTabCount = 10
+        for _ in 1..<maximumTabCount {
+            XCTAssertTrue(newTab.isEnabled)
+            newTab.tap()
+        }
+        XCTAssertFalse(newTab.isEnabled, "A workspace must not open more than ten tabs")
+
+        app.buttons["tab-overview-button"].tap()
+        XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
+        XCTAssertTrue(tabOverviewShowsCount(10, in: app))
+        app.buttons["Done"].tap()
+
+        app.launchArguments = ["-UITestResetHomePage"]
+        app.terminate()
+        app.launch()
+        guard requireBrowserReady(app) else { return }
+        app.buttons["tab-overview-button"].tap()
+        XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
+        XCTAssertTrue(tabOverviewShowsCount(10, in: app),
+                      "The lightweight tab records should survive relaunch")
+        XCTAssertFalse(app.navigationBars["Tabs"].buttons["new-chat-tab-button"].isEnabled)
+        attachScreenshot(app, named: "tabs-restored-at-cap")
+
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20)
+                      || app.buttons["add-bookmark-button"].waitForExistence(timeout: 20))
+    }
+
     /// Home-page settings belong to a workspace, not the app globally.
     func testWorkspaceHomePagesAreIsolated() throws {
         let app = XCUIApplication()
@@ -1972,8 +2015,8 @@ final class ApertureUITests: XCTestCase {
     private func tabOverviewShowsCount(_ expected: Int, in app: XCUIApplication) -> Bool {
         let predicate = NSPredicate { obj, _ -> Bool in
             guard let app = obj as? XCUIApplication else { return false }
-            return app.buttons.matching(
-                NSPredicate(format: "label CONTAINS %@", " — ")
+            return app.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "tab-card-")
             ).count == expected
         }
         return XCTWaiter().wait(

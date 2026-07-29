@@ -47,7 +47,8 @@ final class Workspace: ObservableObject, Identifiable {
     /// from `WorkspaceRoot.init`, after a window exists. Unlike a view-local
     /// StateObject, workspace ownership keeps tabs alive while another account
     /// is selected.
-    lazy var tabManager = TabManager(model: model,
+    lazy var tabManager = TabManager(workspaceID: id,
+                                     model: model,
                                      homePage: homePage,
                                      dataStore: dataStore)
     lazy var statusViewModel = StatusViewModel(manager: manager)
@@ -57,6 +58,7 @@ final class Workspace: ObservableObject, Identifiable {
     var onChange: ((WorkspaceDefinition) -> Void)?
 
     private var cancellables: Set<AnyCancellable> = []
+    private var profileRefreshInFlight = false
 
     /// - Parameters:
     ///   - definition: The persisted definition (hostname, home page, etc.).
@@ -114,6 +116,16 @@ final class Workspace: ObservableObject, Identifiable {
             .combineLatest(manager.model.$prefs)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in self?.refreshIdentity() }
+            .store(in: &cancellables)
+
+        // Tagged/auth-key nodes can have incomplete user data in the decoded
+        // netmap. The local profile endpoint carries the authoritative login
+        // username, so fold it into the persisted identifier after status is
+        // available.
+        manager.model.$localStatus
+            .compactMap { $0 }
+            .prefix(while: { [weak self] _ in self?.identity.loginName?.isEmpty != false })
+            .sink { [weak self] _ in self?.refreshLoginProfile() }
             .store(in: &cancellables)
     }
 
@@ -173,6 +185,25 @@ final class Workspace: ObservableObject, Identifiable {
         return definition.displayName.isEmpty ? definition.hostname : definition.displayName
     }
 
+    private func refreshLoginProfile() {
+        guard !profileRefreshInFlight else { return }
+        profileRefreshInFlight = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.profileRefreshInFlight = false }
+            guard let profile = try? await manager.localAPIClient?.currentProfile() else { return }
+            var updated = identity
+            let login = profile.UserProfile.LoginName
+            let display = profile.UserProfile.DisplayName
+            if !login.isEmpty { updated.loginName = login }
+            if !display.isEmpty { updated.displayName = display }
+            if let domain = profile.NetworkProfile?.DomainName, !domain.isEmpty {
+                updated.tailnetName = domain
+            }
+            persistIdentity(updated)
+        }
+    }
+
     private func refreshIdentity() {
         let nm = model.netmap
         let prefs = model.prefs
@@ -189,9 +220,13 @@ final class Workspace: ObservableObject, Identifiable {
                                        displayName: displayName,
                                        tailnetName: tailnetName,
                                        hostname: hostname)
-        guard newID != identity else { return }
-        identity = newID
-        definition.lastKnownIdentity = newID
+        persistIdentity(newID)
+    }
+
+    private func persistIdentity(_ newIdentity: WorkspaceIdentity) {
+        guard newIdentity != identity else { return }
+        identity = newIdentity
+        definition.lastKnownIdentity = newIdentity
         onChange?(definition)
     }
 

@@ -2,8 +2,8 @@
 //  BrowserTab.swift
 //  Aperture
 //
-//  A single browser tab: owns its BrowserViewModel/raw WKWebView and mirrors
-//  the current title/URL into compact UI-facing metadata.
+//  A lightweight tab record. Its WKWebView is created only when selected and
+//  can be released again while the persisted URL/title remain available.
 //
 
 import SwiftUI
@@ -13,24 +13,30 @@ import TailscaleKit
 
 @MainActor
 final class BrowserTab: Identifiable, ObservableObject {
-    let id = UUID()
+    let id: UUID
     let viewModel: BrowserViewModel
     let initialURL: URL
     private let model: TSNetModel
+    private let onMetadataChange: () -> Void
 
-    @Published private(set) var displayTitle = "Aperture"
-    @Published private(set) var displayURL = ""
-    @Published private(set) var displayHost = ""
+    @Published private(set) var displayTitle: String
+    @Published private(set) var displayURL: String
+    @Published private(set) var displayHost: String
     @Published private(set) var connectionType: ConnectionType = .internet
 
     private var cancellables: Set<AnyCancellable> = []
 
-    init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore) {
-        viewModel = BrowserViewModel(model: model, initialURL: initialURL, dataStore: dataStore)
+    init(id: UUID = UUID(), model: TSNetModel, initialURL: URL,
+         restoredTitle: String? = nil, dataStore: WKWebsiteDataStore,
+         onMetadataChange: @escaping () -> Void = {}) {
+        self.id = id
         self.initialURL = initialURL
         self.model = model
-        displayURL = initialURL.absoluteString
-        displayHost = initialURL.host ?? initialURL.absoluteString
+        self.onMetadataChange = onMetadataChange
+        self.displayTitle = restoredTitle?.isEmpty == false ? restoredTitle! : "Aperture"
+        self.displayURL = initialURL.absoluteString
+        self.displayHost = initialURL.host ?? initialURL.absoluteString
+        self.viewModel = BrowserViewModel(model: model, initialURL: initialURL, dataStore: dataStore)
 
         viewModel.$title
             .combineLatest(viewModel.$url)
@@ -45,30 +51,33 @@ final class BrowserTab: Identifiable, ObservableObject {
             .store(in: &cancellables)
     }
 
-    func loadInitial() { viewModel.loadInitial() }
-    var didLoadInitial: Bool { viewModel.didLoadInitial }
+    var stored: StoredBrowserTab {
+        StoredBrowserTab(id: id, url: displayURL, title: displayTitle)
+    }
+
+    var hasWebView: Bool { viewModel.hasWebView }
+    func unloadWebView() { viewModel.unloadWebView() }
 
     private func refreshDisplayed() {
+        let previousTitle = displayTitle
+        let previousURL = displayURL
         let trimmedTitle = viewModel.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
             displayTitle = trimmedTitle
-        } else if let host = viewModel.url?.host, !host.isEmpty {
+        } else if previousTitle.isEmpty, let host = viewModel.url?.host, !host.isEmpty {
             displayTitle = host
-        } else {
-            displayTitle = "Aperture"
         }
-        displayURL = viewModel.url?.absoluteString ?? initialURL.absoluteString
-        displayHost = viewModel.url?.host ?? initialURL.host ?? ""
+        displayURL = viewModel.url?.absoluteString ?? displayURL
+        displayHost = viewModel.url?.host ?? URL(string: displayURL)?.host ?? ""
         refreshConnectionType()
+        if displayTitle != previousTitle || displayURL != previousURL {
+            onMetadataChange()
+        }
     }
 
     private func refreshConnectionType() {
         connectionType = ConnectionTypeResolver.resolve(
-            // A provisional navigation failure can leave `viewModel.url` nil
-            // even though the tab still represents and displays its initial
-            // destination. Classify that destination rather than reverting the
-            // indicator to Internet while tsnet retries the tailnet peer.
-            host: viewModel.url?.host ?? initialURL.host,
+            host: viewModel.url?.host ?? URL(string: displayURL)?.host ?? initialURL.host,
             status: model.localStatus,
             proxyPolicy: model.proxyPolicy
         )
