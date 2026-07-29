@@ -65,6 +65,9 @@ struct TabOverview: View {
                     )
                 }
                 .accessibilityIdentifier("workspace-row-\(workspace.id.uuidString)")
+                .accessibilityValue(
+                    workspaceManager.activeWorkspace?.id == workspace.id ? "Selected" : ""
+                )
             }
             Divider()
             Button {
@@ -75,14 +78,49 @@ struct TabOverview: View {
             .accessibilityIdentifier("add-workspace-button")
         } label: {
             HStack(spacing: 5) {
-                Text(workspaceManager.activeWorkspace?.identifier ?? "Sessions")
+                // The full login · tailnet · hostname identifier is useful in
+                // the expanded menu, but cannot fit between Done and +. Use a
+                // compact tailnet name for the collapsed selector instead.
+                Text(compactActiveSessionName)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.semibold))
             }
         }
         .accessibilityIdentifier("session-selector-menu")
         .accessibilityLabel("Session")
+        .accessibilityValue(compactActiveSessionName)
+        .accessibilityHint(workspaceManager.activeWorkspace?.identifier ?? "Sessions")
+    }
+
+    private var compactActiveSessionName: String {
+        guard let workspace = workspaceManager.activeWorkspace else { return "Sessions" }
+        let tailnet = workspace.identity.tailnetName?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let name: String
+        if let tailnet, !tailnet.isEmpty {
+            // Most tailnet DNS names end in .ts.net. That suffix adds no useful
+            // distinction here and consumes scarce navigation-bar width.
+            name = tailnet.hasSuffix(".ts.net")
+                ? String(tailnet.dropLast(".ts.net".count))
+                : tailnet
+        } else {
+            // Before identity discovery, the generated hostname is compact and
+            // unique; the default display name ("Aperture") is identical for
+            // every new session and therefore unsuitable for a switcher.
+            name = workspace.definition.hostname
+        }
+        return abbreviated(name, maximumLength: 22)
+    }
+
+    /// Preserve both ends, where generated names and domains tend to carry
+    /// their distinguishing information, while keeping the toolbar stable.
+    private func abbreviated(_ value: String, maximumLength: Int) -> String {
+        guard value.count > maximumLength else { return value }
+        let prefixLength = (maximumLength - 1) / 2
+        let suffixLength = maximumLength - prefixLength - 1
+        return "\(value.prefix(prefixLength))…\(value.suffix(suffixLength))"
     }
 
     private struct WorkspaceTabGrid: View {

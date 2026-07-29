@@ -520,29 +520,21 @@ final class ApertureUITests: XCTestCase {
 
     /// Adds a second workspace, switches back to the first, and verifies that
     /// the active selection survives a process relaunch. Connection-independent:
-    /// it exercises only the persisted workspace list and Settings switcher.
+    /// it exercises only the persisted workspace list and tab-pane switcher.
     func testAddAndSwitchWorkspacePersists() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
         app.launch()
 
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
-        XCTAssertTrue(openSettings(app), "Settings should open")
-
-        let add = app.buttons["add-workspace-button"]
-        scrollToElement(add, in: app)
-        XCTAssertTrue(add.waitForExistence(timeout: 10),
-                      "Settings should offer Add Workspace")
+        XCTAssertTrue(openSessionMenu(app), "The tab pane should offer session switching")
         let initialRows = workspaceRows(in: app)
         XCTAssertEqual(initialRows.count, 1, "The reset should seed one workspace")
         let firstID = initialRows[0].identifier
+        let firstName = initialRows[0].label
 
-        add.tap() // Adds, activates, and dismisses Settings.
-        XCTAssertTrue(waitForBrandHeader(app, timeout: 20),
-                      "The newly active workspace should render")
-        XCTAssertTrue(openSettings(app), "Settings should reopen for the new workspace")
-
-        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        app.buttons["add-workspace-button"].tap()
+        XCTAssertTrue(openSessionMenu(app), "The new session's tab pane should remain open")
         let rowsAfterAdd = workspaceRows(in: app)
         XCTAssertEqual(rowsAfterAdd.count, 2,
                        "Adding should create a second persisted workspace")
@@ -550,7 +542,8 @@ final class ApertureUITests: XCTestCase {
             XCTFail("The original workspace row should remain after adding")
             return
         }
-        firstRow.tap() // Selects the original and dismisses Settings.
+        firstRow.tap()
+        app.buttons["Done"].tap()
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
 
         // Relaunch without resetting workspaces: both rows and the original
@@ -559,18 +552,22 @@ final class ApertureUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
-        XCTAssertTrue(openSettings(app))
+        app.buttons["tab-overview-button"].tap()
+        XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
+        let persistedSelector = app.buttons["session-selector-menu"]
+        XCTAssertTrue(persistedSelector.waitForExistence(timeout: 10))
+        XCTAssertEqual(persistedSelector.value as? String, firstName,
+                       "The selected workspace should persist across relaunch")
+        persistedSelector.tap()
+        XCTAssertTrue(app.buttons["add-workspace-button"].waitForExistence(timeout: 10))
 
-        scrollToElement(app.buttons["add-workspace-button"], in: app)
         let persistedRows = workspaceRows(in: app)
         XCTAssertEqual(persistedRows.count, 2,
                        "Both workspaces should persist across relaunch")
-        guard let persistedFirst = persistedRows.first(where: { $0.identifier == firstID }) else {
+        guard persistedRows.contains(where: { $0.identifier == firstID }) else {
             XCTFail("The original workspace should persist across relaunch")
             return
         }
-        XCTAssertEqual(persistedFirst.value as? String, "Selected",
-                       "The selected workspace should persist across relaunch")
         attachScreenshot(app, named: "workspaces-add-switch-persisted")
 
         // Restore the one-workspace baseline so this test cannot make every
@@ -598,17 +595,11 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
         XCTAssertTrue(tabOverviewShowsCount(2, in: app),
                       "The original workspace should have two tabs")
-        app.buttons["Done"].tap()
-
-        XCTAssertTrue(openSettings(app))
-        let add = app.buttons["add-workspace-button"]
-        scrollToElement(add, in: app)
+        XCTAssertTrue(openSessionMenu(app))
         let firstID = workspaceRows(in: app).first?.identifier
-        add.tap()
-        guard requireBrowserReady(app) else { return }
+        app.buttons["add-workspace-button"].tap()
 
-        XCTAssertTrue(openSettings(app))
-        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        XCTAssertTrue(openSessionMenu(app))
         guard let firstID,
               let firstRow = workspaceRows(in: app).first(where: { $0.identifier == firstID })
         else {
@@ -616,9 +607,6 @@ final class ApertureUITests: XCTestCase {
             return
         }
         firstRow.tap()
-        guard requireBrowserReady(app) else { return }
-
-        app.buttons["tab-overview-button"].tap()
         XCTAssertTrue(app.navigationBars["Tabs"].waitForExistence(timeout: 10))
         XCTAssertTrue(tabOverviewShowsCount(2, in: app),
                       "Switching back should restore the original workspace's tabs")
@@ -689,11 +677,12 @@ final class ApertureUITests: XCTestCase {
         let marker = "https://example.test/\(UUID().uuidString.prefix(8))"
         homePage.clearAndType(text: marker)
 
-        let add = app.buttons["add-workspace-button"]
-        scrollToElement(add, in: app)
+        app.buttons["settings-done-button"].tap()
+        XCTAssertTrue(openSessionMenu(app))
         let firstID = workspaceRows(in: app).first?.identifier
         XCTAssertNotNil(firstID)
-        add.tap()
+        app.buttons["add-workspace-button"].tap()
+        app.buttons["Done"].tap()
 
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
         XCTAssertTrue(openSettings(app))
@@ -702,7 +691,8 @@ final class ApertureUITests: XCTestCase {
         XCTAssertEqual(secondHomePage.value as? String, "http://ai/chat",
                        "A new workspace should start with its own default home page")
 
-        scrollToElement(app.buttons["add-workspace-button"], in: app)
+        app.buttons["settings-done-button"].tap()
+        XCTAssertTrue(openSessionMenu(app))
         guard let firstID,
               let firstRow = workspaceRows(in: app).first(where: { $0.identifier == firstID })
         else {
@@ -710,6 +700,7 @@ final class ApertureUITests: XCTestCase {
             return
         }
         firstRow.tap()
+        app.buttons["Done"].tap()
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
         XCTAssertTrue(openSettings(app))
         XCTAssertEqual(app.textFields["home-page-field"].value as? String, marker,
@@ -1975,7 +1966,24 @@ final class ApertureUITests: XCTestCase {
         }
     }
 
-    /// Returns workspace rows in their visible Settings order.
+    /// Opens the Tabs pane and expands its session selector menu. If the pane
+    /// is already open (as it remains after adding/switching), only expands the
+    /// selector. Returns once its menu actions are visible.
+    @discardableResult
+    private func openSessionMenu(_ app: XCUIApplication) -> Bool {
+        let selector = app.buttons["session-selector-menu"]
+        if !selector.exists {
+            let tabs = app.buttons["tab-overview-button"]
+            guard tabs.waitForExistence(timeout: 10) else { return false }
+            tabs.tap()
+            guard app.navigationBars["Tabs"].waitForExistence(timeout: 10) else { return false }
+        }
+        guard selector.waitForExistence(timeout: 10) else { return false }
+        selector.tap()
+        return app.buttons["add-workspace-button"].waitForExistence(timeout: 10)
+    }
+
+    /// Returns workspace rows in their visible session-menu order.
     private func workspaceRows(in app: XCUIApplication) -> [XCUIElement] {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "workspace-row-")
