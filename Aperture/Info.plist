@@ -6,6 +6,8 @@
 	<string>Aperture+</string>
 	<key>CFBundleName</key>
 	<string>Aperture</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsInWebContentUsageDescription</key>
