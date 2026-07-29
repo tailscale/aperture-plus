@@ -162,6 +162,27 @@ final class TailscaleKitTests: XCTestCase {
         }
     }
 
+    func testNotifyDecodesNodeWithOmittedZeroFields() throws {
+        // Go's current tailcfg.Node JSON uses `omitzero` for KeyExpiry and
+        // Machine. Tagged/ephemeral nodes legitimately omit both. This exact
+        // shape previously caused MessageProcessor to discard the entire
+        // successful-login netmap notification.
+        let json = #"{"NetMap":{"SelfNode":{"ID":1,"StableID":"n1","Name":"node.example.ts.net.","User":1,"Key":"nodekey:abc","Addresses":["100.64.0.1/32"],"AllowedIPs":["100.64.0.1/32"],"Hostinfo":{"Hostname":"node"},"ComputedName":"node","ComputedNameWithHost":"node"},"NodeKey":"nodekey:abc","Peers":[],"Domain":"example.ts.net","UserProfiles":{}}}"#
+        let notify = try JSONDecoder().decode(Ipn.Notify.self, from: Data(json.utf8))
+        let selfNode = try XCTUnwrap(notify.NetMap?.SelfNode)
+        XCTAssertNil(selfNode.KeyExpiry)
+        XCTAssertNil(selfNode.Machine)
+        XCTAssertTrue(selfNode.KeyDoesNotExpire)
+
+        // These display/host fields are also `omitzero` in Go and must not
+        // turn a sparse but valid peer into a whole-notification failure.
+        let sparseJSON = #"{"NetMap":{"SelfNode":{"ID":1,"StableID":"n1","Name":"node.example.ts.net.","User":1,"Key":"nodekey:abc","Addresses":[],"AllowedIPs":[]},"NodeKey":"nodekey:abc","Peers":[],"Domain":"example.ts.net","UserProfiles":{}}}"#
+        let sparse = try JSONDecoder().decode(Ipn.Notify.self, from: Data(sparseJSON.utf8))
+        XCTAssertNil(sparse.NetMap?.SelfNode.Hostinfo)
+        XCTAssertNil(sparse.NetMap?.SelfNode.ComputedName)
+        XCTAssertNil(sparse.NetMap?.SelfNode.ComputedNameWithHost)
+    }
+
     /// Tests that localAPI is functional
     func testStatus() async throws {
         let config = mockConfig()
