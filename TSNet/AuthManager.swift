@@ -7,29 +7,41 @@ import AuthenticationServices
 final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProviding {
 
     private var authSession: ASWebAuthenticationSession?
+    private var startedAt: ContinuousClock.Instant?
+    private var sessionEnded: (() -> Void)?
 
-    func showAuth(authURL: String) {
+    func showAuth(authURL: String, onEnded: @escaping () -> Void = {}) {
         guard let url = URL(string: authURL) else {
             logger.log("AuthManager.showAuth: invalid URL: \(authURL)")
             return
         }
 
 
-        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: nil) { _, error in
-            // Log EVERY outcome (not just canceledLogin) so a real-device
-            // session where the sheet fails to present / immediately dismisses
-            // is visible in Console.app, not silent.
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "ipnauth") { [weak self] callbackURL, error in
+            // The Tailscale login URL normally completes out-of-band through
+            // the control plane, so LoginFinished (not this callback) is the
+            // authoritative success signal. Keep the callback for cancellation
+            // and diagnostics; using Tailscale's callback scheme also lets any
+            // future redirect complete the session normally.
+            let elapsed = self?.elapsedDescription() ?? "unknown"
             if let error {
-                logger.log("Auth session ended with error: \(error)")
+                logger.log("Auth session ended after \(elapsed) with error: \(error)")
             } else {
-                logger.log("Auth session completed (callback received)")
+                logger.log("Auth session completed after \(elapsed), callback=\(callbackURL?.absoluteString ?? "nil")")
             }
+            self?.authSession = nil
+            self?.startedAt = nil
+            let ended = self?.sessionEnded
+            self?.sessionEnded = nil
+            ended?()
         }
 
         session.prefersEphemeralWebBrowserSession = true
         session.presentationContextProvider = self
 
         self.authSession = session
+        sessionEnded = onEnded
+        startedAt = ContinuousClock.now
         let started = session.start()
         // start() returns false if presentation can't begin (no anchor, not
         // foregrounded, …) — surface that so "tap Login, nothing happens" is
@@ -37,8 +49,31 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
         logger.log("AuthManager.showAuth: session.start() -> \(started) for \(authURL)")
     }
 
-    func cancel() {
-        self.authSession?.cancel()
+    func authenticationSucceeded() {
+        guard authSession != nil else {
+            logger.log("AuthManager: LoginFinished received with no active auth session")
+            return
+        }
+        logger.log("AuthManager: LoginFinished after \(elapsedDescription()); cancelling auth session")
+        sessionEnded = nil
+        authSession?.cancel()
+        authSession = nil
+        startedAt = nil
+    }
+
+    func cancel(reason: String = "state left NeedsLogin") {
+        guard authSession != nil else { return }
+        logger.log("AuthManager: cancelling after \(elapsedDescription()); reason=\(reason)")
+        sessionEnded = nil
+        authSession?.cancel()
+        authSession = nil
+        startedAt = nil
+    }
+
+    private func elapsedDescription() -> String {
+        guard let startedAt else { return "unknown" }
+        let duration = startedAt.duration(to: .now)
+        return String(format: "%.3fs", Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18)
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

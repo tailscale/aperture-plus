@@ -12,6 +12,15 @@ final class StatusViewModel:  ObservableObject {
     @Published var needsAuth: Bool = false
     @Published var running: Bool = false
     @Published var tsnetState: Ipn.State?
+    /// True after the backend explicitly confirms authentication but before it
+    /// reaches Running. During this interval the backend can legitimately keep
+    /// reporting NeedsLogin while control finishes registration/netmap work;
+    /// presenting that as "Login Required" is misleading because no further
+    /// user action is required.
+    @Published var loggedInConnecting: Bool = false
+    /// Changes whenever the system auth UI ends without `LoginFinished`, so
+    /// Login buttons can stop their local tap-feedback spinner immediately.
+    @Published var authSessionEndedGeneration: UInt64 = 0
 
     var authURL: String? = nil
     var observers: [AnyCancellable] = []
@@ -42,12 +51,12 @@ final class StatusViewModel:  ObservableObject {
                 guard let self else { return }
 
                 if state == .NeedsLogin {
-                    authURL = browseToURL
-                    needsAuth = true
-                    if requestedInteractiveLogin, let browseToURL {
+                    authURL = loggedInConnecting ? nil : browseToURL
+                    needsAuth = !loggedInConnecting
+                    if !loggedInConnecting, requestedInteractiveLogin, let browseToURL {
                         requestedInteractiveLogin = false
                         logger.log("observeAuthURL: fresh URL arrived while interactive login requested; opening sheet")
-                        authManager.showAuth(authURL: browseToURL)
+                        openAuthSession(browseToURL)
                     }
                 } else {
                     // NOTE: do NOT reset `requestedInteractiveLogin` here.
@@ -66,7 +75,7 @@ final class StatusViewModel:  ObservableObject {
                     // stale flag can't open a sheet at the wrong time.
                     needsAuth = false
                     authURL = nil
-                    authManager.cancel()
+                    authManager.cancel(reason: "state changed to \(String(describing: state))")
                     // Drop any BrowseToURL the node emitted while logged in
                     // (tailscale can re-emit one right after `Running`). If we
                     // leave it, then after a logout — when the node returns to
@@ -86,25 +95,55 @@ final class StatusViewModel:  ObservableObject {
 
                 running = state == .Running
                 tsnetState = state
+                if state == .Running {
+                    loggedInConnecting = false
+                }
             }
             .store(in: &observers)
 
-        manager.model.$tailnetName
-            .combineLatest(manager.model.$state)
+        // `LoginFinished` is the backend's explicit signal that interactive
+        // authentication succeeded. Dismiss on it immediately, as the regular
+        // Tailscale app does, instead of keeping the separate auth window open
+        // until the engine eventually reaches Starting/Running.
+        manager.model.$loginFinishedGeneration
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] name, state in
+            .sink { [weak self] generation in
                 guard let self else { return }
-                updateStatusText(state, name: name)
+                logger.log("StatusViewModel: handling LoginFinished generation \(generation)")
+                requestedInteractiveLogin = false
+                loggedInConnecting = true
+                needsAuth = false
+                authURL = nil
+                authManager.authenticationSucceeded()
+                if manager.model.browseToURL != nil {
+                    manager.model.browseToURL = nil
+                }
+            }
+            .store(in: &observers)
+
+        Publishers.CombineLatest3(
+            manager.model.$tailnetName,
+            manager.model.$state,
+            $loggedInConnecting
+        )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] name, state, loggedInConnecting in
+                guard let self else { return }
+                updateStatusText(state, name: name, loggedInConnecting: loggedInConnecting)
             }.store(in: &observers)
     }
 
-    private func updateStatusText(_ state: Ipn.State?, name: String?) {
-        let mapping = mapState(state, name)
+    private func updateStatusText(_ state: Ipn.State?, name: String?, loggedInConnecting: Bool) {
+        let mapping = mapState(state, name, loggedInConnecting: loggedInConnecting)
         statusText = mapping.text
         statusIconName = mapping.icon
     }
 
-    private func mapState(_ state: Ipn.State?, _ name: String?) -> (text: String, icon: String) {
+    private func mapState(_ state: Ipn.State?, _ name: String?, loggedInConnecting: Bool) -> (text: String, icon: String) {
+        if loggedInConnecting && state != .Running {
+            return ("Logged in. Connecting…", "arrow.trianglehead.2.clockwise.rotate.90.icloud")
+        }
         switch state {
         case .some(.Running):
             return ("Connected\n\(name ?? "--")", "checkmark.circle.fill")
@@ -124,10 +163,22 @@ final class StatusViewModel:  ObservableObject {
         }
     }
 
+    private func openAuthSession(_ url: String) {
+        authManager.showAuth(authURL: url) { [weak self] in
+            guard let self, needsAuth else { return }
+            // A user-close/cancel is not a login request. Clear the pending
+            // flag so a later unsolicited BrowseToURL cannot reopen the sheet,
+            // and let StatusView's loading state follow this signal instead of
+            // spinning for its two-minute safety timeout.
+            requestedInteractiveLogin = false
+            authSessionEndedGeneration &+= 1
+        }
+    }
+
     func showAuth() {
         if let authURL {
             logger.log("showAuth: opening auth sheet with cached URL: \(authURL)")
-            authManager.showAuth(authURL: authURL)
+            openAuthSession(authURL)
         } else {
             // No URL yet — request a fresh interactive login and open the
             // sheet when the bus delivers the URL (observeAuthURL).

@@ -9,6 +9,11 @@ import WebKit
 @MainActor
 final class TSNetModel: ObservableObject {
     @Published var browseToURL: String? = nil
+    /// Incremented for every `Notify.LoginFinished` event. This is deliberately
+    /// a generation rather than a Bool: interactive reauthentication can
+    /// succeed more than once during one process lifetime, and each event must
+    /// be observable by the UI so it can dismiss its auth session immediately.
+    @Published var loginFinishedGeneration: UInt64 = 0
     @Published var state: Ipn.State? = nil
     @Published var prefs: Ipn.Prefs? = nil
     @Published var netmap: Netmap.NetworkMap? = nil
@@ -50,6 +55,8 @@ final class TSNetModel: ObservableObject {
 actor TSNetConsumer: MessageConsumer {
     private let logger: LogSink
     private let model: TSNetModel
+    private var needsLoginAt: ContinuousClock.Instant?
+    private var loginFinishedAt: ContinuousClock.Instant?
 
     @MainActor @Published var error: Error? = nil
 
@@ -61,6 +68,44 @@ actor TSNetConsumer: MessageConsumer {
     // MARK: - Message Consumer
 
     func notify(_ notify: TailscaleKit.Ipn.Notify) {
+        let now = ContinuousClock.now
+        if notify.State == .NeedsLogin {
+            needsLoginAt = now
+            loginFinishedAt = nil
+        }
+        if notify.LoginFinished != nil {
+            loginFinishedAt = now
+        }
+        if notify.NetMap != nil, let loginFinishedAt {
+            logger.log("Login metric: LoginFinished→NetMap \(Self.elapsed(loginFinishedAt, now))")
+        }
+        if let state = notify.State, state == .Starting || state == .Running {
+            if let loginFinishedAt {
+                logger.log("Login metric: LoginFinished→\(state) \(Self.elapsed(loginFinishedAt, now))")
+            }
+            if state == .Running, let needsLoginAt {
+                logger.log("Login metric: NeedsLogin→Running \(Self.elapsed(needsLoginAt, now))")
+            }
+        }
+
+        let fields = [
+            notify.LoginFinished != nil ? "LoginFinished" : nil,
+            notify.State != nil ? "State" : nil,
+            notify.BrowseToURL != nil ? "BrowseToURL" : nil,
+            notify.Prefs != nil ? "Prefs" : nil,
+            notify.NetMap != nil ? "NetMap" : nil,
+        ].compactMap { $0 }.joined(separator: ",")
+        if !fields.isEmpty {
+            logger.log("IPN notify: \(fields)")
+        }
+
+        if notify.LoginFinished != nil {
+            Task { @MainActor in
+                logger.log("LoginFinished: IPN bus notification received")
+                self.model.loginFinishedGeneration &+= 1
+            }
+        }
+
         if let b = notify.BrowseToURL {
             Task { @MainActor in
                 logger.log("Authenticate at: \(b)")
@@ -88,6 +133,13 @@ actor TSNetConsumer: MessageConsumer {
                 self.model.tailnetName = n.Domain
             }
         }
+    }
+
+    private static func elapsed(_ start: ContinuousClock.Instant, _ end: ContinuousClock.Instant) -> String {
+        let duration = start.duration(to: end)
+        let seconds = Double(duration.components.seconds)
+            + Double(duration.components.attoseconds) / 1e18
+        return String(format: "%.3fs", seconds)
     }
 
     func error(_ error: any Error) {

@@ -1,5 +1,18 @@
 # tsnet lifecycle timing harnesses
 
+> Interactive web-login completion and auth-window dismissal are investigated
+> separately in [`login-completion.md`](login-completion.md), including pure-Go,
+> UI-less Swift, and full GUI event timelines. Raw `LoginFinished` → netmap →
+> `Running` ordering and the TailscaleKit netmap decoder bug are in
+> [`netmap-decoding.md`](netmap-decoding.md). The remaining netmap/`Starting` →
+> `Running` interval and its netcheck/DERP-readiness gate are explained in
+> [`netmap-to-running.md`](netmap-to-running.md). TailscaleKit's replacement of
+> the 100ms message poll with event-driven delivery is in
+> [`message-delivery.md`](message-delivery.md). Focused pure-Go measurement of
+> control-plane auth URL issuance is in
+> [`auth-url-latency.md`](auth-url-latency.md); the further stripped-down direct
+> `/machine/register` benchmark is in [`bare-register.md`](bare-register.md).
+
 Two text-mode harnesses that measure the cold-start latency of the core tsnet
 lifecycle operations, so we can tell whether slowness is in **libtailscale /
 tsnet** or in the **Swift app layer** on top. They follow the same 5-phase
@@ -35,6 +48,16 @@ numbers are directly comparable.
 > redundant wait-for-`Running` bus watcher. So `Start→URL` ≈ `Up→URL`.
 
 ## Running
+
+Focused cold auth-URL latency (no auth key and no browser interaction):
+
+```sh
+cd timing/go && go run . -auth-url-only -runs 10
+```
+
+This separates `Start→NeedsLogin` from `NeedsLogin→BrowseToURL`, making it clear
+whether a slow Login-sheet presentation is local startup or waiting for the
+control plane to issue an auth URL.
 
 ```sh
 # Go (pure tsnet) — needs Go 1.26.3 and the libtailscale submodule initialized

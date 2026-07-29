@@ -324,6 +324,38 @@ For any final layout-affecting patch, the release gate is:
 - protected keyboard/layout subset,
 - and human verification on the real iPhone known to exhibit the original bug.
 
+## TailscaleKit test-suite infrastructure failure
+
+During the 2026-07-29 netmap-decoder investigation, a focused regression test
+was added at
+`ThirdParty/libtailscale/swift/TailscaleKitXCTests/TailscaleKitTests.swift`:
+`testNotifyDecodesNodeWithOmittedZeroFields`.
+
+It cannot currently be executed because the submodule's macOS test support fails
+before XCTest starts:
+
+```text
+$ cd ThirdParty/libtailscale/swift && make test
+./tstestcontrol.go:95:12: undefined: derp.NewServer
+./tstestcontrol.go:102:50: undefined: derphttp.Handler
+```
+
+A direct `xcodebuild test` without `make test` instead reaches the expected
+missing prebuilt dependency:
+
+```text
+ld: library 'tailscale' not found
+```
+
+This is a version-skew problem in `tstestcontrol`: its embedded DERP test server
+uses APIs removed from the pinned `tailscale.com` version. Follow up by porting
+`tstestcontrol` to the current DERP server APIs (or replacing it with the current
+upstream test-control helper), rebuilding the macOS `libtailscale` archive, and
+then running the full TailscaleKit XCTest suite. Do not delete or weaken the
+netmap decoder regression test merely to make the build green. The production
+iOS framework and both xcframework slices do compile, and the decoder was also
+verified end-to-end with the simulator timing harness.
+
 ## Immediate next steps
 
 1. Build-for-testing from commit `4a8f79d` on iPhone and iPad.

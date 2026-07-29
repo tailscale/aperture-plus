@@ -221,7 +221,10 @@ private struct BrowserRootContent: View {
             .layoutPriority(-1)
             .overlay(alignment: .top) {
                 if statusViewModel.needsAuth {
-                    LoginBanner(onLogin: { statusViewModel.showAuth() })
+                    LoginBanner(
+                        authSessionEndedGeneration: statusViewModel.authSessionEndedGeneration,
+                        onLogin: { statusViewModel.showAuth() }
+                    )
                 } else if !tab.viewModel.isConnected {
                     ReconnectingBanner()
                 }
@@ -247,6 +250,7 @@ private struct BrowserRootContent: View {
 /// Inline "login required" banner shown over the browser if the node drops to
 /// `NeedsLogin` after having connected (e.g. the user logged out).
 private struct LoginBanner: View {
+    let authSessionEndedGeneration: UInt64
     let onLogin: () -> Void
 
     /// Spins the moment the banner Login button's action fires — tap feedback
@@ -280,6 +284,9 @@ private struct LoginBanner: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .accessibilityIdentifier("login-banner-button")
+            .onChange(of: authSessionEndedGeneration) { _, _ in
+                isStartingLogin = false
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

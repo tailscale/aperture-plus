@@ -42,7 +42,15 @@ struct StatusView: View {
                 Spacer()
             }
 
-            if viewModel.needsAuth {
+            if viewModel.loggedInConnecting {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Finishing the tailnet connection…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("logged-in-connecting")
+            } else if viewModel.needsAuth {
                 StatusButton(text: "Login",
                              action: {
                     isStartingLogin = true
@@ -61,6 +69,9 @@ struct StatusView: View {
         .padding(.vertical, 8)
         .onChange(of: viewModel.needsAuth) { _, needsAuth in
             if !needsAuth { isStartingLogin = false }
+        }
+        .onChange(of: viewModel.authSessionEndedGeneration) { _, _ in
+            isStartingLogin = false
         }
     }
 
