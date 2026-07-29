@@ -308,7 +308,9 @@ public struct Netmap: Sendable {
         public var SelfNode: Tailcfg.Node
         public var NodeKey: Key.NodePublic
         public var Peers: [Tailcfg.Node]?
-        public var Expiry: Time.Time
+        /// Legacy netmap expiry. Current Go `netmap.NetworkMap` no longer
+        /// serializes this field, so absence means the zero time.
+        public var Expiry: Time.Time?
         public var Domain: String
         public var UserProfiles: [String: Tailcfg.UserProfile] // Keys are tailcfg.UserIDs thet get stringified
         public var DNS: Tailcfg.DNSConfig?
@@ -322,7 +324,7 @@ public struct Netmap: Sendable {
         }
 
         public func isExpired() -> Bool {
-            if let expiryDate = Expiry.iso8601Date() {
+            if let expiryDate = Expiry?.iso8601Date() {
                 return (expiryDate as NSDate).earlierDate(Date()) == expiryDate
             }
             return false
@@ -362,18 +364,23 @@ public struct Tailcfg: Sendable {
         public var User: Tailcfg.UserID
         public var Sharer: Tailcfg.UserID?
         public var Key: Key.NodePublic
-        public var KeyExpiry: Time.Time
-        public var Machine: Tailcfg.MachineKey
+        /// Both fields use Go's `omitzero` encoding. A missing KeyExpiry means
+        /// the node does not expire; a missing Machine is the zero public key.
+        public var KeyExpiry: Time.Time?
+        public var Machine: Tailcfg.MachineKey?
         public var Addresses: [IP.Prefix]?
         public var AllowedIPs: [IP.Prefix]?
-        public var Hostinfo: Hostinfo
+        /// Go omits a zero Hostinfo view (for example for some synthetic or
+        /// partially-populated peers).
+        public var Hostinfo: Hostinfo?
         public var LastSeen: Time.Time?
         public var Online: Bool?
         public var Capabilities: [String]?
         public var Tags: [String]?
 
-        public var ComputedName: String
-        public var ComputedNameWithHost: String
+        /// Display names are computed client-side but still use `omitzero`.
+        public var ComputedName: String?
+        public var ComputedNameWithHost: String?
 
         // reports whether Node offers default routing services.
         public var IsExitNode: Bool {
@@ -397,10 +404,7 @@ public struct Tailcfg: Sendable {
         }
 
         public var KeyDoesNotExpire: Bool {
-            if KeyExpiry == GoZeroTimeString {
-                return true
-            }
-            return false
+            KeyExpiry == nil || KeyExpiry == GoZeroTimeString
         }
 
         public var HasExpiredAuth: Bool {
@@ -408,7 +412,7 @@ public struct Tailcfg: Sendable {
                 return false
             }
 
-            if let expiryDate = KeyExpiry.iso8601Date() {
+            if let expiryDate = KeyExpiry?.iso8601Date() {
                 return (expiryDate as NSDate).earlierDate(Date()) == expiryDate && !KeyDoesNotExpire
             }
 

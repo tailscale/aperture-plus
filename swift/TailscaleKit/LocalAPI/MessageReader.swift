@@ -36,6 +36,10 @@ final class MessageReader: NSObject, URLSessionDataDelegate, @unchecked Sendable
     var congested = false
 
     var errorHandler: (@Sendable (Error) -> Void)?
+    /// Called on `workQueue` whenever at least one complete newline-delimited
+    /// message is available. MessageProcessor uses this edge-triggered signal
+    /// to drain immediately; no timer/polling is involved.
+    var messagesAvailableHandler: (@Sendable () -> Void)?
 
     init(logger: LogSink? = nil) {
         self.logger = logger
@@ -48,11 +52,15 @@ final class MessageReader: NSObject, URLSessionDataDelegate, @unchecked Sendable
         workQueue.cancelAllOperations()
     }
 
-    func start(_ request: URLRequest, config: URLSessionConfiguration, errorHandler: @escaping @Sendable (Error) -> Void  ) {
+    func start(_ request: URLRequest,
+               config: URLSessionConfiguration,
+               messagesAvailableHandler: @escaping @Sendable () -> Void,
+               errorHandler: @escaping @Sendable (Error) -> Void) {
         workQueue.addOperation { [weak self] in
             guard let self = self else { return }
 
             self.errorHandler = errorHandler
+            self.messagesAvailableHandler = messagesAvailableHandler
 
             buffer = Data()
             pendingMessages = []
@@ -70,20 +78,20 @@ final class MessageReader: NSObject, URLSessionDataDelegate, @unchecked Sendable
         }
     }
 
-    func consume(_ completion: @escaping @Sendable (Data?) -> Void) {
+    /// Drains all currently queued chunks in FIFO order. Runs asynchronously on
+    /// the same serial queue that receives URLSession bytes, so no lock or poll
+    /// interval is needed and message ordering is preserved.
+    func drain(_ completion: @escaping @Sendable ([Data]) -> Void) {
         workQueue.addOperation { [weak self] in
             guard let self else { return }
-            if congested && pendingMessages.count == 0 {
+            let messages = pendingMessages
+            pendingMessages.removeAll(keepingCapacity: true)
+            let wasCongested = congested
+            congested = false
+            completion(messages)
+            if wasCongested {
                 errorHandler?(MessageQueueError.queueCongested)
-                completion(nil)
-                return
             }
-
-            guard pendingMessages.count > 0 else {
-                completion(nil)
-                return
-            }
-            completion(pendingMessages.removeFirst())
         }
     }
 
@@ -119,10 +127,12 @@ final class MessageReader: NSObject, URLSessionDataDelegate, @unchecked Sendable
             if buffer[buffer.count - 1] == kJsonNewline {
                 if pendingMessages.count >= kMaxQueueSize {
                     congested = true
+                    messagesAvailableHandler?()
                     return
                 }
                 pendingMessages.append(buffer)
                 buffer.removeAll(keepingCapacity: true)
+                messagesAvailableHandler?()
             }
         }
     }
