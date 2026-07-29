@@ -33,11 +33,16 @@ struct TabbedBrowserView: View {
     /// Settings is global (reachable from both the gate and the browser), so
     /// its full-screen cover lives here.
     @State private var showingSettings = false
+    /// Kept above the workspace-keyed subtree so switching sessions can
+    /// repopulate the open tab pane without dismissing it.
+    @State private var showingTabOverview = false
 
     var body: some View {
         Group {
             if let ws = workspaceManager.activeWorkspace {
-                WorkspaceRoot(workspace: ws, showingSettings: $showingSettings)
+                WorkspaceRoot(workspace: ws,
+                              showingSettings: $showingSettings,
+                              showingTabOverview: $showingTabOverview)
                     // Key by workspace id so switching the active workspace
                     // (Phase 3) tears down this subtree and creates a fresh
                     // `WorkspaceRoot` with its own `@StateObject` tab manager /
@@ -61,10 +66,12 @@ struct TabbedBrowserView: View {
                 ProgressView()
             }
         }
+        .fullScreenCover(isPresented: $showingTabOverview) {
+            TabOverview(workspaceManager: workspaceManager)
+        }
         .fullScreenCover(isPresented: $showingSettings) {
             if let ws = workspaceManager.activeWorkspace {
                 SettingsView(viewModel: SettingsViewModel(workspace: ws),
-                             workspaceManager: workspaceManager,
                              dismissAction: { showingSettings = false })
             }
         }
@@ -82,12 +89,14 @@ private struct WorkspaceRoot: View {
     @StateObject private var tabManager: TabManager
     @StateObject private var statusViewModel: StatusViewModel
     @Binding var showingSettings: Bool
+    @Binding var showingTabOverview: Bool
 
     /// Flips to true the first time this workspace's tailnet reaches `Running`
     /// and stays true — so a transient reconnect doesn't kick back to the gate.
     @State private var hasConnected = false
 
-    init(workspace: Workspace, showingSettings: Binding<Bool>) {
+    init(workspace: Workspace,
+         showingSettings: Binding<Bool>, showingTabOverview: Binding<Bool>) {
         self.workspace = workspace
         // Resolve the workspace-owned session lazily here (first render), NOT
         // in `Workspace.init` before the window exists. This preserves the
@@ -96,6 +105,7 @@ private struct WorkspaceRoot: View {
         _tabManager = StateObject(wrappedValue: workspace.tabManager)
         _statusViewModel = StateObject(wrappedValue: workspace.statusViewModel)
         self._showingSettings = showingSettings
+        self._showingTabOverview = showingTabOverview
     }
 
     var body: some View {
@@ -106,11 +116,13 @@ private struct WorkspaceRoot: View {
                     tabManager: tabManager,
                     tab: tab,
                     statusViewModel: statusViewModel,
+                    onTabOverview: { showingTabOverview = true },
                     onSettings: { showingSettings = true }
                 )
             } else {
                 ConnectionGateView(
                     statusViewModel: statusViewModel,
+                    onTabs: { showingTabOverview = true },
                     onSettings: { showingSettings = true }
                 )
             }
@@ -141,11 +153,11 @@ private struct BrowserRootContent: View {
     @ObservedObject var tabManager: TabManager
     @ObservedObject var tab: BrowserTab
     @ObservedObject var statusViewModel: StatusViewModel
+    let onTabOverview: () -> Void
     let onSettings: () -> Void
 
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
-    @State private var showingTabOverview = false
     @State private var showingBookmarks = false
     @State private var showingBookmarkEditor = false
     /// In-app log viewer (Settings → Logs / the "more" menu). The only way to
@@ -155,11 +167,13 @@ private struct BrowserRootContent: View {
          tabManager: TabManager,
          tab: BrowserTab,
          statusViewModel: StatusViewModel,
+         onTabOverview: @escaping () -> Void,
          onSettings: @escaping () -> Void) {
         self.workspace = workspace
         self.tabManager = tabManager
         self.tab = tab
         self.statusViewModel = statusViewModel
+        self.onTabOverview = onTabOverview
         self.onSettings = onSettings
     }
 
@@ -189,15 +203,6 @@ private struct BrowserRootContent: View {
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
-        }
-        .fullScreenCover(isPresented: $showingTabOverview) {
-            TabOverview(
-                tabManager: tabManager,
-                onNewChat: {
-                    tabManager.openChatTab()
-                    showingTabOverview = false
-                }
-            )
         }
         .sheet(isPresented: $showingBookmarks) {
             BookmarksSheet(homePage: workspace.homePage) { bookmark in
@@ -236,7 +241,7 @@ private struct BrowserRootContent: View {
             tab: tab,
             tabManager: tabManager,
             onNewChat: { tabManager.openChatTab() },
-            onTabOverview: { showingTabOverview = true },
+            onTabOverview: onTabOverview,
             onBookmarks: { showingBookmarks = true },
             onAddBookmark: { showingBookmarkEditor = true },
             onSettings: onSettings,

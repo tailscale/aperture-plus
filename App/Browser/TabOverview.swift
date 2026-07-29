@@ -12,15 +12,87 @@
 import SwiftUI
 
 struct TabOverview: View {
-    @ObservedObject var tabManager: TabManager
-    let onNewChat: () -> Void
+    @ObservedObject var workspaceManager: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
-
-    private let columns = [GridItem(.flexible(), spacing: 16),
-                           GridItem(.flexible(), spacing: 16)]
 
     var body: some View {
         NavigationStack {
+            Group {
+                if let workspace = workspaceManager.activeWorkspace {
+                    WorkspaceTabGrid(tabManager: workspace.tabManager) { tab in
+                        workspace.tabManager.select(tab)
+                        dismiss()
+                    }
+                    .id(workspace.id)
+                } else {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Tabs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .principal) {
+                    sessionMenu
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        workspaceManager.activeWorkspace?.tabManager.openChatTab()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(workspaceManager.activeWorkspace?.tabManager.canOpenNewTab != true)
+                    .accessibilityIdentifier("new-chat-tab-button")
+                    .accessibilityLabel("New Chat Tab")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sessionMenu: some View {
+        Menu {
+            ForEach(workspaceManager.workspaces) { workspace in
+                Button {
+                    workspaceManager.selectWorkspace(id: workspace.id)
+                } label: {
+                    WorkspaceMenuLabel(
+                        workspace: workspace,
+                        isSelected: workspaceManager.activeWorkspace?.id == workspace.id
+                    )
+                }
+                .accessibilityIdentifier("workspace-row-\(workspace.id.uuidString)")
+            }
+            Divider()
+            Button {
+                workspaceManager.addWorkspace()
+            } label: {
+                Label("New Session", systemImage: "plus")
+            }
+            .accessibilityIdentifier("add-workspace-button")
+        } label: {
+            HStack(spacing: 5) {
+                Text(workspaceManager.activeWorkspace?.identifier ?? "Sessions")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+            }
+        }
+        .accessibilityIdentifier("session-selector-menu")
+        .accessibilityLabel("Session")
+    }
+
+    private struct WorkspaceTabGrid: View {
+        @ObservedObject var tabManager: TabManager
+        let onSelect: (BrowserTab) -> Void
+
+        private let columns = [GridItem(.flexible(), spacing: 16),
+                               GridItem(.flexible(), spacing: 16)]
+
+        var body: some View {
             ScrollView {
                 if tabManager.tabs.isEmpty {
                     ContentUnavailableView("No Open Tabs",
@@ -33,10 +105,7 @@ struct TabOverview: View {
                             TabCard(
                                 tab: tab,
                                 isSelected: tabManager.currentTab?.id == tab.id,
-                                onSelect: {
-                                    tabManager.select(tab)
-                                    dismiss()
-                                },
+                                onSelect: { onSelect(tab) },
                                 onClose: { tabManager.closeTab(tab) }
                             )
                         }
@@ -45,23 +114,19 @@ struct TabOverview: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("Tabs")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        onNewChat()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .disabled(!tabManager.canOpenNewTab)
-                    .accessibilityIdentifier("new-chat-tab-button")
-                    .accessibilityLabel("New Chat Tab")
-                }
-            }
+        }
+    }
+}
+
+private struct WorkspaceMenuLabel: View {
+    @ObservedObject var workspace: Workspace
+    let isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            Label(workspace.identifier, systemImage: "checkmark")
+        } else {
+            Text(workspace.identifier)
         }
     }
 }

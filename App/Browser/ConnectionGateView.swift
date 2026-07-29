@@ -14,19 +14,32 @@ import SwiftUI
 
 struct ConnectionGateView: View {
     @ObservedObject var statusViewModel: StatusViewModel
+    let onTabs: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ApertureBrandHeader {
-                Button {
-                    onSettings()
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 14) {
+                    Button {
+                        onTabs()
+                    } label: {
+                        Image(systemName: "square.on.square")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("tab-overview-button")
+                    .accessibilityLabel("Tabs")
+
+                    Button {
+                        onSettings()
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("settings-button")
                 }
-                .accessibilityIdentifier("settings-button")
             }
             .padding(.horizontal, 8)
             .padding(.top, 6)
