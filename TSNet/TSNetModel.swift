@@ -29,6 +29,10 @@ final class TSNetModel: ObservableObject {
     /// `TSNetManager.refreshProxyPolicyIfNeeded` can tell when the rules
     /// actually changed. See `TailnetProxyPolicy`.
     @Published var proxyPolicy: TailnetProxyPolicy?
+    /// Test-only observable for the libtailscale transport-reset integration
+    /// test. Nil in normal runs; surfaced through an accessibility label only
+    /// when `-UITestResetConnections` is present.
+    @Published var connectionResetTestStatus: String?
 
     var exitNodeId: String? {
         if let prefs = prefs {

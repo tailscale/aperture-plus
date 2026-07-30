@@ -763,6 +763,45 @@ final class ApertureUITests: XCTestCase {
         attachScreenshot(app, named: "proxy-bounce-no-reload-fetch-survived")
     }
 
+    /// Uses libtailscale's test-only magicsock rebind + DERP-break hook to
+    /// reproduce the transport loss caused by iOS suspending background TCP
+    /// listeners. The app must stay usable without reloading the WebView.
+    func testTsnetTransportResetRecoversWithoutReloadingPage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetConnections"]
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10))
+        let address = app.buttons["url-pill"].label
+        let resetStatus = app.staticTexts["connection-reset-test-status"]
+        XCTAssertTrue(resetStatus.waitForExistence(timeout: 10),
+                      "The libtailscale transport reset hook should run")
+        let resetComplete = NSPredicate(format: "label == %@", "complete")
+        let resetExpectation = XCTNSPredicateExpectation(predicate: resetComplete,
+                                                          object: resetStatus)
+        XCTAssertEqual(XCTWaiter().wait(for: [resetExpectation], timeout: 20), .completed,
+                       "The libtailscale transport reset hook should complete")
+        let banner = app.descendants(matching: .any)
+            .matching(identifier: "reconnecting-banner").firstMatch
+
+        // The reset runs two seconds after Running. Depending on direct-vs-DERP
+        // path timing the banner can be brief, but it must never remain stuck.
+        _ = banner.waitForExistence(timeout: 8)
+        let bannerGone = NSPredicate { object, _ in
+            guard let element = object as? XCUIElement else { return false }
+            return !element.exists
+        }
+        let recovery = XCTNSPredicateExpectation(predicate: bannerGone, object: banner)
+        XCTAssertEqual(XCTWaiter().wait(for: [recovery], timeout: 30), .completed)
+        XCTAssertEqual(app.buttons["url-pill"].label, address)
+        XCTAssertTrue(webView.exists)
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
+    }
+
     /// Real connected lock/unlock regression. The simulator does not suspend
     /// processes when its display is powered off, so the test drives the same
     /// background/active lifecycle with XCUIDevice.home + app.activate. This

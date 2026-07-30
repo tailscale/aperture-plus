@@ -141,6 +141,13 @@ final class TSNetManager {
     /// overnight-crash mechanism); `-CrashTest -CrashTestMode <n>` → mode n.
     /// TEST/DEBUG ONLY — see `TailscaleNode.crashTest` and the crash-capture UI
     /// test. Never set outside automated tests.
+    /// Test-only transport reset requested by `-UITestResetConnections`.
+    /// This invokes libtailscale's magicsock rebind + DERP-break hook after the
+    /// node first reaches Running; no production UI exposes it.
+    nonisolated static func resetConnectionsRequested() -> Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestResetConnections")
+    }
+
     nonisolated static func crashTestMode() -> Int? {
         let args = ProcessInfo.processInfo.arguments
         guard args.contains("-CrashTest") else { return nil }
@@ -235,6 +242,9 @@ final class TSNetManager {
     /// or timing out, so merely waiting for the old bus/status requests can
     /// leave our synthetic `.Starting` state permanent.
     @MainActor private var foregroundRecoveryTask: Task<Void, Never>?
+    @MainActor private var foregroundRecoveryGeneration: UInt64 = 0
+    @MainActor private var didEnterBackground = false
+    @MainActor private var didRunConnectionResetTest = false
 
     /// Starts observing `prefs` for exit-node changes. Idempotent.
     @MainActor
@@ -255,7 +265,9 @@ final class TSNetManager {
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] available in
-                self?.socksLogProxy?.setUpstreamAvailable(available)
+                guard let self else { return }
+                self.socksLogProxy?.setUpstreamAvailable(available)
+                if available { self.runConnectionResetTestIfNeeded() }
             }
     }
     func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws  -> MessageProcessor {
@@ -493,39 +505,98 @@ final class TSNetManager {
         return ProcessInfo.processInfo.arguments.contains("-ProxyEverything")
     }
 
+    @MainActor
+    private func runConnectionResetTestIfNeeded() {
+        guard Self.resetConnectionsRequested(), !didRunConnectionResetTest else { return }
+        didRunConnectionResetTest = true
+        Task { [weak self] in
+            guard let self, let node = self.node else { return }
+            // Give WebKit time to finish its initial document load so the UI
+            // test can prove that reset/recovery doesn't reload it.
+            try? await Task.sleep(for: .seconds(2))
+            do {
+                self.model.connectionResetTestStatus = "running"
+                // Mirror the app's foreground gate around the *real* transport
+                // damage so this test combines both halves of the phone repro.
+                self.model.state = .Starting
+                self.socksLogProxy?.setUpstreamAvailable(false)
+                logger.log("Connection reset test: breaking magicsock/DERP transports")
+                try await node.debugResetConnections()
+                try? await Task.sleep(for: .seconds(2))
+                self.model.state = .Running
+                self.model.connectionResetTestStatus = "complete"
+                logger.log("Connection reset test: reset complete")
+            } catch {
+                self.model.connectionResetTestStatus = "failed: \(error)"
+                logger.log("Connection reset test failed: \(error)")
+            }
+        }
+    }
+
     func willEnterBackground() {
         // Do not close/recreate tsnet here. Closing the Server closes its
         // loopback listener, netstack, dialer, and every live proxied TCP
-        // connection. WebKit then loses in-flight fetches and may retry whole
-        // documents. iOS will suspend our process and tsnet can repair its DERP
-        // and control connections after resume while retaining its IP and data
-        // sessions.
-        logger.log("Background: preserving tsnet and proxy sessions")
+        // connection. Do stop the disposable LocalAPI URLSessions *before* iOS
+        // freezes them: leaving those tasks suspended was both unreliable after
+        // unlock and a likely source of the observed heat/retry churn.
+        logger.log("Background: preserving tsnet/proxy sessions; stopping observers")
+        didEnterBackground = true
+        foregroundRecoveryGeneration &+= 1
+        foregroundRecoveryTask?.cancel()
+        foregroundRecoveryTask = nil
+        stopStatusPolling()
+        processor?.cancel()
+        processor = nil
+        busErrorWatcher?.cancel()
+        busErrorWatcher = nil
+        model.state = .Starting
         socksLogProxy?.setUpstreamAvailable(false)
     }
 
     func willEnterForeground() {
-        logger.log("Foreground: resuming existing tsnet node")
-        guard node != nil else {
+        // `.active` also fires immediately after initial app construction. Do
+        // nothing unless this manager actually observed `.background`; startup
+        // already owns a valid bus/poller and restarting them races initialization.
+        guard didEnterBackground else { return }
+        didEnterBackground = false
+        logger.log("Foreground: rebinding tsnet transports and restarting observers")
+        guard let node else {
             startTailscaleIfNeeded()
             return
         }
 
-        // Running may be the stale pre-suspension value. Close admission until
-        // a fresh initial-state bus notification confirms the live backend.
-        // Crucially, recreate the LocalAPI observations: URLSession streaming
-        // and status tasks suspended by iOS have been observed to remain stuck
-        // forever after unlock, which was the permanent Reconnecting banner.
-        model.state = .Starting
-        socksLogProxy?.setUpstreamAvailable(false)
-        restartLocalAPIObserversAfterResume()
+        foregroundRecoveryTask?.cancel()
+        let generation = foregroundRecoveryGeneration
+        foregroundRecoveryTask = Task { [weak self] in
+            guard let self,
+                  generation == self.foregroundRecoveryGeneration,
+                  !Task.isCancelled else { return }
+            do {
+                // iOS may silently kill UDP sockets and DERP TCP listeners while
+                // suspended without producing a useful netmon change. Force the
+                // same repair tailscaled performs for a major link change. This
+                // preserves the tsnet Server, loopback SOCKS listener, netstack,
+                // and existing proxied sessions.
+                try await node.debugResetConnections()
+                logger.log("Foreground: tsnet transport rebind complete")
+            } catch {
+                logger.log("Foreground: tsnet transport rebind failed: \(error)")
+            }
+            guard !Task.isCancelled,
+                  generation == self.foregroundRecoveryGeneration else { return }
+            self.foregroundRecoveryTask = nil
+            self.restartLocalAPIObserversAfterResume(generation: generation)
+        }
     }
 
     @MainActor
-    private func restartLocalAPIObserversAfterResume() {
+    private func restartLocalAPIObserversAfterResume(generation: UInt64) {
+        guard generation == foregroundRecoveryGeneration else { return }
         foregroundRecoveryTask?.cancel()
         foregroundRecoveryTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self,
+                  generation == self.foregroundRecoveryGeneration,
+                  !Task.isCancelled else { return }
             self.stopStatusPolling()
             self.processor?.cancel()
             self.processor = nil
@@ -540,7 +611,8 @@ final class TSNetManager {
             do {
                 let processor = try await self.startEventBus(localAPI: client,
                                                              consumer: self.consumer)
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled,
+                      generation == self.foregroundRecoveryGeneration else {
                     processor.cancel()
                     return
                 }
@@ -553,9 +625,10 @@ final class TSNetManager {
                 // a processor starts. Retry foreground recovery with bounded
                 // backoff while this node remains alive.
                 try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled,
+                      generation == self.foregroundRecoveryGeneration else { return }
                 self.foregroundRecoveryTask = nil
-                self.restartLocalAPIObserversAfterResume()
+                self.restartLocalAPIObserversAfterResume(generation: generation)
             }
         }
     }
