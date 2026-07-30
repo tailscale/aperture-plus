@@ -20,6 +20,7 @@ extern int TsnetSetControlURL(int sd, char* str);
 extern int TsnetSetEphemeral(int sd, int ephemeral);
 extern int TsnetSetLogFD(int sd, int fd);
 extern int TsnetCrashTest(int sd, int mode);
+extern int TsnetDebugResetConnections(int sd);
 extern int TsnetGetIps(int sd, char *buf, size_t buflen);
 extern int TsnetGetRemoteAddr(int listener, int conn, char *buf, size_t buflen);
 extern int TsnetListen(int sd, char* net, char* addr, int* listenerOut);
@@ -91,6 +92,10 @@ int tailscale_set_logfd(tailscale sd, int fd) {
 //         asynchronously).
 int tailscale_crash_test(tailscale sd, int mode) {
 	return TsnetCrashTest(sd, mode);
+}
+
+int tailscale_debug_reset_connections(tailscale sd) {
+	return TsnetDebugResetConnections(sd);
 }
 
 int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out) {

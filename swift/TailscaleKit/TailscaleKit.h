@@ -102,6 +102,10 @@ extern int tailscale_set_logfd(tailscale sd, int fd);
 // (mode 1/2).
 extern int tailscale_crash_test(tailscale sd, int mode);
 
+// TEST/DEBUG ONLY: rebind magicsock UDP and break all DERP TCP connections
+// without closing the tsnet Server, loopback SOCKS listener, or netstack.
+extern int tailscale_debug_reset_connections(tailscale sd);
+
 // A tailscale_conn is a connection to an address on the tailnet.
 //
 // It is a pipe(2) on which you can use read(2), write(2), and close(2).

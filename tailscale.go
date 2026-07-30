@@ -579,18 +579,49 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
 //	  1 TailscaleKit            runtime.signal_unix / runtime.fatalthrow
 //
 // mode 0: panic synchronously in the calling goroutine. The Go runtime
-//	   prints "panic: TsnetCrashTest: ..." + a stack trace to stderr (fd 2),
-//	   then raises SIGABRT. Does not return.
+//
+//	prints "panic: TsnetCrashTest: ..." + a stack trace to stderr (fd 2),
+//	then raises SIGABRT. Does not return.
+//
 // mode 1: panic in a freshly-spawned background goroutine. Returns 0
-//	   immediately; the goroutine panics a moment later and the runtime
-//	   aborts the whole process (closer to "ran for a while, then a
-//	   goroutine panicked").
+//
+//	immediately; the goroutine panics a moment later and the runtime
+//	aborts the whole process (closer to "ran for a while, then a
+//	goroutine panicked").
+//
 // mode 2: write a realistic Go-panic-formatted dump to stderr (fd 2) and
-//	   RETURN normally — does NOT abort. Lets the crash-capture UI test
-//	   exercise the full capture+surface pipeline (dup2 → stderr.log →
-//	   next-launch os_log + debug label) without killing the process, which
-//	   XCUITest would otherwise hard-fail as an app crash. The real abort
-//	   path (modes 0/1) is covered by the host-side `make crashtest` script.
+//
+//	RETURN normally — does NOT abort. Lets the crash-capture UI test
+//	exercise the full capture+surface pipeline (dup2 → stderr.log →
+//	next-launch os_log + debug label) without killing the process, which
+//	XCUITest would otherwise hard-fail as an app crash. The real abort
+//	path (modes 0/1) is covered by the host-side `make crashtest` script.
+//
+// TsnetDebugResetConnections simulates the transport damage caused by an iOS
+// suspend/resume cycle without closing the tsnet Server. It rebinds magicsock's
+// UDP sockets and breaks every DERP TCP connection; magicsock immediately
+// reconnects its home DERP. Existing netstack TCP sessions and the loopback
+// SOCKS listener remain alive.
+//
+//export TsnetDebugResetConnections
+func TsnetDebugResetConnections(sd C.int) C.int {
+	s, err := getServer(sd)
+	if err != nil {
+		return -1
+	}
+	lc, err := s.s.LocalClient()
+	if err != nil {
+		return s.recErr(fmt.Errorf("debug LocalClient: %w", err))
+	}
+	if err := lc.DebugAction(context.Background(), "rebind"); err != nil {
+		return s.recErr(fmt.Errorf("debug rebind: %w", err))
+	}
+	if err := lc.DebugAction(context.Background(), "break-derp-conns"); err != nil {
+		return s.recErr(fmt.Errorf("debug break DERP: %w", err))
+	}
+	return s.recErr(nil)
+}
+
 //export TsnetCrashTest
 func TsnetCrashTest(sd, mode C.int) C.int {
 	if _, err := getServer(sd); err != nil {
@@ -608,7 +639,7 @@ func TsnetCrashTest(sd, mode C.int) C.int {
 			"main.TsnetCrashTest(...)\n"+
 			"\ttailscale.go:0\n"+
 			"main.TsnetCrashTest({0x%x}, 0x2)\n"+
-			"\ttailscale.go:0 +0x0\n")
+			"\ttailscale.go:0 +0x0\n", sd)
 		return 0
 	default:
 		panic("TsnetCrashTest: unknown mode")
