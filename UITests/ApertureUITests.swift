@@ -713,7 +713,9 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
     }
 
-    // MARK: - Proxy-bounce integration test (hermetic; no tailnet required)
+    // MARK: - Lifecycle / proxy-bounce integration tests
+
+    // Hermetic; no tailnet required.
 
     /// A Running -> Starting -> Running status glitch must not recreate/reload
     /// the document, and a fetch already in flight must still complete. The
@@ -749,11 +751,54 @@ final class ApertureUITests: XCTestCase {
         let completion = XCTNSPredicateExpectation(predicate: completed, object: fetch)
         XCTAssertEqual(XCTWaiter().wait(for: [completion], timeout: 10), .completed,
                        "The fetch started before the status bounce should complete")
+        let reconnected = NSPredicate(format: "label == %@", "Connected")
+        let reconnectExpectation = XCTNSPredicateExpectation(
+            predicate: reconnected,
+            object: app.staticTexts["bounce-connection-status"])
+        XCTAssertEqual(XCTWaiter().wait(for: [reconnectExpectation], timeout: 5), .completed)
         XCTAssertEqual(loads.label, "ONE LOAD",
                        "A connection-status bounce must not reload the document")
         XCTAssertFalse(app.descendants(matching: .any)
             .matching(identifier: "nav-error-overlay").firstMatch.exists)
         attachScreenshot(app, named: "proxy-bounce-no-reload-fetch-survived")
+    }
+
+    /// Real connected lock/unlock regression. The simulator does not suspend
+    /// processes when its display is powered off, so the test drives the same
+    /// background/active lifecycle with XCUIDevice.home + app.activate. This
+    /// still reproduces the Swift-side bug: foreground forced `.Starting` but
+    /// reused suspended LocalAPI URLSessions, leaving the banner permanent.
+    func testBackgroundResumeReconnectsWithoutReloadingPage() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10))
+        let address = app.buttons["url-pill"].label
+
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 5)
+        app.activate()
+
+        let banner = app.descendants(matching: .any)
+            .matching(identifier: "reconnecting-banner").firstMatch
+        // On a healthy simulator loopback the fresh initial-state event can
+        // arrive before XCUITest takes its first post-activate snapshot, so the
+        // banner is optional; if seen, it must clear. The hard assertions are
+        // that browser state/page survive and no banner remains stuck.
+        _ = banner.waitForExistence(timeout: 2)
+        let bannerGone = NSPredicate { object, _ in
+            guard let element = object as? XCUIElement else { return false }
+            return !element.exists
+        }
+        let recovery = XCTNSPredicateExpectation(predicate: bannerGone, object: banner)
+        XCTAssertEqual(XCTWaiter().wait(for: [recovery], timeout: 30), .completed,
+                       "The reconnecting banner must clear after foreground recovery")
+        XCTAssertEqual(app.buttons["url-pill"].label, address,
+                       "Foreground recovery must not reload or replace the page")
+        XCTAssertTrue(webView.exists)
     }
 
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)

@@ -37,6 +37,11 @@ struct ConnectionTypeIcon: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Internet (off tailnet)")
+        case .reconnecting:
+            Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+                .accessibilityLabel("Tailnet reconnecting")
         }
     }
 }

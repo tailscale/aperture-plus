@@ -321,5 +321,6 @@ private struct ReconnectingBanner: View {
         .padding(.vertical, 8)
         .background(.thinMaterial)
         .overlay(alignment: .bottom) { Divider() }
+        .accessibilityIdentifier("reconnecting-banner")
     }
 }

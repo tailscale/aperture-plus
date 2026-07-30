@@ -230,6 +230,12 @@ final class TSNetManager {
     /// Running.
     @MainActor private var proxyAvailabilityWatcher: AnyCancellable?
 
+    /// Re-establishes LocalAPI observation after iOS suspension. URLSession
+    /// tasks that existed before the lock can remain wedged without completing
+    /// or timing out, so merely waiting for the old bus/status requests can
+    /// leave our synthetic `.Starting` state permanent.
+    @MainActor private var foregroundRecoveryTask: Task<Void, Never>?
+
     /// Starts observing `prefs` for exit-node changes. Idempotent.
     @MainActor
     private func startPrefsObservation() {
@@ -500,19 +506,58 @@ final class TSNetManager {
 
     func willEnterForeground() {
         logger.log("Foreground: resuming existing tsnet node")
-        // A fresh launch already starts the node in init. On a normal resume it
-        // is still present, so this is a no-op; retain the fallback for a start
-        // that failed before setupNode installed it.
-        if node == nil {
+        guard node != nil else {
             startTailscaleIfNeeded()
-        } else if model.state == .Running {
-            // Running may be the stale pre-suspension value. Close admission
-            // until the resumed bus/status poll freshly confirms Running;
-            // otherwise the first new request can slip through to tsnet while
-            // its DERP paths are still being rebuilt and receive a SOCKS error.
-            model.state = .Starting
+            return
         }
+
+        // Running may be the stale pre-suspension value. Close admission until
+        // a fresh initial-state bus notification confirms the live backend.
+        // Crucially, recreate the LocalAPI observations: URLSession streaming
+        // and status tasks suspended by iOS have been observed to remain stuck
+        // forever after unlock, which was the permanent Reconnecting banner.
+        model.state = .Starting
         socksLogProxy?.setUpstreamAvailable(false)
+        restartLocalAPIObserversAfterResume()
+    }
+
+    @MainActor
+    private func restartLocalAPIObserversAfterResume() {
+        foregroundRecoveryTask?.cancel()
+        foregroundRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            self.stopStatusPolling()
+            self.processor?.cancel()
+            self.processor = nil
+            self.busErrorWatcher?.cancel()
+            self.busErrorWatcher = nil
+            self.consumer.error = nil
+
+            guard let client = self.localAPIClient else {
+                logger.log("Foreground recovery: LocalAPI client missing")
+                return
+            }
+            do {
+                let processor = try await self.startEventBus(localAPI: client,
+                                                             consumer: self.consumer)
+                guard !Task.isCancelled else {
+                    processor.cancel()
+                    return
+                }
+                self.setProcessor(processor)
+                self.startStatusPolling()
+                logger.log("Foreground recovery: LocalAPI observers restarted")
+            } catch {
+                logger.log("Foreground recovery: bus restart failed: \(error)")
+                // The regular startEventBus error-retry path cannot exist until
+                // a processor starts. Retry foreground recovery with bounded
+                // backoff while this node remains alive.
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self.foregroundRecoveryTask = nil
+                self.restartLocalAPIObserversAfterResume()
+            }
+        }
     }
 
     func setExitNodeEnabled(_ enabled: Bool) {
