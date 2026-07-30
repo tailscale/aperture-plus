@@ -713,6 +713,49 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
     }
 
+    // MARK: - Proxy-bounce integration test (hermetic; no tailnet required)
+
+    /// A Running -> Starting -> Running status glitch must not recreate/reload
+    /// the document, and a fetch already in flight must still complete. The
+    /// app-hosted harness uses a real WKWebView + WKURLSchemeHandler, so this
+    /// exercises BrowserViewModel's actual Combine/WebKit lifecycle without an
+    /// auth key, control plane, or tailnet peer.
+    func testConnectionBounceDoesNotReloadPageOrLoseFetch() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestProxyBounceHarness"]
+        app.launch()
+
+        // A WKScriptMessage bridge mirrors the page's load/fetch state into
+        // native accessibility labels. This avoids depending on WebKit's
+        // occasionally delayed DOM accessibility bridge while still using a
+        // real page, JavaScript fetch, and BrowserViewModel.
+        let loads = app.staticTexts["bounce-load-count"]
+        let fetch = app.staticTexts["bounce-fetch-status"]
+        let bounce = app.buttons["simulate-connection-bounce"]
+        XCTAssertTrue(loads.waitForExistence(timeout: 15))
+        XCTAssertTrue(fetch.waitForExistence(timeout: 15))
+        XCTAssertTrue(bounce.waitForExistence(timeout: 5))
+        let firstLoad = NSPredicate(format: "label == %@", "ONE LOAD")
+        let loadExpectation = XCTNSPredicateExpectation(predicate: firstLoad, object: loads)
+        XCTAssertEqual(XCTWaiter().wait(for: [loadExpectation], timeout: 10), .completed,
+                       "The harness document should execute once")
+        XCTAssertEqual(fetch.label, "FETCH PENDING")
+
+        bounce.tap()
+        XCTAssertTrue(app.staticTexts["bounce-connection-status"]
+            .waitForExistence(timeout: 2))
+
+        let completed = NSPredicate(format: "label == %@", "FETCH COMPLETE")
+        let completion = XCTNSPredicateExpectation(predicate: completed, object: fetch)
+        XCTAssertEqual(XCTWaiter().wait(for: [completion], timeout: 10), .completed,
+                       "The fetch started before the status bounce should complete")
+        XCTAssertEqual(loads.label, "ONE LOAD",
+                       "A connection-status bounce must not reload the document")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
+        attachScreenshot(app, named: "proxy-bounce-no-reload-fetch-survived")
+    }
+
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)
 
     /// The connected browser is up when its bottom-toolbar bookmark button

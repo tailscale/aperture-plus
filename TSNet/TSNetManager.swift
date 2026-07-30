@@ -224,6 +224,12 @@ final class TSNetManager {
     /// effect on the next 5s status poll.
     @MainActor private var prefsWatcher: AnyCancellable?
 
+    /// Drives the logging relay's connection-admission gate. This does not
+    /// publish/remove WebKit's proxy configuration and never closes an
+    /// established relay; it only holds new SOCKS clients while tsnet is not
+    /// Running.
+    @MainActor private var proxyAvailabilityWatcher: AnyCancellable?
+
     /// Starts observing `prefs` for exit-node changes. Idempotent.
     @MainActor
     private func startPrefsObservation() {
@@ -232,6 +238,18 @@ final class TSNetManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshProxyPolicyIfNeeded()
+            }
+    }
+
+    @MainActor
+    private func startProxyAvailabilityObservation() {
+        guard proxyAvailabilityWatcher == nil else { return }
+        proxyAvailabilityWatcher = model.$state
+            .map { $0 == .Running }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] available in
+                self?.socksLogProxy?.setUpstreamAvailable(available)
             }
     }
     func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws  -> MessageProcessor {
@@ -294,6 +312,7 @@ final class TSNetManager {
         self.localAPIClient = client
         startStatusPolling()
         startPrefsObservation()
+        startProxyAvailabilityObservation()
     }
 
     /// Polls `backendStatus()` every few seconds and publishes it on the model,
@@ -388,6 +407,7 @@ final class TSNetManager {
                 }
             }
             if let localPort = socksLogProxyPort {
+                socksLogProxy?.setUpstreamAvailable(model.state == .Running)
                 proxyHost = "127.0.0.1"
                 proxyPort = Int(localPort)
             }
@@ -468,31 +488,31 @@ final class TSNetManager {
     }
 
     func willEnterBackground() {
-        logger.log("Background: Disconnecting...")
-        startInFlight = false
-        stopStatusPolling()
-        busErrorWatcher?.cancel()
-        prefsWatcher?.cancel()
-        prefsWatcher = nil
-        model.proxyConfiguration = nil
-        model.proxyPolicy = nil
-        socksLogProxy?.stop()
-        socksLogProxy = nil
-        socksLogProxyPort = nil
-        let nodeTmp = self.node
-        self.node = nil
-        Task {
-            // node.down() isn't enough here because of iOS lifecycle management.
-            // We're about to have our threads paused and our network taken away
-            // because Apple doesn't let us have nice things.  We need to close
-            // the device completely.
-            try await nodeTmp?.close()
-        }
+        // Do not close/recreate tsnet here. Closing the Server closes its
+        // loopback listener, netstack, dialer, and every live proxied TCP
+        // connection. WebKit then loses in-flight fetches and may retry whole
+        // documents. iOS will suspend our process and tsnet can repair its DERP
+        // and control connections after resume while retaining its IP and data
+        // sessions.
+        logger.log("Background: preserving tsnet and proxy sessions")
+        socksLogProxy?.setUpstreamAvailable(false)
     }
 
     func willEnterForeground() {
-        logger.log("Foreground: Reconnecting...")
-        startTailscaleIfNeeded()
+        logger.log("Foreground: resuming existing tsnet node")
+        // A fresh launch already starts the node in init. On a normal resume it
+        // is still present, so this is a no-op; retain the fallback for a start
+        // that failed before setupNode installed it.
+        if node == nil {
+            startTailscaleIfNeeded()
+        } else if model.state == .Running {
+            // Running may be the stale pre-suspension value. Close admission
+            // until the resumed bus/status poll freshly confirms Running;
+            // otherwise the first new request can slip through to tsnet while
+            // its DERP paths are still being rebuilt and receive a SOCKS error.
+            model.state = .Starting
+        }
+        socksLogProxy?.setUpstreamAvailable(false)
     }
 
     func setExitNodeEnabled(_ enabled: Bool) {

@@ -43,26 +43,39 @@ final class BrowserViewModel: NSObject, ObservableObject {
     private var tsnetModel: TSNetModel
     private let initialURL: URL
     private let dataStore: WKWebsiteDataStore
+    private let configureWebView: ((WKWebViewConfiguration) -> Void)?
     private var webView: WKWebView?
 
     private(set) var didLoadInitial = false
-    private var pendingRetryURL: URL?
     private var pendingLoadURL: URL?
 
-    init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore) {
+    init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore,
+         configureWebView: ((WKWebViewConfiguration) -> Void)? = nil) {
         self.tsnetModel = model
         self.initialURL = initialURL
         self.dataStore = dataStore
+        self.configureWebView = configureWebView
         super.init()
 
         if let proxy = model.proxyConfiguration {
             dataStore.proxyConfigurations = [proxy]
-            isConnected = true
         }
+        isConnected = model.state == .Running
 
         model.$proxyConfiguration
+            .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] proxy in self?.applyProxy(proxy) }
+            .store(in: &observers)
+
+        // Connectivity is a status signal, not a WebKit configuration
+        // lifecycle. A Starting/NoState bounce must not remove/reinstall the
+        // proxy (which tears down WebKit connection pools) or reload a page.
+        model.$state
+            .map { $0 == .Running }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] connected in self?.applyConnectionState(connected) }
             .store(in: &observers)
     }
 
@@ -77,6 +90,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.upgradeKnownHostsToHTTPS = false
+        configureWebView?(configuration)
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         // Match Safari's subtle feathering as content scrolls beneath the
@@ -149,24 +163,19 @@ final class BrowserViewModel: NSObject, ObservableObject {
         ]
     }
 
-    func applyProxy(_ proxy: ProxyConfiguration?) {
-        if let proxy {
-            dataStore.proxyConfigurations = [proxy]
-            let wasConnected = isConnected
-            isConnected = true
-            if !didLoadInitial {
-                loadInitial()
-            } else if let retry = pendingRetryURL {
-                pendingRetryURL = nil
-                logger.log("Proxy reconnected — retrying held load \(retry)")
-                load(url: retry)
-            } else if !wasConnected {
-                logger.log("Proxy reconnected — page kept, no reload")
-            }
-        } else {
-            isConnected = false
-            dataStore.proxyConfigurations = []
-            logger.log("Proxy dropped — page kept, holding loads until reconnect")
+    func applyProxy(_ proxy: ProxyConfiguration) {
+        dataStore.proxyConfigurations = [proxy]
+        if !didLoadInitial { loadInitial() }
+    }
+
+    private func applyConnectionState(_ connected: Bool) {
+        let wasConnected = isConnected
+        isConnected = connected
+        if connected {
+            if !didLoadInitial { loadInitial() }
+            if !wasConnected { logger.log("Tailnet reconnected — page and proxy kept, no reload") }
+        } else if wasConnected {
+            logger.log("Tailnet reconnecting — page and proxy kept; new connections will be held")
         }
     }
 
@@ -215,6 +224,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
     func goForward() { if webView?.canGoForward == true { webView?.goForward() } }
 
     private func needsPeerDataToRoute(_ url: URL) -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }
         guard let host = url.host()?.lowercased(), !host.isEmpty else { return false }
         return !host.contains(".") && !host.contains(":")
     }
@@ -230,7 +240,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
     func navigationError(_ error: Error, for url: URL) {
         logger.log("Navigation error for \(url): \(error)")
         if !isConnected {
-            pendingRetryURL = url
+            // The relay normally prevents this callback by holding the SOCKS
+            // request until Running. If WebKit reports a failure from an older
+            // established stream during the bounce, do not turn it into error
+            // UI or an automatic document reload.
             return
         }
         navError = (error, url)

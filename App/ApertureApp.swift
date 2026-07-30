@@ -21,7 +21,8 @@ struct ApertureApp: App {
         // In `-TimingHarness` mode we bypass the app entirely and run the
         // text-mode TimingHarness instead, so the harness's own nodes are the
         // only ones running (and CrashCapture's stderr redirect doesn't fire).
-        if !ProcessInfo.processInfo.arguments.contains("-TimingHarness") {
+        if !ProcessInfo.processInfo.arguments.contains("-TimingHarness")
+            && !ProcessInfo.processInfo.arguments.contains("-UITestProxyBounceHarness") {
             _workspaceManager = State(initialValue: WorkspaceManager())
         }
     }
@@ -30,6 +31,8 @@ struct ApertureApp: App {
         WindowGroup {
             if ProcessInfo.processInfo.arguments.contains("-TimingHarness") {
                 TimingHarnessView()
+            } else if ProcessInfo.processInfo.arguments.contains("-UITestProxyBounceHarness") {
+                ProxyBounceTestHarnessView()
             } else if let workspaceManager {
                 TabbedBrowserView(workspaceManager: workspaceManager)
                     .overlay {
@@ -49,7 +52,9 @@ struct ApertureApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             // Don't fan scenePhase to WorkspaceManager in harness mode (there
             // is none); the harness manages its own node lifecycles.
-            guard !ProcessInfo.processInfo.arguments.contains("-TimingHarness") else { return }
+            guard !ProcessInfo.processInfo.arguments.contains("-TimingHarness"),
+                  !ProcessInfo.processInfo.arguments.contains("-UITestProxyBounceHarness")
+            else { return }
             guard let workspaceManager else { return }
             switch newPhase {
             case .background:
