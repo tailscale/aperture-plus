@@ -26,11 +26,12 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
-    /// Security-sensitive, user-visible URL. This advances only after WebKit
-    /// commits a navigation, never merely because a provisional load was
-    /// requested. A failed navigation therefore leaves the address bar showing
-    /// the page that is still rendered; the attempted URL appears only in the
-    /// error overlay.
+    /// Security-sensitive, user-visible URL. This advances after WebKit commits
+    /// a document navigation, or when the committed document makes a
+    /// same-origin History API / fragment change. It never follows a
+    /// cross-origin provisional request. A failed navigation therefore leaves
+    /// the address bar showing the page that is still rendered; the attempted
+    /// URL appears only in the error overlay.
     @Published private(set) var url: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var estimatedProgress = 0.0
@@ -103,7 +104,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
     func unloadWebView() {
         guard let webView else { return }
         webView.stopLoading()
-        if let committedURL = webView.url { pendingLoadURL = committedURL }
+        // `url` is our validated address-bar URL. Do not read WKWebView.url here:
+        // at an unload boundary it could be exposing a provisional destination.
+        if let url { pendingLoadURL = url }
         webView.navigationDelegate = nil
         webViewObservations.removeAll()
         self.webView = nil
@@ -125,6 +128,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
     private func observeWebView(_ view: WKWebView) {
         webViewObservations.removeAll()
         webViewObservations = [
+            view.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
+                Task { @MainActor in self?.acceptSameDocumentURL(from: view) }
+            },
             view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
                 Task { @MainActor in self?.title = view.title ?? "" }
             },
@@ -264,9 +270,45 @@ final class BrowserViewModel: NSObject, ObservableObject {
         navErrorURLString = nil
     }
 
+    /// Accepts URL KVO changes only when they cannot change the security origin
+    /// shown in browser chrome. WKWebView.url is KVO-compliant and changes for
+    /// `history.pushState`, `history.replaceState`, and fragment navigation,
+    /// none of which necessarily calls a WKNavigationDelegate commit method.
+    ///
+    /// WebKit enforces the History API's same-origin rule too, but checking it
+    /// again here is deliberate defense in depth: URL KVO also participates in
+    /// ordinary/provisional navigation, and a cross-origin request must not be
+    /// able to spoof the address bar before it commits.
+    private func acceptSameDocumentURL(from view: WKWebView) {
+        guard webView === view,
+              let current = url,
+              let candidate = view.url,
+              Self.haveSameWebOrigin(current, candidate)
+        else { return }
+        url = candidate
+    }
+
+    nonisolated static func haveSameWebOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        guard let lhsScheme = lhs.scheme?.lowercased(),
+              let rhsScheme = rhs.scheme?.lowercased(),
+              ["http", "https"].contains(lhsScheme),
+              lhsScheme == rhsScheme,
+              let lhsHost = lhs.host()?.lowercased(),
+              let rhsHost = rhs.host()?.lowercased(),
+              lhsHost == rhsHost
+        else { return false }
+
+        func effectivePort(of url: URL, scheme: String) -> Int? {
+            url.port ?? (scheme == "http" ? 80 : 443)
+        }
+        return effectivePort(of: lhs, scheme: lhsScheme)
+            == effectivePort(of: rhs, scheme: rhsScheme)
+    }
+
     private func refreshState(from view: WKWebView, includeCommittedURL: Bool = false) {
         title = view.title ?? ""
         if includeCommittedURL {
+            // Delegate commit/finish is the authority allowed to change origin.
             url = view.url
         }
         isLoading = view.isLoading
