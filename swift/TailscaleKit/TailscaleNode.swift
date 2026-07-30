@@ -115,6 +115,20 @@ public actor TailscaleNode {
         logger?.log("Closed Tailscale:\(tailscale)")
     }
 
+    /// Simulates suspend/resume transport loss without closing this node.
+    /// Rebinds magicsock's UDP sockets and breaks all DERP TCP connections;
+    /// the loopback proxy and netstack sessions are deliberately preserved.
+    /// TEST/DEBUG ONLY.
+    public func debugResetConnections() throws {
+        guard let tailscale else {
+            throw TailscaleError.badInterfaceHandle
+        }
+        let res = tailscale_debug_reset_connections(tailscale)
+        guard res == 0 else {
+            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
+        }
+    }
+
     /// Deliberately crashes the Go runtime. TEST/DEBUG ONLY — never call from
     /// normal app flow. Used by the crash-capture UI test (via the `-CrashTest`
     /// launch arg in TSNetManager) to verify that Go runtime panics — and the
