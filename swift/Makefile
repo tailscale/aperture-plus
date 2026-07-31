@@ -92,6 +92,7 @@ test: ## Run tests (macOS)
 	 -derivedDataPath build \
 	 -configuration Debug \
 	 -destination 'platform=macOS,arch=arm64' \
+	 -parallel-testing-enabled NO \
 	 CODE_SIGNING_ALLOWED=NO
 
 .PHONY: clean
