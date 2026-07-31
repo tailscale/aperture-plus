@@ -606,8 +606,8 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
 //
 //export TsnetDebugResetConnections
 func TsnetDebugResetConnections(sd C.int) C.int {
-	s, err := getServer(sd)
-	if err != nil {
+	s := getServer(sd)
+	if s == nil {
 		return -1
 	}
 	lc, err := s.s.LocalClient()
@@ -630,7 +630,7 @@ func TsnetDebugResetConnections(sd C.int) C.int {
 
 //export TsnetCrashTest
 func TsnetCrashTest(sd, mode C.int) C.int {
-	if _, err := getServer(sd); err != nil {
+	if getServer(sd) == nil {
 		return -1
 	}
 	switch mode {
