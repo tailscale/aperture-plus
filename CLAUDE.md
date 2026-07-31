@@ -23,7 +23,7 @@ single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
   exist at `ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework`
   before the project will build. If a build fails with a missing-framework /
   file-not-found error on `TailscaleKit.xcframework`, run
-  `cd ThirdParty/libtailscale/swift && make ios-fat` (needs Go 1.26.3). The
+  `cd ThirdParty/libtailscale/swift && make ios-fat` (needs Go 1.26.5). The
   `FRAMEWORK_SEARCH_PATHS` in the project also references `Release-iphoneos`; the
   xcframework reference itself points at `Release-iphonefat` — both are produced by
   `make ios-fat` / `make ios` / `make ios-sim`.

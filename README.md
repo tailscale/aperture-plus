@@ -34,7 +34,7 @@ See **Settings → Routing** in the app to view the live rules and test any host
 
 - **Xcode 26.x** (project uses Xcode synchronized folder groups and the iOS 26 SDK).
 - **iOS 26.0 SDK** (included with Xcode 26).
-- **Go 1.26.3** — only needed to build the embedded `TailscaleKit.xcframework`
+- **Go 1.26.5** — only needed to build the embedded `TailscaleKit.xcframework`
   dependency (see `ThirdParty/libtailscale/go.mod`). You do **not** need Go to build
   the app itself once the framework exists.
 - `git` (for the `libtailscale` submodule).
@@ -56,7 +56,7 @@ $ make
 ```
 
 `make` skips rebuilding the xcframework if it already exists. The libtailscale
-build needs **Go 1.26.3** and the iOS SDK, and is slow the first time; the app
+build needs **Go 1.26.5** and the iOS SDK, and is slow the first time; the app
 build needs **Xcode 26.x**. Run `make help` to see all targets:
 
 | Target | What it does |

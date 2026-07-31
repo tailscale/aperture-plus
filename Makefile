@@ -6,7 +6,7 @@
 #   make look       screenshot the booted sim + describe it with a vision sub-pi
 #   make clean      remove app build artifacts (not the libtailscale submodule)
 #
-# The libtailscale build needs Go 1.26.3 and the iOS SDK; the app build needs
+# The libtailscale build needs Go 1.26.5 and the iOS SDK; the app build needs
 # Xcode 26.x. Both are slow the first time. `make` skips re-running the
 # libtailscale build if the xcframework already exists.
 
@@ -53,7 +53,7 @@ framework: $(XCFRAMEWORK)  ## Build TailscaleKit.xcframework (skipped if it exis
 $(XCFRAMEWORK): $(LIBTSCALE_SOURCES)
 	@echo
 	@echo "::: Building TailscaleKit.xcframework (libtailscale submodule) :::"
-	@echo "(needs Go 1.26.3; slow the first time)"
+	@echo "(needs Go 1.26.5; slow the first time)"
 	cd $(LIBTSCALEDIR) && make ios-fat
 
 # ----- app -----
