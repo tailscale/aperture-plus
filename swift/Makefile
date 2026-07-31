@@ -88,12 +88,19 @@ test: ## Run tests (macOS)
 	 -quiet \
 	 -destination 'platform=macOS,arch=arm64' \
 	 CODE_SIGNING_ALLOWED=NO
-	xcodebuild test-without-building  -scheme TailscaleKitXCTests \
-	 -derivedDataPath build \
-	 -configuration Debug \
-	 -destination 'platform=macOS,arch=arm64' \
-	 -parallel-testing-enabled NO \
-	 CODE_SIGNING_ALLOWED=NO
+	@set -e; \
+	for test in \
+	 testMessageReaderStartStopRaceDoesNotCrash \
+	 testNotifyDecodesNodeWithOmittedZeroFields \
+	 testProxy testStatus testV4 testV6; do \
+	  echo "::: Running TailscaleKitTests/$$test in a fresh process :::"; \
+	  xcodebuild test-without-building -scheme TailscaleKitXCTests \
+	   -derivedDataPath build -configuration Debug \
+	   -destination 'platform=macOS,arch=arm64' \
+	   -parallel-testing-enabled NO \
+	   -only-testing:TailscaleKitXCTests/TailscaleKitTests/$$test \
+	   CODE_SIGNING_ALLOWED=NO || exit $$?; \
+	done
 
 .PHONY: clean
 clean: ## Clean up build artifacts (including the libtailscale dependencies)
