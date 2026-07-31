@@ -118,8 +118,8 @@ final class TailscaleKitTests: XCTestCase {
             print("closing  conn")
             await outgoing.close()
 
-            try await ts1.down()
-            try await ts2.down()
+            try await ts1.close()
+            try await ts2.close()
         } catch {
             XCTFail("Init Failed: \(error)")
         }
@@ -181,6 +181,28 @@ final class TailscaleKitTests: XCTestCase {
         XCTAssertNil(sparse.NetMap?.SelfNode.Hostinfo)
         XCTAssertNil(sparse.NetMap?.SelfNode.ComputedName)
         XCTAssertNil(sparse.NetMap?.SelfNode.ComputedNameWithHost)
+    }
+
+    /// Regression for the resume crash caused by cancelling an IPN URLSession
+    /// while its replacement was creating a task. Foundation raises an
+    /// Objective-C exception (not a catchable Swift Error) if a task is created
+    /// from an invalidated session, so this stress test intentionally overlaps
+    /// starts/stops many times. MessageReader must serialize all session access.
+    func testMessageReaderStartStopRaceDoesNotCrash() {
+        let reader = MessageReader()
+        let request = URLRequest(url: URL(string: "http://127.0.0.1:1/localapi/v0/watch-ipn-bus")!)
+        let config = URLSessionConfiguration.ephemeral
+
+        DispatchQueue.concurrentPerform(iterations: 500) { iteration in
+            if iteration.isMultiple(of: 2) {
+                reader.start(request, config: config,
+                             messagesAvailableHandler: {}, errorHandler: { _ in })
+            } else {
+                reader.stop()
+            }
+        }
+        reader.stop()
+        reader.workQueue.waitUntilAllOperationsAreFinished()
     }
 
     /// Tests that localAPI is functional

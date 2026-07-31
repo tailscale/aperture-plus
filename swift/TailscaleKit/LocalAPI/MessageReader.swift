@@ -48,8 +48,24 @@ final class MessageReader: NSObject, URLSessionDataDelegate, @unchecked Sendable
     }
 
     func stop() {
-        ipnWatchSession?.invalidateAndCancel()
-        workQueue.cancelAllOperations()
+        // `start` creates its URLSession and data task on workQueue. Mutating
+        // `ipnWatchSession` here on the caller's thread races that operation:
+        // resume recovery can call cancel while start is between creating the
+        // session and creating its task, causing NSURLSession to throw an
+        // Objective-C exception from `taskForClassInfo:` ("task created in an
+        // invalidated session") and abort the process. Keep the entire session
+        // lifecycle on the same serial queue. Do not cancelAllOperations: that
+        // can discard a start queued after this stop and invert lifecycle order.
+        workQueue.addOperation { [weak self] in
+            guard let self else { return }
+            dataTask?.cancel()
+            dataTask = nil
+            ipnWatchSession?.invalidateAndCancel()
+            ipnWatchSession = nil
+            buffer = Data()
+            pendingMessages = []
+            congested = false
+        }
     }
 
     func start(_ request: URLRequest,

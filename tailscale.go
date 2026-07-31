@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"tailscale.com/hostinfo"
@@ -568,10 +569,15 @@ func TsnetDebugResetConnections(sd C.int) C.int {
 	if err != nil {
 		return s.recErr(fmt.Errorf("debug LocalClient: %w", err))
 	}
-	if err := lc.DebugAction(context.Background(), "rebind"); err != nil {
+	// This is called synchronously through C from an iOS foreground task.
+	// Never let an unhealthy backend pin that task (and the reconnect UI)
+	// forever. Swift cancellation cannot interrupt a C/Go call.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := lc.DebugAction(ctx, "rebind"); err != nil {
 		return s.recErr(fmt.Errorf("debug rebind: %w", err))
 	}
-	if err := lc.DebugAction(context.Background(), "break-derp-conns"); err != nil {
+	if err := lc.DebugAction(ctx, "break-derp-conns"); err != nil {
 		return s.recErr(fmt.Errorf("debug break DERP: %w", err))
 	}
 	return s.recErr(nil)
