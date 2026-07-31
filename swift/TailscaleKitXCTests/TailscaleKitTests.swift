@@ -159,6 +159,7 @@ final class TailscaleKitTests: XCTestCase {
 
             print("Got proxied data \(data.count)")
             XCTAssert(data.count > 0)
+            try await ts1.close()
         }
     }
 
@@ -221,6 +222,7 @@ final class TailscaleKitTests: XCTestCase {
 
             let peerStatus = status.SelfStatus!
             XCTAssertTrue(peerStatus.Online)
+            try await ts1.close()
         } catch {
             XCTFail(error.localizedDescription)
         }
