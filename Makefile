@@ -18,6 +18,10 @@ SIM_NAME     ?= iPhone 17
 DERIVED      := build/DerivedData
 
 XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
+# Rebuild the generated framework when a tracked libtailscale source changes.
+# Depending only on the xcframework's existence silently packaged stale native
+# code into new archives (especially dangerous for local submodule edits).
+LIBTSCALE_SOURCES := $(shell git -C ThirdParty/libtailscale ls-files '*.go' '*.c' '*.h' 'swift/TailscaleKit/*.swift' 'swift/TailscaleKit/**/*.swift' | sed 's|^|ThirdParty/libtailscale/|')
 LIBTSCALEDIR := ThirdParty/libtailscale/swift
 
 # Device IPA build (see `make ipa`). Archive + export live under build/.
@@ -38,11 +42,15 @@ XCB := set -o pipefail; xcodebuild
 .PHONY: all
 all: framework app  ## Build the libtailscale xcframework and the app for the simulator
 
+.PHONY: test-lock-resume
+test-lock-resume: framework  ## Background + genuinely freeze app process; assert prompt resume
+	scripts/test-lock-resume.sh
+
 # ----- libtailscale -----
 .PHONY: framework
 framework: $(XCFRAMEWORK)  ## Build TailscaleKit.xcframework (skipped if it exists)
 
-$(XCFRAMEWORK):
+$(XCFRAMEWORK): $(LIBTSCALE_SOURCES)
 	@echo
 	@echo "::: Building TailscaleKit.xcframework (libtailscale submodule) :::"
 	@echo "(needs Go 1.26.3; slow the first time)"

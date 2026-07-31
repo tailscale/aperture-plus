@@ -32,8 +32,9 @@ final class TSNetManager {
 
     let config: Configuration
 
-    // The model will be the consumer for our the busWatcher
-    let consumer: TSNetConsumer
+    // The consumer is replaced on each lifecycle generation so callbacks
+    // already queued by a cancelled observer cannot mutate current state.
+    private(set) var consumer: TSNetConsumer
     let model: TSNetModel
 
     var localAPIClient: LocalAPIClient?
@@ -188,8 +189,19 @@ final class TSNetManager {
     }
 
     func tailscaleUp(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws {
-        let processor = try await startEventBus(localAPI: localAPI, consumer: consumer)
-        await MainActor.run { setProcessor(processor) }
+        let generation = model.activeObservationGeneration
+        let processor = try await startEventBus(localAPI: localAPI, consumer: consumer,
+                                                generation: generation)
+        if !didEnterBackground,
+           generation == model.activeObservationGeneration {
+            setProcessor(processor)
+        } else {
+            processor.cancel()
+            logger.log("Startup observers completed after background; foreground recovery owns restart")
+            // Continue to publish the stable loopback proxy below. Foreground
+            // recovery can replace observers, but it cannot recover a proxy
+            // configuration that startup never created.
+        }
 
         // Deliberately do NOT call `node?.up()`. `up()` calls Go's
         // `Up(context.Background())` (non-cancellable), which blocks until the
@@ -242,9 +254,24 @@ final class TSNetManager {
     /// or timing out, so merely waiting for the old bus/status requests can
     /// leave our synthetic `.Starting` state permanent.
     @MainActor private var foregroundRecoveryTask: Task<Void, Never>?
+    /// Owns the ordinary IPN-bus error retry. It must be explicitly cancelled:
+    /// cancelling the Combine sink does not cancel a Task it already spawned.
+    @MainActor private var busRestartTask: Task<Void, Never>?
     @MainActor private var foregroundRecoveryGeneration: UInt64 = 0
     @MainActor private var didEnterBackground = false
     @MainActor private var didRunConnectionResetTest = false
+
+    private struct LifecycleRecoveryTestError: Error {}
+
+    nonisolated static func lifecycleRecoveryTestRequested() -> Bool {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("-UITestLifecycleRecoveryRace")
+            || args.contains("-UITestExternalProcessSuspend")
+    }
+
+    nonisolated static func lifecycleRecoveryRaceTestRequested() -> Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestLifecycleRecoveryRace")
+    }
 
     /// Starts observing `prefs` for exit-node changes. Idempotent.
     @MainActor
@@ -270,7 +297,8 @@ final class TSNetManager {
                 if available { self.runConnectionResetTestIfNeeded() }
             }
     }
-    func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer) async throws  -> MessageProcessor {
+    func startEventBus(localAPI: LocalAPIClient, consumer: TSNetConsumer,
+                       generation: UInt64? = nil) async throws -> MessageProcessor {
         // This sets up a bus watcher to listen for changes in the netmap.  These will be sent to the given consumer, in
         // this case, a TSNetModel which will keep track of the changes and publish them.
         let busEventMask: Ipn.NotifyWatchOpt = [.initialState]
@@ -291,60 +319,93 @@ final class TSNetManager {
         // "click Login/Logout and nothing happens for minutes/ever" hang).
         // Now we catch, log, back off, and retry until the bus comes back or
         // the node is torn down (background).
+        let expectedGeneration: UInt64
+        if let generation {
+            expectedGeneration = generation
+        } else {
+            expectedGeneration = await MainActor.run { model.activeObservationGeneration }
+        }
         let busObserver = await consumer.$error
             .sink { [weak self] error in
-                guard error != nil else { return }
-                logger.log("Bus watcher error: \(String(describing: error)); restarting")
-                Task { [weak self] in
-                    guard let self else { return }
-                    await MainActor.run { consumer.error = nil }
-                    var backoff: TimeInterval = 0.5
-                    while !Task.isCancelled {
-                        // Bail if the node was torn down (background); the
-                        // foreground path starts a fresh bus on the new node.
-                        let alive = await MainActor.run { self.node != nil }
-                        guard alive else { return }
-                        do {
-                            let processor = try await self.startEventBus(localAPI: localAPI, consumer: consumer)
-                            await MainActor.run { self.setProcessor(processor) }
-                            return // success
-                        } catch {
-                            logger.log("Bus restart failed: \(error); retry in \(Int(backoff))s")
-                            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-                            backoff = min(backoff * 2, 30)
-                        }
-                    }
-                }
+                guard let self, let error else { return }
+                self.scheduleBusRestart(localAPI: localAPI, consumer: consumer,
+                                        generation: expectedGeneration, error: error)
             }
 
         // Cancel any prior observer before installing the new one, so the old
         // watcher's sink can't fire again and cascade into concurrent restarts.
         await MainActor.run {
+            guard expectedGeneration == model.activeObservationGeneration,
+                  !didEnterBackground else {
+                busObserver.cancel()
+                processor.cancel()
+                return
+            }
             busErrorWatcher?.cancel()
             busErrorWatcher = busObserver
         }
         return processor
     }
 
+    @MainActor
+    private func scheduleBusRestart(localAPI: LocalAPIClient, consumer: TSNetConsumer,
+                                    generation: UInt64, error: Error) {
+        guard !didEnterBackground,
+              generation == model.activeObservationGeneration else { return }
+        logger.log("Bus watcher error: \(error); restarting generation \(generation)")
+        busRestartTask?.cancel()
+        consumer.error = nil
+        busRestartTask = Task { [weak self] in
+            guard let self else { return }
+            var backoff: Duration = .milliseconds(500)
+            while !Task.isCancelled {
+                guard !self.didEnterBackground,
+                      generation == self.model.activeObservationGeneration else { return }
+                do {
+                    let processor = try await self.startEventBus(
+                        localAPI: localAPI, consumer: consumer, generation: generation)
+                    guard !Task.isCancelled, !self.didEnterBackground,
+                          generation == self.model.activeObservationGeneration else {
+                        processor.cancel()
+                        return
+                    }
+                    self.setProcessor(processor)
+                    self.busRestartTask = nil
+                    return
+                } catch {
+                    logger.log("Bus restart failed: \(error); retrying")
+                    try? await Task.sleep(for: backoff)
+                    backoff = min(backoff * 2, .seconds(30))
+                }
+            }
+        }
+    }
+
     func setLocalAPIClient(_ client: TailscaleKit.LocalAPIClient) {
         self.localAPIClient = client
-        startStatusPolling()
         startPrefsObservation()
         startProxyAvailabilityObservation()
+        // Startup can finish while iOS is already backgrounding. Retain the
+        // client, but let the generation-aware foreground path own observation.
+        if !didEnterBackground { startStatusPolling() }
     }
 
     /// Polls `backendStatus()` every few seconds and publishes it on the model,
     /// so per-tab connection-type indicators stay current. Stops on
     /// `willEnterBackground` / when the client is gone.
     @MainActor
-    func startStatusPolling() {
+    func startStatusPolling(generation: UInt64? = nil) {
         guard statusPollTask == nil else { return }
+        let expectedGeneration = generation ?? model.activeObservationGeneration
         statusPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 if let client = await MainActor.run(body: { self.localAPIClient }) {
                     if let status = try? await client.backendStatus() {
                         await MainActor.run {
+                            guard expectedGeneration == self.model.activeObservationGeneration,
+                                  !self.didEnterBackground else { return }
+                            self.model.freshLocalAPIResponseGeneration &+= 1
                             self.model.localStatus = status
                             // Fallback state signal: model.state is normally
                             // driven by the IPN bus, but if the bus watcher is
@@ -540,10 +601,23 @@ final class TSNetManager {
         // freezes them: leaving those tasks suspended was both unreliable after
         // unlock and a likely source of the observed heat/retry churn.
         logger.log("Background: preserving tsnet/proxy sessions; stopping observers")
+        if Self.lifecycleRecoveryRaceTestRequested() {
+            model.lifecycleRecoveryTestStatus = "background-cancelling-retry"
+            // Deterministically create the race that used to survive background:
+            // an ordinary bus retry is already alive when lifecycle teardown runs.
+            if let localAPIClient {
+                scheduleBusRestart(localAPI: localAPIClient, consumer: consumer,
+                                   generation: foregroundRecoveryGeneration,
+                                   error: LifecycleRecoveryTestError())
+            }
+        }
         didEnterBackground = true
         foregroundRecoveryGeneration &+= 1
+        model.activeObservationGeneration = foregroundRecoveryGeneration
         foregroundRecoveryTask?.cancel()
         foregroundRecoveryTask = nil
+        busRestartTask?.cancel()
+        busRestartTask = nil
         stopStatusPolling()
         processor?.cancel()
         processor = nil
@@ -566,71 +640,134 @@ final class TSNetManager {
         }
 
         foregroundRecoveryTask?.cancel()
+        busRestartTask?.cancel()
+        busRestartTask = nil
         let generation = foregroundRecoveryGeneration
         foregroundRecoveryTask = Task { [weak self] in
             guard let self,
                   generation == self.foregroundRecoveryGeneration,
                   !Task.isCancelled else { return }
             do {
-                // iOS may silently kill UDP sockets and DERP TCP listeners while
-                // suspended without producing a useful netmon change. Force the
-                // same repair tailscaled performs for a major link change. This
-                // preserves the tsnet Server, loopback SOCKS listener, netstack,
-                // and existing proxied sessions.
+                // The Go implementation has its own deadline. Swift task
+                // cancellation cannot interrupt a synchronous C/Go call.
                 try await node.debugResetConnections()
                 logger.log("Foreground: tsnet transport rebind complete")
+                // The synchronous repair call reached LocalBackend and both
+                // rebind actions completed, so the retained proxy is usable.
+                // Do not keep the browser gated for ~30s merely because the
+                // disposable URLSession observers have not yet proved
+                // themselves. Repair those below without blocking connectivity.
+                self.model.state = .Running
             } catch {
-                logger.log("Foreground: tsnet transport rebind failed: \(error)")
+                // LocalAPI recovery must proceed even if transport repair fails.
+                logger.log("Foreground: tsnet transport rebind failed: \(error); continuing observer recovery")
             }
             guard !Task.isCancelled,
                   generation == self.foregroundRecoveryGeneration else { return }
-            self.foregroundRecoveryTask = nil
-            self.restartLocalAPIObserversAfterResume(generation: generation)
+            await self.recoverLocalAPIObserversAfterResume(generation: generation, node: node)
+            if generation == self.foregroundRecoveryGeneration {
+                self.foregroundRecoveryTask = nil
+            }
+        }
+    }
+
+    /// Rebuilds LocalAPI observation and requires evidence from the new
+    /// generation before declaring recovery complete. `watchIPNBus` returning
+    /// only means a URLSession task was created; it does not prove bytes flow.
+    @MainActor
+    private func recoverLocalAPIObserversAfterResume(generation: UInt64,
+                                                      node: TailscaleNode) async {
+        var attempt = 0
+        while !Task.isCancelled,
+              generation == foregroundRecoveryGeneration,
+              !didEnterBackground {
+            attempt += 1
+            stopStatusPolling()
+            processor?.cancel()
+            processor = nil
+            busErrorWatcher?.cancel()
+            busErrorWatcher = nil
+            busRestartTask?.cancel()
+            busRestartTask = nil
+
+            if localAPIClient == nil {
+                logger.log("Foreground recovery: rebuilding missing LocalAPI client")
+                localAPIClient = await LocalAPIClient(localNode: node, logger: logger)
+            }
+            guard let client = localAPIClient else { continue }
+
+            let newConsumer = TSNetConsumer(logger: logger, model: model,
+                                            observationGeneration: generation)
+            consumer = newConsumer
+            model.activeObservationGeneration = generation
+            let responseMarker = model.freshLocalAPIResponseGeneration
+            do {
+                let newProcessor = try await startEventBus(
+                    localAPI: client, consumer: newConsumer, generation: generation)
+                guard !Task.isCancelled,
+                      generation == foregroundRecoveryGeneration,
+                      !didEnterBackground else {
+                    newProcessor.cancel()
+                    return
+                }
+                setProcessor(newProcessor)
+                startStatusPolling(generation: generation)
+                logger.log("Foreground recovery: observers started; awaiting fresh response (attempt \(attempt))")
+
+                let deadline = ContinuousClock.now.advanced(by: .seconds(4))
+                while ContinuousClock.now < deadline,
+                      !Task.isCancelled,
+                      generation == foregroundRecoveryGeneration,
+                      !didEnterBackground {
+                    if model.freshLocalAPIResponseGeneration != responseMarker {
+                        logger.log("Foreground recovery: fresh LocalAPI response received")
+                        if Self.lifecycleRecoveryTestRequested() {
+                            model.lifecycleRecoveryTestStatus = "complete"
+                        }
+                        return
+                    }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                logger.log("Foreground recovery: no fresh response within 4s; retrying")
+            } catch {
+                logger.log("Foreground recovery: observer start failed: \(error); retrying")
+            }
+            if attempt >= 3 {
+                // Prefer losing live transports over a permanent hot/stuck app.
+                // WebKit and its data store survive this last-resort node rebuild.
+                logger.log("Foreground recovery: three attempts produced no fresh data; rebuilding tsnet node")
+                if Self.lifecycleRecoveryTestRequested() {
+                    model.lifecycleRecoveryTestStatus = "fallback-node-rebuild"
+                }
+                await rebuildNodeAfterFailedResume(node: node, generation: generation)
+                return
+            }
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
     @MainActor
-    private func restartLocalAPIObserversAfterResume(generation: UInt64) {
-        guard generation == foregroundRecoveryGeneration else { return }
-        foregroundRecoveryTask?.cancel()
-        foregroundRecoveryTask = Task { [weak self] in
-            guard let self,
-                  generation == self.foregroundRecoveryGeneration,
-                  !Task.isCancelled else { return }
-            self.stopStatusPolling()
-            self.processor?.cancel()
-            self.processor = nil
-            self.busErrorWatcher?.cancel()
-            self.busErrorWatcher = nil
-            self.consumer.error = nil
-
-            guard let client = self.localAPIClient else {
-                logger.log("Foreground recovery: LocalAPI client missing")
-                return
-            }
-            do {
-                let processor = try await self.startEventBus(localAPI: client,
-                                                             consumer: self.consumer)
-                guard !Task.isCancelled,
-                      generation == self.foregroundRecoveryGeneration else {
-                    processor.cancel()
-                    return
-                }
-                self.setProcessor(processor)
-                self.startStatusPolling()
-                logger.log("Foreground recovery: LocalAPI observers restarted")
-            } catch {
-                logger.log("Foreground recovery: bus restart failed: \(error)")
-                // The regular startEventBus error-retry path cannot exist until
-                // a processor starts. Retry foreground recovery with bounded
-                // backoff while this node remains alive.
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled,
-                      generation == self.foregroundRecoveryGeneration else { return }
-                self.foregroundRecoveryTask = nil
-                self.restartLocalAPIObserversAfterResume(generation: generation)
-            }
+    private func rebuildNodeAfterFailedResume(node: TailscaleNode,
+                                              generation: UInt64) async {
+        guard generation == foregroundRecoveryGeneration, !didEnterBackground else { return }
+        stopStatusPolling()
+        processor?.cancel()
+        processor = nil
+        busErrorWatcher?.cancel()
+        busErrorWatcher = nil
+        localAPIClient = nil
+        socksLogProxy?.stop()
+        socksLogProxy = nil
+        socksLogProxyPort = nil
+        self.node = nil
+        startInFlight = false
+        do {
+            try await node.close()
+        } catch {
+            logger.log("Foreground recovery: old node close failed: \(error)")
         }
+        guard generation == foregroundRecoveryGeneration, !didEnterBackground else { return }
+        startTailscaleIfNeeded()
     }
 
     func setExitNodeEnabled(_ enabled: Bool) {

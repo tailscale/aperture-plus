@@ -206,12 +206,20 @@ private struct BrowserRootContent: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .overlay(alignment: .bottomLeading) {
-            if ProcessInfo.processInfo.arguments.contains("-UITestResetConnections"),
-               let status = workspace.model.connectionResetTestStatus {
-                Text(status)
-                    .accessibilityIdentifier("connection-reset-test-status")
-                    .opacity(0.01)
+            VStack {
+                if ProcessInfo.processInfo.arguments.contains("-UITestResetConnections"),
+                   let status = workspace.model.connectionResetTestStatus {
+                    Text(status)
+                        .accessibilityIdentifier("connection-reset-test-status")
+                }
+                if (ProcessInfo.processInfo.arguments.contains("-UITestLifecycleRecoveryRace")
+                    || ProcessInfo.processInfo.arguments.contains("-UITestExternalProcessSuspend")),
+                   let status = workspace.model.lifecycleRecoveryTestStatus {
+                    Text(status)
+                        .accessibilityIdentifier("lifecycle-recovery-test-status")
+                }
             }
+            .opacity(0.01)
         }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
