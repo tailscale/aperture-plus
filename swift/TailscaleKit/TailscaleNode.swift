@@ -115,11 +115,11 @@ public actor TailscaleNode {
         logger?.log("Closed Tailscale:\(tailscale)")
     }
 
-    /// Simulates suspend/resume transport loss without closing this node.
-    /// Rebinds magicsock's UDP sockets and breaks all DERP TCP connections;
-    /// the loopback proxy and netstack sessions are deliberately preserved.
-    /// TEST/DEBUG ONLY.
-    public func debugResetConnections() throws {
+    /// Repairs transports that iOS may silently invalidate while this process
+    /// is suspended. Rebinds magicsock UDP and breaks stale DERP TCP sessions
+    /// without closing the server, loopback proxy, netstack, or web sessions.
+    /// The Go side applies a deadline so foreground recovery cannot wedge here.
+    public func repairConnectionsAfterResume() throws {
         guard let tailscale else {
             throw TailscaleError.badInterfaceHandle
         }
@@ -127,6 +127,11 @@ public actor TailscaleNode {
         guard res == 0 else {
             throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
         }
+    }
+
+    /// Test compatibility name for the transport-damage integration hook.
+    public func debugResetConnections() throws {
+        try repairConnectionsAfterResume()
     }
 
     /// Deliberately crashes the Go runtime. TEST/DEBUG ONLY — never call from
