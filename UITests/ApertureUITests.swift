@@ -763,81 +763,12 @@ final class ApertureUITests: XCTestCase {
         attachScreenshot(app, named: "proxy-bounce-no-reload-fetch-survived")
     }
 
-    /// Uses libtailscale's test-only magicsock rebind + DERP-break hook to
-    /// reproduce the transport loss caused by iOS suspending background TCP
-    /// listeners. The app must stay usable without reloading the WebView.
-    func testTsnetTransportResetRecoversWithoutReloadingPage() throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["-UITestResetConnections"]
-        launchConnected(app)
-        guard requireBrowserReady(app) else { return }
-        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
-
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 10))
-        let address = app.buttons["url-pill"].label
-        let resetStatus = app.staticTexts["connection-reset-test-status"]
-        XCTAssertTrue(resetStatus.waitForExistence(timeout: 10),
-                      "The libtailscale transport reset hook should run")
-        let resetComplete = NSPredicate(format: "label == %@", "complete")
-        let resetExpectation = XCTNSPredicateExpectation(predicate: resetComplete,
-                                                          object: resetStatus)
-        XCTAssertEqual(XCTWaiter().wait(for: [resetExpectation], timeout: 20), .completed,
-                       "The libtailscale transport reset hook should complete")
-        let banner = app.descendants(matching: .any)
-            .matching(identifier: "reconnecting-banner").firstMatch
-
-        // The reset runs two seconds after Running. Depending on direct-vs-DERP
-        // path timing the banner can be brief, but it must never remain stuck.
-        _ = banner.waitForExistence(timeout: 8)
-        let bannerGone = NSPredicate { object, _ in
-            guard let element = object as? XCUIElement else { return false }
-            return !element.exists
-        }
-        let recovery = XCTNSPredicateExpectation(predicate: bannerGone, object: banner)
-        XCTAssertEqual(XCTWaiter().wait(for: [recovery], timeout: 30), .completed)
-        XCTAssertEqual(app.buttons["url-pill"].label, address)
-        XCTAssertTrue(webView.exists)
-        XCTAssertFalse(app.descendants(matching: .any)
-            .matching(identifier: "nav-error-overlay").firstMatch.exists)
-    }
-
-    /// Deterministically starts the ordinary bus-error retry immediately before
-    /// background teardown. Before the lifecycle-generation fix that unowned
-    /// task survived, raced the foreground observer, and could leave `.Starting`
-    /// permanent. This covers the timing-sensitive production failure without
-    /// relying on the simulator to truly suspend the process.
-    func testBackgroundCancelsBusRetryAndGetsFreshLocalAPIState() throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["-UITestLifecycleRecoveryRace"]
-        launchConnected(app)
-        guard requireBrowserReady(app) else { return }
-        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
-        let address = app.buttons["url-pill"].label
-
-        XCUIDevice.shared.press(.home)
-        Thread.sleep(forTimeInterval: 2)
-        app.activate()
-
-        let status = app.staticTexts["lifecycle-recovery-test-status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 10))
-        let complete = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", "complete"), object: status)
-        XCTAssertEqual(XCTWaiter().wait(for: [complete], timeout: 30), .completed,
-                       "Recovery must cancel the stale retry and receive data from the new observer")
-        XCTAssertEqual(app.buttons["url-pill"].label, address)
-        XCTAssertFalse(app.descendants(matching: .any)
-            .matching(identifier: "reconnecting-banner").firstMatch.exists)
-    }
-
     /// Used by `scripts/test-lock-resume.sh`, which sends this app process a
     /// host-side SIGSTOP after the Home transition and SIGCONT before activate.
     /// That freezes Swift, URLSession, Network.framework, and the embedded Go
-    /// runtime together—the key behavior missing from ordinary simulator UI
-    /// tests—while retaining real scene background/active notifications.
+    /// runtime together while retaining real scene background/active notifications.
     func testExternalProcessSuspendRecoversWithoutReloadingPage() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestExternalProcessSuspend"]
         launchConnected(app)
         guard requireBrowserReady(app) else { return }
         XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
@@ -851,33 +782,19 @@ final class ApertureUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 12)
         app.activate()
 
-        let banner = app.descendants(matching: .any)
-            .matching(identifier: "reconnecting-banner").firstMatch
-        let bannerGone = XCTNSPredicateExpectation(
-            predicate: NSPredicate { object, _ in
-                guard let element = object as? XCUIElement else { return false }
-                return !element.exists
-            }, object: banner)
-        XCTAssertEqual(XCTWaiter().wait(for: [bannerGone], timeout: 7), .completed,
-                       "Resume must restore browser connectivity promptly, not after the ~30s observer fallback")
-
-        // Observer recovery is separate from opening the connectivity gate. It
-        // must still deliver fresh LocalAPI data, but it may finish after the UI
-        // is usable and therefore has a separate, less strict deadline.
-        let status = app.staticTexts["lifecycle-recovery-test-status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 10))
-        let complete = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", "complete"), object: status)
-        XCTAssertEqual(XCTWaiter().wait(for: [complete], timeout: 20), .completed,
-                       "The replacement LocalAPI observer must eventually deliver fresh state")
-        XCTAssertEqual(app.buttons["url-pill"].label, address)
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 7),
+                      "The retained browser should remain available immediately after resume")
+        let resumedAddress = app.buttons["url-pill"].label
+        XCTAssertTrue(resumedAddress == address || resumedAddress.hasSuffix(".ts.net"),
+                      "Resume must preserve the page; a bare MagicDNS name may canonicalize to its FQDN")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
     }
 
-    /// Real connected lock/unlock regression. The simulator does not suspend
-    /// processes when its display is powered off, so the test drives the same
-    /// background/active lifecycle with XCUIDevice.home + app.activate. This
-    /// still reproduces the Swift-side bug: foreground forced `.Starting` but
-    /// reused suspended LocalAPI URLSessions, leaving the banner permanent.
+    /// Connected background/foreground regression. The simulator does not
+    /// truly suspend processes when its display is powered off, so this drives
+    /// scene lifecycle with XCUIDevice.home + app.activate and verifies that
+    /// Aperture leaves the retained page alone.
     func testBackgroundResumeReconnectsWithoutReloadingPage() throws {
         let app = XCUIApplication()
         launchConnected(app)
@@ -892,23 +809,12 @@ final class ApertureUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 5)
         app.activate()
 
-        let banner = app.descendants(matching: .any)
-            .matching(identifier: "reconnecting-banner").firstMatch
-        // On a healthy simulator loopback the fresh initial-state event can
-        // arrive before XCUITest takes its first post-activate snapshot, so the
-        // banner is optional; if seen, it must clear. The hard assertions are
-        // that browser state/page survive and no banner remains stuck.
-        _ = banner.waitForExistence(timeout: 2)
-        let bannerGone = NSPredicate { object, _ in
-            guard let element = object as? XCUIElement else { return false }
-            return !element.exists
-        }
-        let recovery = XCTNSPredicateExpectation(predicate: bannerGone, object: banner)
-        XCTAssertEqual(XCTWaiter().wait(for: [recovery], timeout: 7), .completed,
-                       "The reconnecting banner must clear promptly after foreground recovery")
-        XCTAssertEqual(app.buttons["url-pill"].label, address,
-                       "Foreground recovery must not reload or replace the page")
+        let resumedAddress = app.buttons["url-pill"].label
+        XCTAssertTrue(resumedAddress == address || resumedAddress.hasSuffix(".ts.net"),
+                      "Background/foreground must preserve the page; a bare MagicDNS name may canonicalize to its FQDN")
         XCTAssertTrue(webView.exists)
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
     }
 
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)

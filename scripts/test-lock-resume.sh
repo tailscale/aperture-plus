@@ -68,10 +68,10 @@ TEST_PID=$!
 
 # Wait for the actual app lifecycle callback, not an arbitrary sleep.
 for _ in $(seq 1 300); do
-    if grep -q 'Background: preserving tsnet/proxy sessions' "$UNIFIED"; then break; fi
+    if grep -q 'Background: leaving tsnet, proxy, and observers unchanged' "$UNIFIED"; then break; fi
     sleep 0.1
 done
-if ! grep -q 'Background: preserving tsnet/proxy sessions' "$UNIFIED"; then
+if ! grep -q 'Background: leaving tsnet, proxy, and observers unchanged' "$UNIFIED"; then
     echo "Timed out waiting for Aperture to enter background" >&2
     tail -80 "$UNIFIED" >&2
     exit 1

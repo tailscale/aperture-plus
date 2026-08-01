@@ -29,20 +29,6 @@ final class TSNetModel: ObservableObject {
     /// `TSNetManager.refreshProxyPolicyIfNeeded` can tell when the rules
     /// actually changed. See `TailnetProxyPolicy`.
     @Published var proxyPolicy: TailnetProxyPolicy?
-    /// Test-only observable for the libtailscale transport-reset integration
-    /// test. Nil in normal runs; surfaced through an accessibility label only
-    /// when `-UITestResetConnections` is present.
-    @Published var connectionResetTestStatus: String?
-    /// Monotonically identifies the IPN observer whose events are allowed to
-    /// mutate this model. A cancelled URLSession can still have actor/MainActor
-    /// callbacks queued; consumers from older generations discard those events.
-    var activeObservationGeneration: UInt64 = 0
-    /// Incremented by a current-generation IPN notification or successful
-    /// status poll. Foreground recovery uses this as proof that newly-created
-    /// LocalAPI observation is actually delivering data (not merely allocated).
-    @Published var freshLocalAPIResponseGeneration: UInt64 = 0
-    /// Test-only lifecycle recovery state, surfaced to XCUITest when requested.
-    @Published var lifecycleRecoveryTestStatus: String?
 
     var exitNodeId: String? {
         if let prefs = prefs {
@@ -69,16 +55,14 @@ final class TSNetModel: ObservableObject {
 actor TSNetConsumer: MessageConsumer {
     private let logger: LogSink
     private let model: TSNetModel
-    private let observationGeneration: UInt64
     private var needsLoginAt: ContinuousClock.Instant?
     private var loginFinishedAt: ContinuousClock.Instant?
 
     @MainActor @Published var error: Error? = nil
 
-    init(logger: LogSink, model: TSNetModel, observationGeneration: UInt64 = 0) {
+    init(logger: LogSink, model: TSNetModel) {
         self.logger = logger
         self.model = model
-        self.observationGeneration = observationGeneration
     }
 
     // MARK: - Message Consumer
@@ -116,11 +100,6 @@ actor TSNetConsumer: MessageConsumer {
         }
 
         Task { @MainActor in
-            guard self.model.activeObservationGeneration == self.observationGeneration else {
-                logger.log("Discarding stale IPN event from observer \(self.observationGeneration)")
-                return
-            }
-            self.model.freshLocalAPIResponseGeneration &+= 1
             if notify.LoginFinished != nil {
                 logger.log("LoginFinished: IPN bus notification received")
                 self.model.loginFinishedGeneration &+= 1
@@ -152,9 +131,6 @@ actor TSNetConsumer: MessageConsumer {
     func error(_ error: any Error) {
         logger.log("\(error)")
         Task { @MainActor in
-            guard self.model.activeObservationGeneration == self.observationGeneration else {
-                return
-            }
             self.error = error
         }
     }

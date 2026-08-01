@@ -22,7 +22,6 @@ final class BrowserViewModel: NSObject, ObservableObject {
     @Published var navErrorMessage: String?
     @Published var navErrorKind: NavErrorKind?
     @Published var navErrorURLString: String?
-    @Published private(set) var isConnected = false
 
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
@@ -60,22 +59,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
         if let proxy = model.proxyConfiguration {
             dataStore.proxyConfigurations = [proxy]
         }
-        isConnected = model.state == .Running
-
         model.$proxyConfiguration
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] proxy in self?.applyProxy(proxy) }
-            .store(in: &observers)
-
-        // Connectivity is a status signal, not a WebKit configuration
-        // lifecycle. A Starting/NoState bounce must not remove/reinstall the
-        // proxy (which tears down WebKit connection pools) or reload a page.
-        model.$state
-            .map { $0 == .Running }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] connected in self?.applyConnectionState(connected) }
             .store(in: &observers)
     }
 
@@ -105,6 +92,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
         if let pendingLoadURL {
             self.pendingLoadURL = nil
+            // This is a restored committed page, not a never-loaded tab. A
+            // later proxy-policy publication must not replace it with initialURL.
+            didLoadInitial = true
             loadResolved(pendingLoadURL)
         } else {
             loadInitial()
@@ -168,19 +158,8 @@ final class BrowserViewModel: NSObject, ObservableObject {
         if !didLoadInitial { loadInitial() }
     }
 
-    private func applyConnectionState(_ connected: Bool) {
-        let wasConnected = isConnected
-        isConnected = connected
-        if connected {
-            if !didLoadInitial { loadInitial() }
-            if !wasConnected { logger.log("Tailnet reconnected — page and proxy kept, no reload") }
-        } else if wasConnected {
-            logger.log("Tailnet reconnecting — page and proxy kept; new connections will be held")
-        }
-    }
-
     func loadInitial() {
-        guard !didLoadInitial, isConnected else { return }
+        guard !didLoadInitial, tsnetModel.state == .Running else { return }
         if needsPeerDataToRoute(initialURL), tsnetModel.proxyPolicy?.hasPeerData != true {
             logger.log("loadInitial: holding \(initialURL) until tailnet peer data arrives")
             return
@@ -193,7 +172,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
         let target = resolveForTailnet(url)
         clearNavError()
         guard webView != nil else {
-            pendingLoadURL = target
+            // Preserve an unloaded tab's committed URL. Automatic initial-load
+            // attempts must not overwrite it while the tab has no WKWebView.
+            if pendingLoadURL == nil { pendingLoadURL = target }
             return
         }
         loadResolved(target)
@@ -239,13 +220,6 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     func navigationError(_ error: Error, for url: URL) {
         logger.log("Navigation error for \(url): \(error)")
-        if !isConnected {
-            // The relay normally prevents this callback by holding the SOCKS
-            // request until Running. If WebKit reports a failure from an older
-            // established stream during the bounce, do not turn it into error
-            // UI or an automatic document reload.
-            return
-        }
         navError = (error, url)
         navErrorMessage = Self.describe(error)
         navErrorKind = Self.categorize(error)

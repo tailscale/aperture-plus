@@ -61,12 +61,6 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
     private let upstreamPort: UInt16
     private let queue = DispatchQueue(label: "io.tailscale.Aperture.sockslog")
     private var listener: NWListener?
-    /// Whether tsnet currently has a usable tailnet. New SOCKS connections are
-    /// accepted while false, but deliberately left unread: TCP backpressure
-    /// holds WebKit's request without returning a SOCKS failure. Existing
-    /// relays are never touched by a state bounce.
-    private var upstreamAvailable = false
-    private var waitingClients: [UInt64: NWConnection] = [:]
     /// Monotonic id so a CONNECT and its reply can be correlated in the log.
     private var nextID: UInt64 = 1
 
@@ -119,28 +113,8 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
 
     func stop() {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.listener?.cancel()
-            self.listener = nil
-            for client in self.waitingClients.values { client.cancel() }
-            self.waitingClients.removeAll()
-        }
-    }
-
-    /// Opens or closes the gate for *new* proxy connections. Closing the gate
-    /// never cancels an established relay: tsnet keeps the same tailnet IP and
-    /// its live TCP sessions can survive a transient control/DERP reconnect.
-    /// Clients arriving while closed stay connected to this loopback listener
-    /// and are released when Running returns.
-    func setUpstreamAvailable(_ available: Bool) {
-        queue.async { [weak self] in
-            guard let self, self.upstreamAvailable != available else { return }
-            self.upstreamAvailable = available
-            logger.log("sockslog: connection gate \(available ? "OPEN" : "CLOSED")")
-            guard available else { return }
-            let waiting = self.waitingClients.sorted { $0.key < $1.key }
-            self.waitingClients.removeAll()
-            for (id, client) in waiting { self.beginRelay(client: client, id: id) }
+            self?.listener?.cancel()
+            self?.listener = nil
         }
     }
 
@@ -150,21 +124,6 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
         let id = nextID
         nextID += 1
         client.start(queue: queue)
-
-        guard upstreamAvailable else {
-            waitingClients[id] = client
-            client.stateUpdateHandler = { [weak self, weak client] state in
-                guard case .cancelled = state else {
-                    if case .failed = state { self?.waitingClients.removeValue(forKey: id) }
-                    return
-                }
-                if self?.waitingClients[id] === client {
-                    self?.waitingClients.removeValue(forKey: id)
-                }
-            }
-            logger.log("socks[\(id)] held — tailnet is reconnecting")
-            return
-        }
         beginRelay(client: client, id: id)
     }
 

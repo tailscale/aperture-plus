@@ -5,8 +5,8 @@
 //  The root window: a Safari-style multi-tab web browser, driven by the
 //  ACTIVE workspace. Until that workspace's tailnet first reaches `Running`
 //  it shows `ConnectionGateView` (the onboarding/login screen); once
-//  connected it switches to the tabbed browser for the rest of the session
-//  (subsequent reconnects show an inline banner, not the gate).
+//  connected it switches to the tabbed browser for the rest of the session.
+//  Later transport outages are left to tsnet and do not replace browser UI.
 //
 //  Each workspace owns its own tabs, home page, bookmarks store, and web data
 //  store (see `Workspace`); this view just renders the active one. Settings is
@@ -205,22 +205,6 @@ private struct BrowserRootContent: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-        .overlay(alignment: .bottomLeading) {
-            VStack {
-                if ProcessInfo.processInfo.arguments.contains("-UITestResetConnections"),
-                   let status = workspace.model.connectionResetTestStatus {
-                    Text(status)
-                        .accessibilityIdentifier("connection-reset-test-status")
-                }
-                if (ProcessInfo.processInfo.arguments.contains("-UITestLifecycleRecoveryRace")
-                    || ProcessInfo.processInfo.arguments.contains("-UITestExternalProcessSuspend")),
-                   let status = workspace.model.lifecycleRecoveryTestStatus {
-                    Text(status)
-                        .accessibilityIdentifier("lifecycle-recovery-test-status")
-                }
-            }
-            .opacity(0.01)
-        }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
         }
@@ -250,8 +234,6 @@ private struct BrowserRootContent: View {
                         authSessionEndedGeneration: statusViewModel.authSessionEndedGeneration,
                         onLogin: { statusViewModel.showAuth() }
                     )
-                } else if !tab.viewModel.isConnected {
-                    ReconnectingBanner()
                 }
             }
     }
@@ -317,26 +299,5 @@ private struct LoginBanner: View {
         .padding(.vertical, 8)
         .background(.thinMaterial)
         .overlay(alignment: .bottom) { Divider() }
-    }
-}
-
-/// Inline "Reconnecting…" banner shown over the browser when the tailnet proxy
-/// drops (e.g. right after returning from the background, before the node
-/// finishes reconnecting). Loads are held and auto-retried (see
-/// `BrowserViewModel.applyProxy`), so this is informational — no retry button.
-private struct ReconnectingBanner: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Reconnecting to your Tailnet…")
-                .font(.subheadline.weight(.medium))
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.thinMaterial)
-        .overlay(alignment: .bottom) { Divider() }
-        .accessibilityIdentifier("reconnecting-banner")
     }
 }

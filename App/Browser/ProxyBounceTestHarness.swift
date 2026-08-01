@@ -95,6 +95,7 @@ private final class BounceMessageBridge: NSObject, ObservableObject, WKScriptMes
 private final class ProxyBounceHarnessModel: ObservableObject {
     let browser: BrowserViewModel
     let bridge = BounceMessageBridge()
+    @Published var connectionLabel = "Connected"
     private let tsnet = TSNetModel()
     private let schemeHandler = BounceSchemeHandler()
 
@@ -111,10 +112,12 @@ private final class ProxyBounceHarnessModel: ObservableObject {
     }
 
     func bounce() {
+        connectionLabel = "Reconnecting"
         tsnet.state = .Starting
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             self?.tsnet.state = .Running
+            self?.connectionLabel = "Connected"
         }
     }
 }
@@ -138,7 +141,7 @@ struct ProxyBounceTestHarnessView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(model.browser.isConnected ? "Connected" : "Reconnecting")
+                Text(model.connectionLabel)
                     .accessibilityIdentifier("bounce-connection-status")
                 BounceBridgeStatus(bridge: model.bridge)
                 Spacer()

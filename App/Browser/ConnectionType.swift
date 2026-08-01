@@ -23,14 +23,12 @@ enum ConnectionType: Equatable, Sendable {
     case direct
     case derped
     case internet
-    case reconnecting
 
     var accessibilityDescription: String {
         switch self {
         case .direct: "Direct tailnet connection"
         case .derped: "Tailnet connection via relay"
         case .internet: "Internet (off tailnet)"
-        case .reconnecting: "Tailnet reconnecting"
         }
     }
 }
