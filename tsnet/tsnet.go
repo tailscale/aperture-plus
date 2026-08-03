@@ -321,6 +321,7 @@ type Server struct {
 	proxyCred           string        // SOCKS5 proxy auth for loopbackListener
 	localAPICred        string        // basic auth password for loopbackListener
 	loopbackListener    net.Listener  // optional loopback for localapi and proxies
+	loopbackGeneration  uint64        // incremented whenever Loopback is replaced
 	localAPIListener    net.Listener  // in-memory, used by localClient
 	localClient         *local.Client // in-memory
 	localAPIServer      *http.Server
@@ -428,6 +429,88 @@ func (testHooks) LocalBackend(s *Server) *ipnlocal.LocalBackend {
 	return s.lb
 }
 
+// loopbackConfig is the complete result of starting the loopback multiplexer.
+type loopbackConfig struct {
+	addr, proxyCred, localAPICred string
+}
+
+// startLoopbackLocked binds and serves a fresh LocalAPI/SOCKS multiplexer.
+// s.mu must be held. The serving goroutines compare their generation before
+// clearing state, so an old listener exiting cannot clobber its replacement.
+func (s *Server) startLoopbackLocked() (loopbackConfig, error) {
+	var proxyCred [16]byte
+	if _, err := crand.Read(proxyCred[:]); err != nil {
+		return loopbackConfig{}, err
+	}
+	var localAPICred [16]byte
+	if _, err := crand.Read(localAPICred[:]); err != nil {
+		return loopbackConfig{}, err
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return loopbackConfig{}, err
+	}
+	s.proxyCred = hex.EncodeToString(proxyCred[:])
+	s.localAPICred = hex.EncodeToString(localAPICred[:])
+	s.loopbackListener = ln
+	s.loopbackGeneration++
+	generation := s.loopbackGeneration
+	socksLn, httpLn := proxymux.SplitSOCKSAndHTTP(ln)
+
+	go func() {
+		lah := localapi.NewHandler(localapi.HandlerConfig{
+			Actor: ipnauth.Self, Backend: s.lb, Logf: s.logf,
+			LogID: s.logid, EventBus: s.sys.Bus.Get(),
+		})
+		lah.PermitWrite, lah.PermitRead = true, true
+		lah.RequiredPassword = s.localAPICred
+		err := http.Serve(httpLn, &localSecHandler{h: lah, cred: s.localAPICred})
+		s.logf("localapi tcp serve error: %v", err)
+		s.mu.Lock()
+		if s.loopbackGeneration == generation {
+			s.loopbackListener = nil
+		}
+		s.mu.Unlock()
+	}()
+
+	s5l := logger.WithPrefix(s.logf, "socks5: ")
+	s5s := &socks5.Server{Logf: s5l, Dialer: s.dialer.UserDial,
+		Username: "tsnet", Password: s.proxyCred}
+	go func() { s5l("SOCKS5 server exited: %v", s5s.Serve(socksLn)) }()
+	return loopbackConfig{ln.Addr().String(), s.proxyCred, s.localAPICred}, nil
+}
+
+// DebugDefunctLoopback closes the exact loopback listener while deliberately
+// retaining the stale non-nil listener object. TEST ONLY. This models the iOS
+// failure mode where callers retain an endpoint that immediately refuses new
+// connections; unlike scanning/close(2), ownership prevents fd-reuse races.
+func (s *Server) DebugDefunctLoopback() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loopbackListener == nil {
+		return errors.New("tsnet: loopback listener has not been started")
+	}
+	return s.loopbackListener.Close()
+}
+
+// RestartLoopback closes the current loopback LocalAPI/SOCKS listener and
+// atomically replaces it with a fresh endpoint and credentials. The tsnet node,
+// netstack, peer sessions, and tailnet identity are retained.
+func (s *Server) RestartLoopback() (addr, proxyCred, localAPICred string, err error) {
+	if err := s.Start(); err != nil {
+		return "", "", "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.loopbackListener != nil {
+		s.loopbackListener.Close()
+		s.loopbackListener = nil
+	}
+	cfg, err := s.startLoopbackLocked()
+	return cfg.addr, cfg.proxyCred, cfg.localAPICred, err
+}
+
 // Loopback starts a routing server on a loopback address.
 //
 // The server has multiple functions.
@@ -447,57 +530,14 @@ func (s *Server) Loopback() (addr string, proxyCred, localAPICred string, err er
 		return "", "", "", err
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.loopbackListener == nil {
-		var proxyCred [16]byte
-		if _, err := crand.Read(proxyCred[:]); err != nil {
-			return "", "", "", err
-		}
-		s.proxyCred = hex.EncodeToString(proxyCred[:])
-
-		var cred [16]byte
-		if _, err := crand.Read(cred[:]); err != nil {
-			return "", "", "", err
-		}
-		s.localAPICred = hex.EncodeToString(cred[:])
-
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		cfg, err := s.startLoopbackLocked()
 		if err != nil {
 			return "", "", "", err
 		}
-		s.loopbackListener = ln
-
-		socksLn, httpLn := proxymux.SplitSOCKSAndHTTP(ln)
-
-		// TODO: add HTTP proxy support. Probably requires factoring
-		// out the CONNECT code from tailscaled/proxy.go that uses
-		// httputil.ReverseProxy and adding auth support.
-		go func() {
-			lah := localapi.NewHandler(localapi.HandlerConfig{
-				Actor:    ipnauth.Self,
-				Backend:  s.lb,
-				Logf:     s.logf,
-				LogID:    s.logid,
-				EventBus: s.sys.Bus.Get(),
-			})
-			lah.PermitWrite = true
-			lah.PermitRead = true
-			lah.RequiredPassword = s.localAPICred
-			h := &localSecHandler{h: lah, cred: s.localAPICred}
-
-			if err := http.Serve(httpLn, h); err != nil {
-				s.logf("localapi tcp serve error: %v", err)
-			}
-		}()
-		s5l := logger.WithPrefix(s.logf, "socks5: ")
-		s5s := &socks5.Server{
-			Logf:     s5l,
-			Dialer:   s.dialer.UserDial,
-			Username: "tsnet",
-			Password: s.proxyCred,
-		}
-		go func() {
-			s5l("SOCKS5 server exited: %v", s5s.Serve(socksLn))
-		}()
+		return cfg.addr, cfg.proxyCred, cfg.localAPICred, nil
 	}
 
 	lbAddr := s.loopbackListener.Addr()
