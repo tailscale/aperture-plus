@@ -1,4 +1,4 @@
 [submodule "libtailscale"]
 	path = ThirdParty/libtailscale
-	url = https://github.com/tailscale/libtailscale.git
+	url = .
 	branch = main
