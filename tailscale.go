@@ -628,6 +628,38 @@ func TsnetDebugResetConnections(sd C.int) C.int {
 	return s.recErr(nil)
 }
 
+//export TsnetDebugDefunctLoopback
+func TsnetDebugDefunctLoopback(sd C.int) C.int {
+	s := getServer(sd)
+	if s == nil {
+		return -1
+	}
+	return s.recErr(s.s.DebugDefunctLoopback())
+}
+
+// TsnetDebugShutdownTCPConnections deliberately calls shutdown(SHUT_RDWR) on
+// every TCP descriptor in the process without close(2). TEST/DEBUG ONLY. This
+// simulates iOS defuncting sockets while avoiding fd-number reuse races.
+//
+//export TsnetDebugShutdownTCPConnections
+func TsnetDebugShutdownTCPConnections(sd C.int) C.int {
+	s := getServer(sd)
+	if s == nil {
+		return -1
+	}
+	matched, succeeded, err := debugShutdownTCPConnections()
+	s.s.Logf("debug shutdown TCP sockets: matched=%d succeeded=%d err=%v", matched, succeeded, err)
+	if matched == 0 {
+		return s.recErr(fmt.Errorf("no TCP sockets found"))
+	}
+	// Partial success is enough for chaos injection; individual sockets can
+	// reject shutdown based on their state.
+	if succeeded == 0 && err != nil {
+		return s.recErr(err)
+	}
+	return s.recErr(nil)
+}
+
 //export TsnetCrashTest
 func TsnetCrashTest(sd, mode C.int) C.int {
 	if getServer(sd) == nil {
@@ -652,8 +684,17 @@ func TsnetCrashTest(sd, mode C.int) C.int {
 	}
 }
 
+//export TsnetRestartLoopback
+func TsnetRestartLoopback(sd C.int, addrOut *C.char, addrLen C.size_t, proxyOut *C.char, localOut *C.char) C.int {
+	return tsnetLoopback(sd, addrOut, addrLen, proxyOut, localOut, true)
+}
+
 //export TsnetLoopback
 func TsnetLoopback(sd C.int, addrOut *C.char, addrLen C.size_t, proxyOut *C.char, localOut *C.char) C.int {
+	return tsnetLoopback(sd, addrOut, addrLen, proxyOut, localOut, false)
+}
+
+func tsnetLoopback(sd C.int, addrOut *C.char, addrLen C.size_t, proxyOut *C.char, localOut *C.char, restart bool) C.int {
 	// Panic here to ensure we always leave the out values NUL-terminated.
 	if addrOut == nil {
 		panic("loopback_api passed nil addr_out")
@@ -674,7 +715,13 @@ func TsnetLoopback(sd C.int, addrOut *C.char, addrLen C.size_t, proxyOut *C.char
 	if s == nil {
 		return C.EBADF
 	}
-	addr, proxyCred, localAPICred, err := s.s.Loopback()
+	var addr, proxyCred, localAPICred string
+	var err error
+	if restart {
+		addr, proxyCred, localAPICred, err = s.s.RestartLoopback()
+	} else {
+		addr, proxyCred, localAPICred, err = s.s.Loopback()
+	}
 	if err != nil {
 		return s.recErr(err)
 	}

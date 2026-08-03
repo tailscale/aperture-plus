@@ -1,0 +1,3 @@
+[submodule "tailscale-patched"]
+	path = tailscale-patched
+	url = .

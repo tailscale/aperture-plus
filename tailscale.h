@@ -101,6 +101,20 @@ extern int tailscale_crash_test(tailscale sd, int mode);
 // TEST/DEBUG ONLY. Returns zero on success or -1 on error.
 extern int tailscale_debug_reset_connections(tailscale sd);
 
+// tailscale_debug_shutdown_tcp_connections calls shutdown(SHUT_RDWR) on every
+// TCP descriptor in this process without closing descriptors. TEST/DEBUG ONLY:
+// destructive chaos injection for suspend/socket-defunct recovery tests.
+extern int tailscale_debug_shutdown_tcp_connections(tailscale sd);
+
+// TEST/DEBUG ONLY: defunct the owned tsnet LocalAPI/SOCKS listener while
+// retaining its stale endpoint, reproducing an immediate loopback -1004.
+extern int tailscale_debug_defunct_loopback(tailscale sd);
+
+// tailscale_restart_loopback replaces the tsnet LocalAPI/SOCKS loopback
+// listener and returns its new address and credentials. Existing tailnet state
+// and netstack sessions are retained. Output buffer rules match tailscale_loopback.
+extern int tailscale_restart_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out);
+
 // A tailscale_conn is a connection to an address on the tailnet.
 //
 // It is a pipe(2) on which you can use read(2), write(2), and close(2).

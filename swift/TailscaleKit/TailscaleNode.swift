@@ -134,6 +134,29 @@ public actor TailscaleNode {
         try repairConnectionsAfterResume()
     }
 
+    /// Defuncts only the owned tsnet loopback listener while retaining its
+    /// stale endpoint. TEST/DEBUG ONLY: deterministic -1004 recovery test.
+    public func debugDefunctLoopback() throws {
+        guard let tailscale else { throw TailscaleError.badInterfaceHandle }
+        let res = tailscale_debug_defunct_loopback(tailscale)
+        guard res == 0 else {
+            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
+        }
+    }
+
+    /// Calls shutdown(SHUT_RDWR) on every TCP socket in this process without
+    /// closing descriptors. TEST/DEBUG ONLY: destructive chaos injection used
+    /// to reproduce iOS socket defuncting and verify recovery.
+    public func debugShutdownTCPConnections() throws {
+        guard let tailscale else {
+            throw TailscaleError.badInterfaceHandle
+        }
+        let res = tailscale_debug_shutdown_tcp_connections(tailscale)
+        guard res == 0 else {
+            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
+        }
+    }
+
     /// Deliberately crashes the Go runtime. TEST/DEBUG ONLY — never call from
     /// normal app flow. Used by the crash-capture UI test (via the `-CrashTest`
     /// launch arg in TSNetManager) to verify that Go runtime panics — and the
@@ -232,14 +255,22 @@ public actor TailscaleNode {
     private var loopbackConfig: LoopbackConfig?
 
     /// Starts and returns the address and credentials of a SOCKS5 proxy which can also
-    /// be used to query the localAPI
+    /// be used to query the localAPI.
     public func loopback() throws -> LoopbackConfig {
+        if let loopbackConfig { return loopbackConfig }
+        return try loadLoopback(restart: false)
+    }
+
+    /// Replaces a defunct loopback LocalAPI/SOCKS listener without rebuilding
+    /// the tsnet node, and updates the configuration cached by future LocalAPI
+    /// requests. Intended for reactive recovery after a local connection error.
+    public func restartLoopback() throws -> LoopbackConfig {
+        try loadLoopback(restart: true)
+    }
+
+    private func loadLoopback(restart: Bool) throws -> LoopbackConfig {
         guard let tailscale else {
             throw TailscaleError.badInterfaceHandle
-        }
-
-        if let loopbackConfig = loopbackConfig {
-            return loopbackConfig
         }
 
         let addrBuf = UnsafeMutablePointer<Int8>.allocate(capacity: 64)
@@ -251,15 +282,18 @@ public actor TailscaleNode {
             apiCredBuf.deallocate()
         }
 
-        let res = tailscale_loopback(tailscale, addrBuf, 64, proxyCredBuf, apiCredBuf)
+        let res = restart
+            ? tailscale_restart_loopback(tailscale, addrBuf, 64, proxyCredBuf, apiCredBuf)
+            : tailscale_loopback(tailscale, addrBuf, 64, proxyCredBuf, apiCredBuf)
         guard res == 0 else {
             throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
         }
 
-        loopbackConfig = LoopbackConfig(address: String(cString: addrBuf),
-                                        proxyCredential: String(cString: proxyCredBuf),
-                                        localAPIKey: String(cString: apiCredBuf))
-        return loopbackConfig!
+        let config = LoopbackConfig(address: String(cString: addrBuf),
+                                    proxyCredential: String(cString: proxyCredBuf),
+                                    localAPIKey: String(cString: apiCredBuf))
+        loopbackConfig = config
+        return config
 
     }
 }

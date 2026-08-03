@@ -21,6 +21,9 @@ extern int TsnetSetEphemeral(int sd, int ephemeral);
 extern int TsnetSetLogFD(int sd, int fd);
 extern int TsnetCrashTest(int sd, int mode);
 extern int TsnetDebugResetConnections(int sd);
+extern int TsnetDebugShutdownTCPConnections(int sd);
+extern int TsnetDebugDefunctLoopback(int sd);
+extern int TsnetRestartLoopback(int sd, char* addrOut, size_t addrLen, char* proxyOut, char* localOut);
 extern int TsnetGetIps(int sd, char *buf, size_t buflen);
 extern int TsnetGetRemoteAddr(int listener, int conn, char *buf, size_t buflen);
 extern int TsnetListen(int sd, char* net, char* addr, int* listenerOut);
@@ -98,8 +101,20 @@ int tailscale_debug_reset_connections(tailscale sd) {
 	return TsnetDebugResetConnections(sd);
 }
 
+int tailscale_debug_shutdown_tcp_connections(tailscale sd) {
+	return TsnetDebugShutdownTCPConnections(sd);
+}
+
+int tailscale_debug_defunct_loopback(tailscale sd) {
+	return TsnetDebugDefunctLoopback(sd);
+}
+
 int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out) {
 	return TsnetLoopback(sd, addr_out, addrlen, proxy_cred_out, local_api_cred_out);
+}
+
+int tailscale_restart_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out) {
+	return TsnetRestartLoopback(sd, addr_out, addrlen, proxy_cred_out, local_api_cred_out);
 }
 
 int tailscale_errmsg(tailscale sd, char* buf, size_t buflen) {

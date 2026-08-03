@@ -106,6 +106,13 @@ extern int tailscale_crash_test(tailscale sd, int mode);
 // without closing the tsnet Server, loopback SOCKS listener, or netstack.
 extern int tailscale_debug_reset_connections(tailscale sd);
 
+// TEST/DEBUG ONLY: shutdown(SHUT_RDWR) every TCP descriptor without close(2).
+extern int tailscale_debug_shutdown_tcp_connections(tailscale sd);
+extern int tailscale_debug_defunct_loopback(tailscale sd);
+
+// Replace the LocalAPI/SOCKS loopback listener while retaining the tsnet node.
+extern int tailscale_restart_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out);
+
 // A tailscale_conn is a connection to an address on the tailnet.
 //
 // It is a pipe(2) on which you can use read(2), write(2), and close(2).

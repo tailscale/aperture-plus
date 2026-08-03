@@ -105,3 +105,5 @@ require (
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 )
+
+replace tailscale.com => ./tailscale-patched
