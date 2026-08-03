@@ -57,6 +57,7 @@ final class TSNetManager {
     /// be attached to a Mac. See `SocksLogProxy`.
     @MainActor private var socksLogProxy: SocksLogProxy?
     @MainActor private var socksLogProxyPort: UInt16?
+    @MainActor private var didRunTCPChaosTest = false
 
     /// Creates a per-workspace tsnet controller. `config.path` is the
     /// workspace's state dir (Application Support — persistent, unlike the
@@ -140,6 +141,11 @@ final class TSNetManager {
     /// overnight-crash mechanism); `-CrashTest -CrashTestMode <n>` → mode n.
     /// TEST/DEBUG ONLY — see `TailscaleNode.crashTest` and the crash-capture UI
     /// test. Never set outside automated tests.
+    nonisolated static func tcpChaosTestRequested() -> Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback")
+            || ProcessInfo.processInfo.arguments.contains("-UITestShutdownTCPConnections")
+    }
+
     nonisolated static func crashTestMode() -> Int? {
         let args = ProcessInfo.processInfo.arguments
         guard args.contains("-CrashTest") else { return nil }
@@ -224,6 +230,13 @@ final class TSNetManager {
     /// Owns the ordinary IPN-bus error retry. It must be explicitly cancelled:
     /// cancelling the Combine sink does not cancel a Task it already spawned.
     @MainActor private var busRestartTask: Task<Void, Never>?
+    /// Backoff belongs to the watcher lifecycle, not to one restart Task. A
+    /// LocalAPI listener can accept a request and then fail it asynchronously;
+    /// treating creation of that request as "restart succeeded" otherwise
+    /// resets backoff on every -1004 and creates a hot retry loop.
+    @MainActor private var busRestartBackoff: Duration = .milliseconds(500)
+    @MainActor private var loopbackRecoveryTask: Task<Void, Never>?
+    @MainActor private var loopbackRecoveryGeneration: UInt64 = 0
 
     /// Starts observing `prefs` for exit-node changes. Idempotent.
     @MainActor
@@ -277,28 +290,101 @@ final class TSNetManager {
     @MainActor
     private func scheduleBusRestart(localAPI: LocalAPIClient, consumer: TSNetConsumer,
                                     error: Error) {
-        logger.log("Bus watcher error: \(error); restarting")
+        if Self.isLocalLoopbackConnectionFailure(error) {
+            recoverLoopbackAfterFailure(error)
+            return
+        }
+        let delay = busRestartBackoff
+        busRestartBackoff = min(busRestartBackoff * 2, .seconds(30))
+        logger.log("Bus watcher error: \(error); retrying after \(delay)")
         busRestartTask?.cancel()
         consumer.error = nil
         busRestartTask = Task { [weak self] in
             guard let self else { return }
-            var backoff: Duration = .milliseconds(500)
-            while !Task.isCancelled {
-                do {
-                    let processor = try await self.startEventBus(
-                        localAPI: localAPI, consumer: consumer)
-                    guard !Task.isCancelled else {
-                        processor.cancel()
-                        return
-                    }
-                    self.setProcessor(processor)
-                    self.busRestartTask = nil
+            do {
+                try await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                let processor = try await self.startEventBus(
+                    localAPI: localAPI, consumer: consumer)
+                guard !Task.isCancelled else {
+                    processor.cancel()
                     return
-                } catch {
-                    logger.log("Bus restart failed: \(error); retrying")
-                    try? await Task.sleep(for: backoff)
-                    backoff = min(backoff * 2, .seconds(30))
                 }
+                self.setProcessor(processor)
+                self.busRestartTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                // A synchronous setup failure has no consumer callback to drive
+                // the next attempt, so feed it through the same persistent
+                // backoff path. Async URLSession failures arrive via consumer.
+                self.busRestartTask = nil
+                self.scheduleBusRestart(localAPI: localAPI, consumer: consumer,
+                                        error: error)
+            }
+        }
+    }
+
+    nonisolated private static func isLocalLoopbackConnectionFailure(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain,
+              (ns.code == NSURLErrorCannotConnectToHost
+                || ns.code == NSURLErrorNetworkConnectionLost)
+        else { return false }
+        let rawURL = ns.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+            ?? (ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
+            ?? ""
+        guard let host = URL(string: rawURL)?.host()?.lowercased() else { return false }
+        return host == "127.0.0.1" || host == "localhost" || host == "::1"
+    }
+
+    @MainActor
+    private func recoverLoopbackAfterFailure(_ cause: Error) {
+        guard loopbackRecoveryTask == nil, let node else { return }
+        loopbackRecoveryGeneration &+= 1
+        let generation = loopbackRecoveryGeneration
+        logger.log("LocalAPI loopback failure: \(cause); replacing loopback generation \(generation)")
+        busRestartTask?.cancel()
+        busRestartTask = nil
+        loopbackRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let loopback = try await node.restartLoopback()
+                guard !Task.isCancelled,
+                      generation == self.loopbackRecoveryGeneration else { return }
+
+                // Every LocalAPI request asks the node actor for its cached
+                // config, now replaced above. Restart the stream immediately.
+                let newConsumer = TSNetConsumer(logger: logger, model: self.model)
+                let newClient = LocalAPIClient(localNode: node, logger: logger)
+                let newProcessor = try await self.startEventBus(
+                    localAPI: newClient, consumer: newConsumer)
+                guard !Task.isCancelled,
+                      generation == self.loopbackRecoveryGeneration else {
+                    newProcessor.cancel()
+                    return
+                }
+                self.consumer = newConsumer
+                self.localAPIClient = newClient
+                self.setProcessor(newProcessor)
+
+                // Replace the app-owned relay too: its upstream port and SOCKS
+                // credential changed with the tsnet loopback listener.
+                self.socksLogProxy?.stop()
+                self.socksLogProxy = nil
+                self.socksLogProxyPort = nil
+                self.model.proxyConfiguration = self.proxyConfig(loopback)
+                self.busRestartBackoff = .milliseconds(500)
+                self.loopbackRecoveryTask = nil
+                self.model.tcpChaosTestStatus = "recovered"
+                logger.log("LocalAPI loopback recovered at \(loopback.address), generation \(generation)")
+            } catch {
+                guard !Task.isCancelled,
+                      generation == self.loopbackRecoveryGeneration else { return }
+                self.loopbackRecoveryTask = nil
+                logger.log("LocalAPI loopback replacement failed: \(error); retrying through bus backoff")
+                self.scheduleBusRestart(localAPI: localAPIClient ?? LocalAPIClient(localNode: node, logger: logger),
+                                        consumer: self.consumer, error: error)
             }
         }
     }
@@ -318,9 +404,17 @@ final class TSNetManager {
             while !Task.isCancelled {
                 guard let self else { return }
                 if let client = await MainActor.run(body: { self.localAPIClient }) {
-                    if let status = try? await client.backendStatus() {
+                    do {
+                        let status = try await client.backendStatus()
                         await MainActor.run {
+                            // A successful request proves the local listener is
+                            // carrying bytes again; future watcher failures may
+                            // start from the short retry delay.
+                            self.busRestartBackoff = .milliseconds(500)
                             self.model.localStatus = status
+                            if status.BackendState == "Running" {
+                                self.runTCPChaosTestIfNeeded()
+                            }
                             // Fallback state signal: model.state is normally
                             // driven by the IPN bus, but if the bus watcher is
                             // mid-restart (or has died — see startEventBus),
@@ -339,6 +433,13 @@ final class TSNetManager {
                             // MagicDNS names (`http://ai/`) would load DIRECT
                             // and fail. No-op when the rules are unchanged.
                             self.refreshProxyPolicyIfNeeded()
+                        }
+                    } catch {
+                        await MainActor.run {
+                            logger.log("Status poll failed: \(error)")
+                            if Self.isLocalLoopbackConnectionFailure(error) {
+                                self.recoverLoopbackAfterFailure(error)
+                            }
                         }
                     }
                 }
@@ -473,18 +574,40 @@ final class TSNetManager {
         return ProcessInfo.processInfo.arguments.contains("-ProxyEverything")
     }
 
+    @MainActor
+    private func runTCPChaosTestIfNeeded() {
+        guard Self.tcpChaosTestRequested(), !didRunTCPChaosTest else { return }
+        didRunTCPChaosTest = true
+        Task { [weak self] in
+            guard let self, let node = self.node else { return }
+            // Let the first document and SOCKS diagnostics establish themselves
+            // before damaging all TCP sockets in the process.
+            try? await Task.sleep(for: .seconds(2))
+            self.model.tcpChaosTestStatus = "damaging"
+            logger.log("TCP chaos test: defuncting the tsnet loopback listener")
+            do {
+                if ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback") {
+                    try await node.debugDefunctLoopback()
+                } else {
+                    try await node.debugShutdownTCPConnections()
+                }
+                self.model.tcpChaosTestStatus = "damaged"
+                logger.log("TCP chaos test: socket shutdown complete; awaiting reactive recovery")
+            } catch {
+                self.model.tcpChaosTestStatus = "failed: \(error)"
+                logger.log("TCP chaos test failed: \(error)")
+            }
+        }
+    }
+
     func willEnterBackground() {
-        // Keep tsnet, its loopback proxy, its transport state, and all WebKit
-        // sessions untouched. tailscale-go owns control, DERP, magicsock, and
-        // netstack recovery; scene lifecycle is not a Tailscale state change.
         logger.log("Background: leaving tsnet, proxy, and observers unchanged")
     }
 
     func willEnterForeground() {
-        // tsnet reconnects its own transports. In particular, do not synthesize
-        // Starting/Running, gate SOCKS clients, force a rebind, or rebuild the
-        // node merely because the app resumed.
-        logger.log("Foreground: leaving tsnet and proxy unchanged")
+        // Recovery is driven by an actual loopback connection failure, not by
+        // scene lifecycle: iOS can defunct sockets for reasons other than lock.
+        logger.log("Foreground: no lifecycle recovery; awaiting actual socket errors")
         if node == nil { startTailscaleIfNeeded() }
     }
 

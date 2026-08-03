@@ -29,6 +29,8 @@ final class TSNetModel: ObservableObject {
     /// `TSNetManager.refreshProxyPolicyIfNeeded` can tell when the rules
     /// actually changed. See `TailnetProxyPolicy`.
     @Published var proxyPolicy: TailnetProxyPolicy?
+    /// Test-only state for the TCP-shutdown chaos recovery XCUITest.
+    @Published var tcpChaosTestStatus: String?
 
     var exitNodeId: String? {
         if let prefs = prefs {

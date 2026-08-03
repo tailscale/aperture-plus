@@ -90,14 +90,30 @@ nonisolated final class LogRing: @unchecked Sendable {
     /// twice for every refresh.
     nonisolated struct Snapshot: Sendable {
         let entries: [Entry]
+        /// Entries appended since the most recent explicit clear.
         let total: Int
         let version: UInt64
+        /// Identity of this in-memory ring object. It changes only if the
+        /// process creates a new LogRing singleton.
+        let incarnation: UUID
+        /// Process-lifetime counters; unlike `total`, clear() does not reset them.
+        let lifetimeAppends: UInt64
+        let lifetimeWraps: UInt64
+        let lifetimeClears: UInt64
+        let lifetimeSocksLines: UInt64
+        let lifetimeStatusRequests: UInt64
+        let lifetimeBusErrors: UInt64
+        let maxAppendsPerSecond: UInt64
+        let spinTrips: UInt64
+        let oldestID: UInt64?
+        let newestID: UInt64?
     }
 
     /// Keep well over the 1000 lines needed to see a full connect + browse
     /// cycle; each entry is short, so a few thousand costs little memory.
     private let capacity = 4000
     private let lock = NSLock()
+    private let incarnation = UUID()
     private var entries: [Entry] = []
     /// Index of the oldest entry once the buffer has wrapped.
     private var start = 0
@@ -105,6 +121,17 @@ nonisolated final class LogRing: @unchecked Sendable {
     private var total = 0
     private var nextID: UInt64 = 0
     private var version: UInt64 = 0
+    private var lifetimeAppends: UInt64 = 0
+    private var lifetimeWraps: UInt64 = 0
+    private var lifetimeClears: UInt64 = 0
+    private var lifetimeSocksLines: UInt64 = 0
+    private var lifetimeStatusRequests: UInt64 = 0
+    private var lifetimeBusErrors: UInt64 = 0
+    private var rateSecond: Int64 = 0
+    private var appendsThisSecond: UInt64 = 0
+    private var maxAppendsPerSecond: UInt64 = 0
+    private var spinTrips: UInt64 = 0
+    private var spinTripArmed = true
 
     nonisolated func append(_ message: String) {
         // DateFormatter is both relatively expensive and unsafe to call
@@ -131,11 +158,47 @@ nonisolated final class LogRing: @unchecked Sendable {
         nextID &+= 1
         version &+= 1
         total += 1
+        lifetimeAppends &+= 1
+        if message.contains("socks[") || message.contains("sockslog:") {
+            lifetimeSocksLines &+= 1
+        }
+        if message.hasPrefix("Requesting status via ") { lifetimeStatusRequests &+= 1 }
+        if message.hasPrefix("Bus watcher error:") { lifetimeBusErrors &+= 1 }
+        let secondBucket = Int64(seconds)
+        if secondBucket == rateSecond {
+            appendsThisSecond &+= 1
+        } else {
+            maxAppendsPerSecond = max(maxAppendsPerSecond, appendsThisSecond)
+            rateSecond = secondBucket
+            appendsThisSecond = 1
+        }
+        maxAppendsPerSecond = max(maxAppendsPerSecond, appendsThisSecond)
+        if appendsThisSecond >= 1_000, spinTripArmed {
+            spinTripArmed = false
+            spinTrips &+= 1
+            let recent: String
+            if entries.isEmpty {
+                recent = "<ring empty>"
+            } else {
+                let ordered = entries.count == capacity
+                    ? Array(entries[start...] + entries[..<start])
+                    : entries
+                recent = ordered.suffix(80).map(\.line).joined(separator: "\n")
+            }
+            CrashCapture.recordSpinLoop(
+                rate: appendsThisSecond,
+                appends: lifetimeAppends,
+                wraps: lifetimeWraps,
+                busErrors: lifetimeBusErrors,
+                recentLogs: recent
+            )
+        }
         if entries.count < capacity {
             entries.append(entry)
         } else {
             entries[start] = entry
             start = (start + 1) % capacity
+            lifetimeWraps &+= 1
         }
     }
 
@@ -149,7 +212,22 @@ nonisolated final class LogRing: @unchecked Sendable {
         } else {
             ordered = entries
         }
-        return Snapshot(entries: ordered, total: total, version: version)
+        return Snapshot(
+            entries: ordered,
+            total: total,
+            version: version,
+            incarnation: incarnation,
+            lifetimeAppends: lifetimeAppends,
+            lifetimeWraps: lifetimeWraps,
+            lifetimeClears: lifetimeClears,
+            lifetimeSocksLines: lifetimeSocksLines,
+            lifetimeStatusRequests: lifetimeStatusRequests,
+            lifetimeBusErrors: lifetimeBusErrors,
+            maxAppendsPerSecond: maxAppendsPerSecond,
+            spinTrips: spinTrips,
+            oldestID: ordered.first?.id,
+            newestID: ordered.last?.id
+        )
     }
 
     nonisolated func clear() {
@@ -158,6 +236,7 @@ nonisolated final class LogRing: @unchecked Sendable {
         entries.removeAll(keepingCapacity: true)
         start = 0
         total = 0
+        lifetimeClears &+= 1
         version &+= 1
     }
 }

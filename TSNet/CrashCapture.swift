@@ -136,6 +136,41 @@ enum CrashCapture {
         openTsnetLog()
     }
 
+    /// Writes a bounded diagnostic directly to fd 2 when logging proves the app
+    /// is spinning. fd 2 is already CrashCapture's persistent `stderr.log`, so
+    /// the text survives an ensuing watchdog/CPU kill and is surfaced on the
+    /// next launch. This deliberately does not call Logger.log (which would
+    /// recurse into LogRing). After fsync it aborts deliberately: continuing a
+    /// proven 1000-lines/second loop would burn battery and overwrite evidence,
+    /// while TestFlight can collect the resulting crash and the next launch can
+    /// surface the persisted lead-up through CrashCapture.
+    nonisolated static func recordSpinLoop(rate: UInt64,
+                                           appends: UInt64,
+                                           wraps: UInt64,
+                                           busErrors: UInt64,
+                                           recentLogs: String) {
+        let report = """
+        fatal error: Aperture detected log spin loop
+        rate=\(rate)/s appends=\(appends) wraps=\(wraps) busErrors=\(busErrors)
+        === RECENT APP LOGS ===
+        \(recentLogs)
+        === END RECENT APP LOGS ===
+
+        """
+        report.withCString { bytes in
+            var remaining = strlen(bytes)
+            var cursor = UnsafeRawPointer(bytes)
+            while remaining > 0 {
+                let written = Darwin.write(STDERR_FILENO, cursor, remaining)
+                if written <= 0 { break }
+                remaining -= written
+                cursor = cursor.advanced(by: written)
+            }
+        }
+        Darwin.fsync(STDERR_FILENO)
+        Darwin.abort()
+    }
+
     // MARK: - Previous crash
 
     /// Strings that appear in Go runtime fatal/panic output. Used to distinguish

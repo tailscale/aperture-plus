@@ -63,6 +63,9 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
     private var listener: NWListener?
     /// Monotonic id so a CONNECT and its reply can be correlated in the log.
     private var nextID: UInt64 = 1
+    private var activeClients: [UInt64: NWConnection] = [:]
+    private var activeUpstreams: [UInt64: NWConnection] = [:]
+    private var lifecycleEvents: UInt64 = 0
 
     init(upstreamHost: String, upstreamPort: UInt16) {
         self.upstreamHost = upstreamHost
@@ -118,11 +121,28 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
         }
     }
 
+    /// Replaces only the app-owned listening socket after iOS suspension.
+    /// Existing relay sessions keep using this object and are not disturbed.
+    /// Apple may defunct a loopback listener while leaving its NWListener object
+    /// apparently alive; a fresh OS-assigned port is therefore required.
+    func restartListener() -> UInt16? {
+        queue.sync {
+            listener?.cancel()
+            listener = nil
+        }
+        return start()
+    }
+
     // MARK: - Relay
 
     private func handle(client: NWConnection) {
         let id = nextID
         nextID += 1
+        activeClients[id] = client
+        lifecycleEvents &+= 1
+        if lifecycleEvents <= 20 || lifecycleEvents.isMultiple(of: 100) {
+            logger.log("socks[\(id)] relay accepted; active=\(activeClients.count), lifecycle=\(lifecycleEvents)")
+        }
         client.start(queue: queue)
         beginRelay(client: client, id: id)
     }
@@ -134,6 +154,7 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
             port: NWEndpoint.Port(rawValue: upstreamPort) ?? .any,
             using: .tcp)
         let session = Session(id: id)
+        activeUpstreams[id] = upstream
         upstream.start(queue: queue)
 
         // client -> upstream (parse the CONNECT request out of a copy)
@@ -150,30 +171,63 @@ nonisolated final class SocksLogProxy: @unchecked Sendable {
     private func pump(from: NWConnection,
                       to: NWConnection,
                       id: UInt64,
-                      observe: @escaping (Data) -> Void) {
+                      observe: @escaping @Sendable (Data) -> Void) {
         from.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
             [weak self] data, _, isComplete, error in
             if let data, !data.isEmpty {
                 observe(data)
-                to.send(content: data, completion: .contentProcessed { _ in
+                to.send(content: data, completion: .contentProcessed { [weak self] sendError in
+                    guard sendError == nil else {
+                        logger.log("socks[\(id)] relay send ended: \(String(describing: sendError))")
+                        from.cancel()
+                        to.cancel()
+                        self?.finishRelay(id: id, reason: "send error")
+                        return
+                    }
                     self?.pump(from: from, to: to, id: id, observe: observe)
                 })
                 return
             }
             if isComplete || error != nil {
+                if let error {
+                    logger.log("socks[\(id)] relay receive ended: \(error)")
+                }
                 from.cancel()
                 to.cancel()
+                self?.finishRelay(id: id, reason: error == nil ? "complete" : "receive error")
                 return
             }
-            self?.pump(from: from, to: to, id: id, observe: observe)
+
+            // `minimumIncompleteLength` is one, so an empty callback with no
+            // completion or error cannot make progress. Retrying immediately
+            // can become a hot callback loop if iOS has defuncted a connection
+            // while the process was suspended. Terminate the relay instead;
+            // WebKit can open a fresh SOCKS connection.
+            logger.log("socks[\(id)] relay receive made no progress; cancelling")
+            from.cancel()
+            to.cancel()
+            self?.finishRelay(id: id, reason: "no progress")
         }
+    }
+
+    private func finishRelay(id: UInt64, reason: String) {
+        // Both directional pumps can finish. Removal makes this idempotent and
+        // prevents duplicate terminal logs from becoming their own log storm.
+        let existed = activeClients.removeValue(forKey: id) != nil
+            || activeUpstreams.removeValue(forKey: id) != nil
+        activeUpstreams.removeValue(forKey: id)
+        guard existed else { return }
+        lifecycleEvents &+= 1
+        logger.log("socks[\(id)] relay finished (\(reason)); active=\(activeClients.count), lifecycle=\(lifecycleEvents)")
     }
 
     // MARK: - Parsing (read-only; the stream itself is untouched)
 
     /// Per-connection parse state. Only the handshake is parsed; once the
     /// CONNECT reply is seen the relay stops looking at payload bytes.
-    private final class Session {
+    /// Confined to the relay's serial queue; marked Sendable so the Network
+    /// framework callback types can express that confinement to Swift 6.
+    private final class Session: @unchecked Sendable {
         let id: UInt64
         var clientPhase: ClientPhase = .greeting
         var serverPhase: ServerPhase = .methodSelect

@@ -29,6 +29,17 @@ struct LogViewer: View {
     @State private var filtered: [LogRing.Entry] = []
     @State private var total: Int = 0
     @State private var snapshotVersion: UInt64 = 0
+    @State private var ringIncarnation: UUID?
+    @State private var lifetimeAppends: UInt64 = 0
+    @State private var lifetimeWraps: UInt64 = 0
+    @State private var lifetimeClears: UInt64 = 0
+    @State private var lifetimeSocksLines: UInt64 = 0
+    @State private var lifetimeStatusRequests: UInt64 = 0
+    @State private var lifetimeBusErrors: UInt64 = 0
+    @State private var maxAppendsPerSecond: UInt64 = 0
+    @State private var spinTrips: UInt64 = 0
+    @State private var oldestID: UInt64?
+    @State private var newestID: UInt64?
     @State private var autoRefresh: Bool = true
     @State private var copied: Bool = false
 
@@ -85,6 +96,12 @@ struct LogViewer: View {
                                         .font(.system(size: 11, design: .monospaced))
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .foregroundStyle(color(for: entry.line))
+                                        .textSelection(.enabled)
+                                        .contextMenu {
+                                            Button("Copy Line") {
+                                                UIPasteboard.general.string = entry.line
+                                            }
+                                        }
                                 }
                                 // Anchor so we can pin to the newest line.
                                 Color.clear.frame(height: 1).id("log-bottom")
@@ -106,10 +123,14 @@ struct LogViewer: View {
                 Divider()
 
                 HStack {
-                    Text(statusLine)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("log-status")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(statusLine)
+                            .accessibilityIdentifier("log-status")
+                        Text(diagnosticLine)
+                            .accessibilityIdentifier("log-diagnostics")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     Spacer()
                     Toggle("Live", isOn: $autoRefresh)
                         .toggleStyle(.switch)
@@ -163,8 +184,17 @@ struct LogViewer: View {
         let shown = filtered.count
         let held = lines.count
         var s = "\(shown) shown / \(held) held"
-        if total > held { s += " / \(total) total (older dropped)" }
+        if total > held { s += " / \(total) since clear" }
         return s
+    }
+
+    /// Always visible even when the `socks` filter has no matches. This makes
+    /// process replacement, an explicit clear, and rapid ring overwrite
+    /// distinguishable on a device with no Console connection.
+    private var diagnosticLine: String {
+        let ring = ringIncarnation.map { String($0.uuidString.prefix(8)) } ?? "--------"
+        let ids = "\(oldestID.map(String.init) ?? "-")…\(newestID.map(String.init) ?? "-")"
+        return "ring \(ring) · appends \(lifetimeAppends) · wraps \(lifetimeWraps) · clears \(lifetimeClears) · socks \(lifetimeSocksLines) · status \(lifetimeStatusRequests) · buserr \(lifetimeBusErrors) · peak \(maxAppendsPerSecond)/s · spin \(spinTrips) · ids \(ids)"
     }
 
     /// Tint the lines that matter: proxy failures red, successes green, routing
@@ -190,6 +220,17 @@ struct LogViewer: View {
         lines = snapshot.entries
         total = snapshot.total
         snapshotVersion = snapshot.version
+        ringIncarnation = snapshot.incarnation
+        lifetimeAppends = snapshot.lifetimeAppends
+        lifetimeWraps = snapshot.lifetimeWraps
+        lifetimeClears = snapshot.lifetimeClears
+        lifetimeSocksLines = snapshot.lifetimeSocksLines
+        lifetimeStatusRequests = snapshot.lifetimeStatusRequests
+        lifetimeBusErrors = snapshot.lifetimeBusErrors
+        maxAppendsPerSecond = snapshot.maxAppendsPerSecond
+        spinTrips = snapshot.spinTrips
+        oldestID = snapshot.oldestID
+        newestID = snapshot.newestID
     }
 
     /// Lowercasing and searching thousands of lines is also background work.

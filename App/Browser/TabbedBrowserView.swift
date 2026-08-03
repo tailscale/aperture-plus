@@ -205,6 +205,15 @@ private struct BrowserRootContent: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+        .overlay(alignment: .bottomLeading) {
+            if (ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback")
+                || ProcessInfo.processInfo.arguments.contains("-UITestShutdownTCPConnections")),
+               let status = workspace.model.tcpChaosTestStatus {
+                Text(status)
+                    .accessibilityIdentifier("tcp-chaos-test-status")
+                    .opacity(0.01)
+            }
+        }
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
         }

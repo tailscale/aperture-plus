@@ -791,6 +791,71 @@ final class ApertureUITests: XCTestCase {
             .matching(identifier: "nav-error-overlay").firstMatch.exists)
     }
 
+    /// Reproduces iOS socket defuncting without relying on simulator lock
+    /// semantics: libtailscale calls shutdown(SHUT_RDWR) on every process TCP
+    /// socket (without close/fd-reuse risk). A fresh tailnet load must recover
+    /// reactively, with no scene background/foreground event to trigger it.
+    func testTCPShutdownChaosRecoversFreshTailnetLoad() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestDefunctLoopback"]
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
+
+        let chaos = app.staticTexts["tcp-chaos-test-status"]
+        XCTAssertTrue(chaos.waitForExistence(timeout: 15),
+                      "TCP chaos hook should run after the node reaches Running")
+        let damaged = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else { return false }
+                return element.label == "damaged" || element.label == "recovered"
+            }, object: chaos)
+        XCTAssertEqual(XCTWaiter().wait(for: [damaged], timeout: 20), .completed)
+
+        let more = app.buttons["more-menu-button"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let reload = app.buttons["Reload"]
+        XCTAssertTrue(reload.waitForExistence(timeout: 5))
+        reload.tap()
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "recovered"), object: chaos)
+        XCTAssertEqual(XCTWaiter().wait(for: [recovered], timeout: 45), .completed,
+                       "A LocalAPI -1004 should replace the loopback listener reactively")
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 45),
+                      "A fresh tailnet load should recover after all TCP sockets are shut down")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
+    }
+
+    /// A request opened after foreground must use the newly-published local
+    /// SOCKS listener. Existing page preservation alone does not exercise that
+    /// endpoint: its already-open relay could survive even when the listener
+    /// used for new connections was defuncted by iOS.
+    func testBackgroundResumeAllowsFreshTailnetLoad() throws {
+        let app = XCUIApplication()
+        launchConnected(app)
+        guard requireBrowserReady(app) else { return }
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 60))
+
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 5)
+        app.activate()
+
+        let more = app.buttons["more-menu-button"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let reload = app.buttons["Reload"]
+        XCTAssertTrue(reload.waitForExistence(timeout: 5))
+        reload.tap()
+
+        XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 30),
+                      "A fresh tailnet load should reach the replacement SOCKS listener")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "nav-error-overlay").firstMatch.exists)
+    }
+
     /// Connected background/foreground regression. The simulator does not
     /// truly suspend processes when its display is powered off, so this drives
     /// scene lifecycle with XCUIDevice.home + app.activate and verifies that
