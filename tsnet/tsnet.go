@@ -240,6 +240,12 @@ type Server struct {
 	// If unset, logs are discarded.
 	Logf logger.Logf
 
+	// Logtail, if non-nil, is the logtail logger used by this Server. It may be
+	// shared by multiple Servers. The caller owns its lifecycle; Server.Close
+	// does not shut it down. If nil, Server creates and owns its traditional
+	// per-server logger under Dir.
+	Logtail *logtail.Logger
+
 	// Ephemeral, if true, specifies that the instance should register
 	// as an Ephemeral node (https://tailscale.com/s/ephemeral-nodes).
 	Ephemeral bool
@@ -328,6 +334,7 @@ type Server struct {
 	resetServeStateOnce sync.Once
 	logbuffer           *filch.Filch
 	logtail             *logtail.Logger
+	ownsLogtail         bool
 	logid               logid.PublicID
 
 	mu                  sync.Mutex
@@ -669,7 +676,7 @@ func (s *Server) close() {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		// Perform a best-effort final flush.
-		if s.logtail != nil {
+		if s.ownsLogtail && s.logtail != nil {
 			s.logtail.Shutdown(ctx)
 		}
 		if s.logbuffer != nil {
@@ -874,7 +881,10 @@ func (s *Server) start() (reterr error) {
 
 	sys := tsd.NewSystem()
 	s.sys = sys
-	if err := s.startLogger(&closePool, sys.HealthTracker.Get(), tsLogf); err != nil {
+	if s.Logtail != nil {
+		s.logtail = s.Logtail
+		s.logid = s.Logtail.PrivateID().Public()
+	} else if err := s.startLogger(&closePool, sys.HealthTracker.Get(), tsLogf); err != nil {
 		return err
 	}
 
@@ -1118,14 +1128,18 @@ func (s *Server) startLogger(closePool *closeOnErrorPool, health *health.Tracker
 	c := logtail.Config{
 		Collection:   lpc.Collection,
 		PrivateID:    lpc.PrivateID,
+		BaseURL:      logpolicy.LogURL(),
 		Stderr:       io.Discard, // log everything to Buffer
 		Buffer:       s.logbuffer,
 		CompressLogs: true,
 		Bus:          s.sys.Bus.Get(),
-		HTTPC:        &http.Client{Transport: logpolicy.NewLogtailTransport(logtail.DefaultHost, s.netMon, health, tsLogf)},
+		HTTPC: &http.Client{Transport: logpolicy.TransportOptions{
+			Host: logpolicy.LogHost(), NetMon: s.netMon, Health: health, Logf: tsLogf,
+		}.New()},
 		MetricsDelta: clientmetric.EncodeLogTailMetricsDelta,
 	}
 	s.logtail = logtail.NewLogger(c, tsLogf)
+	s.ownsLogtail = true
 	closePool.addFunc(func() { s.logtail.Shutdown(context.Background()) })
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"expvar"
 	"fmt"
 	"io"
@@ -118,6 +119,7 @@ func newLogger(cfg Config) *Logger {
 		maxUploadSize:  cfg.MaxUploadSize,
 		skipClientTime: cfg.SkipClientTime,
 		drainWake:      make(chan struct{}, 1),
+		flushRequests:  make(chan flushRequest),
 		sentinel:       make(chan int32, 16),
 		flushDelayFn:   cfg.FlushDelayFn,
 		clock:          cfg.Clock,
@@ -311,6 +313,7 @@ type Logger struct {
 	maxUploadSize  int
 	drainWake      chan struct{}        // signal to speed up drain
 	drainBuf       []byte               // owned by drainPending for reuse
+	flushRequests  chan flushRequest    // synchronous uploads requested by FlushContext
 	flushDelayFn   func() time.Duration // negative or zero return value to upload aggressively, or >0 to batch at this delay
 	flushPending   atomic.Bool
 	sentinel       chan int32
@@ -349,6 +352,11 @@ type Logger struct {
 	failedCalls   expvar.Int
 	uploadedBytes expvar.Int
 	uploadingTime expvar.Int
+}
+
+type flushRequest struct {
+	ctx  context.Context
+	done chan error
 }
 
 type atomicSocktatsLabel struct{ p atomic.Uint32 }
@@ -427,26 +435,23 @@ func (lg *Logger) Close() {
 	lg.Shutdown(context.Background())
 }
 
-// drainBlock is called by drainPending when there are no logs to drain.
-//
-// In typical operation, every call to the Write method unblocks and triggers a
-// buffer.TryReadline, so logs are written with very low latency.
-//
-// If the caller specified FlushInterface, drainWake is only sent to
-// periodically.
-func (lg *Logger) drainBlock() (shuttingDown bool) {
+// drainBlock waits for work when drainPending finds no logs. A flush request
+// is returned to the uploader, which is the sole owner of HTTP upload ordering.
+func (lg *Logger) drainBlock() (flush *flushRequest, shuttingDown bool) {
 	select {
 	case <-lg.shutdownStart:
-		return true
+		return nil, true
+	case req := <-lg.flushRequests:
+		return &req, false
 	case <-lg.drainWake:
+		return nil, false
 	}
-	return false
 }
 
 // drainPending drains and encodes a batch of logs from the buffer for upload.
-// If no logs are available, drainPending blocks until logs are available.
-// The returned buffer is only valid until the next call to drainPending.
-func (lg *Logger) drainPending() (b []byte) {
+// If wait is true and no logs are available, it waits for a write, flush, or
+// shutdown. The returned buffer is only valid until the next call.
+func (lg *Logger) drainPending(wait bool) (b []byte, flush *flushRequest, shuttingDown bool) {
 	b = lg.drainBuf[:0]
 	b = append(b, '[')
 	defer func() {
@@ -470,17 +475,18 @@ func (lg *Logger) drainPending() (b []byte) {
 		line, err := lg.buffer.TryReadLine()
 		switch {
 		case err == io.EOF:
-			return b
+			return b, nil, false
 		case err != nil:
 			b = append(b, '{')
 			b = lg.appendMetadata(b, false, true, 0, 0, "reading ringbuffer: "+err.Error(), nil, 0)
 			b = bytes.TrimRight(b, ",")
 			b = append(b, '}')
-			return b
+			return b, nil, false
 		case line == nil:
-			// If we read at least some log entries, return immediately.
-			if len(b) > len("[") {
-				return b
+			// If we read at least some log entries, or the caller only wants
+			// currently buffered data, return immediately.
+			if len(b) > len("[") || !wait {
+				return b, nil, false
 			}
 
 			// We're about to block. If we're holding on to too much memory
@@ -490,8 +496,9 @@ func (lg *Logger) drainPending() (b []byte) {
 				lg.drainBuf = b
 			}
 
-			if shuttingDown := lg.drainBlock(); shuttingDown {
-				return b
+			flush, shuttingDown = lg.drainBlock()
+			if flush != nil || shuttingDown {
+				return b, flush, shuttingDown
 			}
 			continue
 		}
@@ -522,15 +529,40 @@ func (lg *Logger) drainPending() (b []byte) {
 		}
 		b = append(b, ',')
 	}
-	return b
+	return b, nil, false
 }
 
 // This is the goroutine that repeatedly uploads logs in the background.
+// handleFlushRequest starts one upload after the caller's request was accepted.
+// It returns true when it serviced a waiting request.
+func (lg *Logger) handleFlushRequest() bool {
+	select {
+	case flush := <-lg.flushRequests:
+		_, err := lg.upload(flush.ctx, []byte("[]"), -1)
+		flush.done <- err
+		return true
+	default:
+		return false
+	}
+}
+
 func (lg *Logger) uploading(ctx context.Context) {
 	defer close(lg.shutdownDone)
 
 	for {
-		body := lg.drainPending()
+		body, flush, shuttingDown := lg.drainPending(true)
+		if shuttingDown {
+			return
+		}
+		if flush != nil {
+			// The request was received after every earlier HTTP attempt had
+			// finished. Make a distinct request even when the buffer is empty;
+			// this is an ordering/connectivity probe, not a content barrier.
+			_, err := lg.upload(flush.ctx, []byte("[]"), -1)
+			flush.done <- err
+			continue
+		}
+
 		origlen := -1 // sentinel value: uncompressed
 		// Don't attempt to compress tiny bodies; not worth the CPU cycles.
 		if lg.compressLogs && len(body) > 256 {
@@ -551,6 +583,9 @@ func (lg *Logger) uploading(ctx context.Context) {
 		var firstFailure time.Time
 		for len(body) > 0 && ctx.Err() == nil {
 			retryAfter, err := lg.upload(ctx, body, origlen)
+			// A flush waits for this attempt, not for the background retry
+			// policy to eventually succeed. Its own probe reports its own result.
+			lg.handleFlushRequest()
 			if err != nil {
 				numFailures++
 				firstFailure = lg.clock.Now()
@@ -585,6 +620,11 @@ func (lg *Logger) uploading(ctx context.Context) {
 		select {
 		case <-lg.shutdownStart:
 			return
+		case flush := <-lg.flushRequests:
+			// The normal upload above has finished. This new request starts
+			// strictly after the FlushContext call was accepted.
+			_, err := lg.upload(flush.ctx, []byte("[]"), -1)
+			flush.done <- err
 		default:
 		}
 	}
@@ -705,13 +745,30 @@ func (lg *Logger) upload(ctx context.Context, body []byte, origlen int) (retryAf
 	return 0, nil
 }
 
-// Flush uploads all logs to the server. It blocks until complete or there is an
-// unrecoverable error.
-//
-// TODO(bradfitz): this apparently just returns nil, as of tailscale/corp@9c2ec35.
-// Finish cleaning this up.
+// FlushContext waits for any HTTP upload already in progress, starts a new
+// upload attempt, and waits for that attempt to finish. It reports the result
+// of that new attempt. It does not promise that a particular write is included;
+// its guarantee is temporal.
+func (lg *Logger) FlushContext(ctx context.Context) error {
+	req := flushRequest{ctx: ctx, done: make(chan error, 1)}
+	select {
+	case lg.flushRequests <- req:
+	case <-lg.shutdownStart:
+		return errors.New("logtail: logger is shut down")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case err := <-req.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Flush is FlushContext with no deadline.
 func (lg *Logger) Flush() error {
-	return nil
+	return lg.FlushContext(context.Background())
 }
 
 // StartFlush starts a log upload, if anything is pending.

@@ -159,6 +159,87 @@ func synctestEncodeAndUploadMessages(t *testing.T) {
 	}
 }
 
+func TestFlushContextWaitsThenStartsNewUpload(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var mu sync.Mutex
+	var requests int
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		if n == 1 {
+			close(firstStarted)
+			<-releaseFirst
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	ln := memnet.Listen("flush-test:0")
+	srv := &http.Server{Handler: handler}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	lg := NewLogger(Config{
+		BaseURL: "http://" + ln.Addr().String(),
+		HTTPC:   &http.Client{Transport: &http.Transport{DialContext: ln.Dial}},
+	}, t.Logf)
+	defer lg.Shutdown(context.Background())
+	lg.Write([]byte("occupy the uploader"))
+	<-firstStarted
+
+	done := make(chan error, 1)
+	go func() { done <- lg.FlushContext(context.Background()) }()
+	mu.Lock()
+	if requests != 1 {
+		t.Fatalf("FlushContext started concurrently with current upload; requests=%d", requests)
+	}
+	mu.Unlock()
+	close(releaseFirst)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 2 {
+		t.Fatalf("requests=%d, want current upload plus one new flush upload", requests)
+	}
+}
+
+func TestStartupLeftoversUploadWithoutFlushDelay(t *testing.T) {
+	buffer := NewMemoryBuffer(4)
+	buffer.Write([]byte("left over from previous process\n"))
+	conf, uploaded := newCaptureServer(t, 0)
+	conf.Buffer = buffer
+	conf.FlushDelayFn = func() time.Duration { return time.Hour }
+	lg := NewLogger(conf, t.Logf)
+	defer lg.Shutdown(context.Background())
+	select {
+	case body := <-uploaded:
+		if !strings.Contains(string(body), "left over from previous process") {
+			t.Fatalf("startup upload=%q", body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("startup leftovers waited for normal flush delay")
+	}
+}
+
+func TestFlushContextReportsNewUploadFailure(t *testing.T) {
+	conf, _ := newCaptureServer(t, http.StatusTeapot)
+	lg := NewLogger(conf, t.Logf)
+	defer func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		lg.Shutdown(ctx)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := lg.FlushContext(ctx); err == nil {
+		t.Fatal("FlushContext succeeded; want HTTP failure")
+	}
+}
+
 func TestLoggerWriteLength(t *testing.T) {
 	lg := &Logger{
 		clock:  tstime.StdClock{},
