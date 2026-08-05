@@ -49,9 +49,6 @@ int test_conn() {
 	if ((ret = tailscale_set_dir(s1, tmps1)) != 0) {
 		return set_err(s1, '1');
 	}
-	if ((ret = tailscale_set_logfd(s1, -1)) != 0) {
-		return set_err(s1, '2');
-	}
 	if ((ret = tailscale_up(s1)) != 0) {
 		return set_err(s1, '3');
 	}
@@ -62,9 +59,6 @@ int test_conn() {
 	}
 	if ((ret = tailscale_set_dir(s2, tmps2)) != 0) {
 		return set_err(s2, '5');
-	}
-	if ((ret = tailscale_set_logfd(s2, -1)) != 0) {
-		return set_err(s1, '6');
 	}
 	if ((ret = tailscale_up(s2)) != 0) {
 		return set_err(s2, '7');

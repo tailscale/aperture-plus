@@ -11,8 +11,6 @@ enum HelloError: Error {
 typealias MessageSender = @Sendable (String) async  -> Void
 
 struct Logger: TailscaleKit.LogSink {
-    var logFileHandle: Int32? = STDOUT_FILENO
-
     func log(_ message: String) {
         print("hello: \(message)")
     }

@@ -13,8 +13,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,11 +27,106 @@ import (
 	"golang.org/x/sys/unix"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
+	"tailscale.com/logpolicy"
+	"tailscale.com/logtail"
+	"tailscale.com/logtail/filch"
 	"tailscale.com/tsnet"
 	"tailscale.com/types/logger"
 )
 
 func main() {}
+
+// processLogs is the single process-wide filch/logtail used by every tsnet
+// server and by the embedding application. It owns stderr so Go runtime panic
+// output survives a crash and is uploaded on the next launch.
+var processLogs struct {
+	mu     sync.Mutex
+	logger *logtail.Logger
+	buffer *filch.Filch
+	public string
+}
+
+//export TsnetSetupLogs
+func TsnetSetupLogs(dir *C.char) C.int {
+	processLogs.mu.Lock()
+	defer processLogs.mu.Unlock()
+	if processLogs.logger != nil {
+		return 0
+	}
+	root := C.GoString(dir)
+	if root == "" {
+		return C.EINVAL
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return C.EIO
+	}
+	cfgPath := root + "/aperture.log.conf"
+	cfg, err := logpolicy.ConfigFromFile(cfgPath)
+	if os.IsNotExist(err) {
+		cfg = logpolicy.NewConfig(logtail.CollectionNode)
+		err = cfg.Save(cfgPath)
+	}
+	if err != nil || cfg.Validate(logtail.CollectionNode) != nil {
+		return C.EIO
+	}
+	buf, err := filch.New(root+"/aperture", filch.Options{ReplaceStderr: true})
+	if err != nil {
+		return C.EIO
+	}
+	lc := logtail.Config{
+		Collection:          cfg.Collection,
+		PrivateID:           cfg.PrivateID,
+		BaseURL:             logpolicy.LogURL(),
+		Stderr:              buf.OrigStderr,
+		Buffer:              buf,
+		CompressLogs:        true,
+		IncludeProcID:       true,
+		IncludeProcSequence: true,
+		HTTPC: &http.Client{Transport: logpolicy.TransportOptions{
+			Host: logpolicy.LogHost(),
+		}.New()},
+	}
+	lg := logtail.NewLogger(lc, logger.Discard)
+	processLogs.logger = lg
+	processLogs.buffer = buf
+	processLogs.public = cfg.PublicID.String()
+	log.SetFlags(0)
+	log.SetOutput(lg)
+	lg.Logf("libtailscale process logging started; Go %s", runtime.Version())
+	return 0
+}
+
+//export TsnetLog
+func TsnetLog(msg *C.char) C.int {
+	processLogs.mu.Lock()
+	lg := processLogs.logger
+	processLogs.mu.Unlock()
+	if lg == nil {
+		return C.ENXIO
+	}
+	lg.Logf("aperture: %s", C.GoString(msg))
+	return 0
+}
+
+//export TsnetFlushLogs
+func TsnetFlushLogs(timeoutMillis C.int) C.int {
+	processLogs.mu.Lock()
+	lg := processLogs.logger
+	processLogs.mu.Unlock()
+	if lg == nil {
+		return C.ENXIO
+	}
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	if timeoutMillis > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMillis)*time.Millisecond)
+		defer cancel()
+	}
+	if err := lg.FlushContext(ctx); err != nil {
+		return -1
+	}
+	return 0
+}
 
 // netmapCacheEnvOnce ensures we configure the netmap-caching environment
 // variables exactly once, before the first tsnet server is created.
@@ -123,7 +220,11 @@ func TsnetNewServer() C.int {
 	}
 	sd := servers.next
 	servers.next++
-	s := &server{s: &tsnet.Server{}}
+	ts := &tsnet.Server{}
+	processLogs.mu.Lock()
+	ts.Logtail = processLogs.logger
+	processLogs.mu.Unlock()
+	s := &server{s: ts}
 	servers.m[sd] = s
 	return (C.int)(sd)
 }
@@ -536,42 +637,13 @@ func TsnetSetEphemeral(sd C.int, e int) C.int {
 	return 0
 }
 
-//export TsnetSetLogFD
-func TsnetSetLogFD(sd, fd C.int) C.int {
-	s := getServer(sd)
-	if s == nil {
-		return C.EBADF
-	}
-	if fd == -1 {
-		s.s.Logf = logger.Discard
-		log.SetOutput(io.Discard)
-		return 0
-	}
-	f := os.NewFile(uintptr(fd), "logfd")
-	s.s.Logf = func(format string, args ...any) {
-		fmt.Fprintf(f, format, args...)
-		fmt.Fprintf(f, "\n")
-	}
-	// Also route Go's stdlib `log` package to the same fd. tsnet (and libtailscale)
-	// emit some messages via `log.Printf`, which otherwise writes to os.Stderr
-	// (fd 2) and would mix tsnet logs into the redirected stderr.log that
-	// CrashCapture reserves for Go runtime panic/fatal output. Keeping tsnet's
-	// stdlib logs on the logfd (tsnet.log) leaves stderr.log holding ONLY Go
-	// runtime panics, so "stderr.log non-empty + a crash signature" reliably
-	// means a runtime fatal occurred. (The Go runtime's own panic/fatal output
-	// is written directly to fd 2 via write(2), not via `log`, so it still lands
-	// in stderr.log regardless.) Mirrors ipn-go-bridge's log.SetOutput.
-	log.SetOutput(f)
-	return 0
-}
-
 // TsnetCrashTest deliberately crashes the Go runtime. TEST/DEBUG ONLY —
 // never reachable from normal app flow; the Swift side only invokes it when
 // the `-CrashTest` launch argument is set (see TSNetManager.startTailscale).
 //
-// It exists to verify end-to-end that Go runtime panics (and the goroutine
-// stack dump Go prints to fd 2 before aborting) are captured by Aperture's
-// stderr redirect (TSNet/CrashCapture.swift) and surfaced on the next launch.
+// It verifies end-to-end that Go runtime panics (and the goroutine stack dump
+// printed to fd 2 before aborting) survive in the process-wide filch and are
+// uploaded by logtail on the next launch.
 // This reproduces the exact mechanism of the overnight TestFlight crash
 // (SIGABRT raised from a TailscaleKit thread via the Go runtime):
 //
@@ -589,14 +661,6 @@ func TsnetSetLogFD(sd, fd C.int) C.int {
 //	immediately; the goroutine panics a moment later and the runtime
 //	aborts the whole process (closer to "ran for a while, then a
 //	goroutine panicked").
-//
-// mode 2: write a realistic Go-panic-formatted dump to stderr (fd 2) and
-//
-//	RETURN normally — does NOT abort. Lets the crash-capture UI test
-//	exercise the full capture+surface pipeline (dup2 → stderr.log →
-//	next-launch os_log + debug label) without killing the process, which
-//	XCUITest would otherwise hard-fail as an app crash. The real abort
-//	path (modes 0/1) is covered by the host-side `make crashtest` script.
 //
 // TsnetDebugResetConnections simulates the transport damage caused by an iOS
 // suspend/resume cycle without closing the tsnet Server. It rebinds magicsock's
@@ -670,14 +734,6 @@ func TsnetCrashTest(sd, mode C.int) C.int {
 		panic("TsnetCrashTest: deliberate panic (mode 0)")
 	case 1:
 		go func() { panic("TsnetCrashTest: deliberate goroutine panic (mode 1)") }()
-		return 0
-	case 2:
-		fmt.Fprintf(os.Stderr, "panic: TsnetCrashTest: deliberate panic (mode 2)\n\n"+
-			"goroutine 1 [running]:\n"+
-			"main.TsnetCrashTest(...)\n"+
-			"\ttailscale.go:0\n"+
-			"main.TsnetCrashTest({0x%x}, 0x2)\n"+
-			"\ttailscale.go:0 +0x0\n", sd)
 		return 0
 	default:
 		panic("TsnetCrashTest: unknown mode")

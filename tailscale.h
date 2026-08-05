@@ -22,6 +22,16 @@ extern "C" {
 #endif
 
 
+// Process-wide logging. Call tailscale_setup_logs once, before tailscale_new.
+// It creates a persistent filch/logtail under dir, redirects stderr so Go
+// runtime panics survive crashes, and shares the logger with every server.
+// TS_LOG_TARGET overrides the upload service base URL.
+extern int tailscale_setup_logs(const char* dir);
+extern int tailscale_log(const char* message);
+// Wait for any current upload, then perform one new upload. timeout_millis <= 0
+// means no deadline. Returns zero when that new upload succeeds.
+extern int tailscale_flush_logs(int timeout_millis);
+
 // tailscale is a handle onto a Tailscale server.
 typedef int tailscale;
 
@@ -68,13 +78,6 @@ extern int tailscale_set_authkey(tailscale sd, const char* authkey);
 extern int tailscale_set_control_url(tailscale sd, const char* control_url);
 extern int tailscale_set_ephemeral(tailscale sd, int ephemeral);
 
-// tailscale_set_logfd instructs the tailscale instance to write logs to fd.
-//
-// An fd value of -1 means discard all logging.
-//
-// Returns zero on success or -1 on error, call tailscale_errmsg for details.
-extern int tailscale_set_logfd(tailscale sd, int fd);
-
 // tailscale_crash_test deliberately crashes the Go runtime. TEST/DEBUG ONLY.
 //
 // mode 0: panic immediately in the calling goroutine. The Go runtime prints
@@ -83,16 +86,12 @@ extern int tailscale_set_logfd(tailscale sd, int fd);
 //         return.
 // mode 1: panic in a background goroutine; returns 0 and aborts the process
 //         asynchronously.
-// mode 2: write a Go-panic-formatted dump to stderr (fd 2) and return 0 —
-//         does NOT abort. Lets the crash-capture UI test exercise capture+
-//         surface without killing the process under XCUITest.
 //
-// Never call from normal app flow. Used by the crash-capture UI test (via
-// TailscaleNode.crashTest and the -CrashTest launch arg) to verify that Go
-// runtime panics are captured to the redirected stderr log.
+// Never call from normal app flow. Used by the -CrashTest integration flow to
+// verify that process-wide filch captures and uploads Go runtime panics.
 //
 // Returns -1 if sd is invalid; otherwise does not return (mode 0) or returns 0
-// (mode 1/2).
+// (mode 1).
 extern int tailscale_crash_test(tailscale sd, int mode);
 
 // tailscale_debug_reset_connections simulates suspend/resume transport loss by

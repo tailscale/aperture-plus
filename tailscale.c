@@ -7,6 +7,9 @@
 #include <unistd.h>
 
 // Functions exported by Go.
+extern int TsnetSetupLogs(char* dir);
+extern int TsnetLog(char* message);
+extern int TsnetFlushLogs(int timeoutMillis);
 extern int TsnetNewServer();
 extern int TsnetStart(int sd);
 extern int TsnetUp(int sd);
@@ -18,7 +21,6 @@ extern int TsnetSetHostname(int sd, char* str);
 extern int TsnetSetAuthKey(int sd, char* str);
 extern int TsnetSetControlURL(int sd, char* str);
 extern int TsnetSetEphemeral(int sd, int ephemeral);
-extern int TsnetSetLogFD(int sd, int fd);
 extern int TsnetCrashTest(int sd, int mode);
 extern int TsnetDebugResetConnections(int sd);
 extern int TsnetDebugShutdownTCPConnections(int sd);
@@ -30,6 +32,18 @@ extern int TsnetListen(int sd, char* net, char* addr, int* listenerOut);
 extern int TsnetAccept(int ld, int* connOut);
 extern int TsnetLoopback(int sd, char* addrOut, size_t addrLen, char* proxyOut, char* localOut);
 extern int TsnetEnableFunnelToLocalhostPlaintextHttp1(int sd, int localhostPort);
+
+int tailscale_setup_logs(const char* dir) {
+	return TsnetSetupLogs((char*)dir);
+}
+
+int tailscale_log(const char* message) {
+	return TsnetLog((char*)message);
+}
+
+int tailscale_flush_logs(int timeout_millis) {
+	return TsnetFlushLogs(timeout_millis);
+}
 
 tailscale tailscale_new() {
 	return TsnetNewServer();
@@ -81,9 +95,6 @@ int tailscale_set_control_url(tailscale sd, const char* control_url) {
 }
 int tailscale_set_ephemeral(tailscale sd, int ephemeral) {
 	return TsnetSetEphemeral(sd, ephemeral);
-}
-int tailscale_set_logfd(tailscale sd, int fd) {
-	return TsnetSetLogFD(sd, fd);
 }
 
 // tailscale_crash_test deliberately crashes the Go runtime. TEST/DEBUG ONLY.

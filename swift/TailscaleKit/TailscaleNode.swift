@@ -68,10 +68,6 @@ public actor TailscaleNode {
         
         logger?.log("Tailscale starting: \(tailscale)")
 
-        if let fd = logger?.logFileHandle {
-            tailscale_set_logfd(tailscale, fd)
-        }
-
         if let authKey = config.authKey {
             tailscale_set_authkey(tailscale, authKey)
         }
@@ -158,11 +154,9 @@ public actor TailscaleNode {
     }
 
     /// Deliberately crashes the Go runtime. TEST/DEBUG ONLY — never call from
-    /// normal app flow. Used by the crash-capture UI test (via the `-CrashTest`
-    /// launch arg in TSNetManager) to verify that Go runtime panics — and the
-    /// goroutine stack dump Go prints to stderr (fd 2) before aborting — are
-    /// captured by Aperture's stderr redirect (TSNet/CrashCapture.swift) and
-    /// surfaced on the next launch.
+    /// normal app flow. Used by the `-CrashTest` integration test to verify
+    /// that Go runtime panics and goroutine dumps are recovered from the
+    /// process-wide filch and uploaded on the next launch.
     ///
     /// Reproduces the exact mechanism of the overnight TestFlight crash: the
     /// Go runtime prints "panic: ..." + a stack trace to fd 2, then raises
