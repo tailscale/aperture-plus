@@ -27,9 +27,19 @@ single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
   `FRAMEWORK_SEARCH_PATHS` in the project also references `Release-iphoneos`; the
   xcframework reference itself points at `Release-iphonefat` — both are produced by
   `make ios-fat` / `make ios` / `make ios-sim`.
-- **`ThirdParty/libtailscale` is a git submodule** on a WIP `aperture` branch, not
-  a vendored copy. After cloning, run `git submodule update --init`. Be careful
-  about committing changes inside that directory; they belong upstream.
+- **`ThirdParty/libtailscale` is a git submodule**, and it contains the nested
+  `tailscale-patched` submodule. They are not vendored copies. After cloning,
+  run `git submodule update --init --recursive`. Commit changes deepest-first
+  (`tailscale-patched`, then `libtailscale`, then this repo) so every gitlink
+  points at a real commit.
+- **Run `make subtrac` after every top-level commit**, especially any commit that
+  changes a submodule pointer. The submodule remotes are intentionally local
+  (`url = .`), so ordinary gitlinks alone are not portable. `make subtrac`
+  preserves HEAD and recursively embeds both nested commits in `<branch>.trac`
+  (normally `main.trac`). It is content-addressed/idempotent and verifies the
+  tracking ref equals `git-subtrac cid HEAD`, so running it after every commit
+  is safe and cheap. Do not commit the generated tracking commit onto `main`;
+  it lives on `main.trac`.
 
 ## Adding source files (do NOT hand-edit project.pbxproj for new files)
 
@@ -72,7 +82,8 @@ stage one at `~/.aperture-ios-authkey` (or `make test AUTHKEY=...`).
 The **top-level Makefile** is the entry point: `make` builds everything
 (libtailscale xcframework + app for sim), `make test` builds + runs the UI
 tests with log capture, `make look Q="…"` screenshots + vision-describes.
-`make help` lists all targets. See `README.md` for the full table.
+`make help` lists all targets. See `README.md` for the full table. After making
+and committing changes, run `make subtrac` as the final repository-hygiene step.
 
 Raw `xcodebuild` (what `make` runs) — simulator (no signing needed):
 ```bash

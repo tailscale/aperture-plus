@@ -4,6 +4,7 @@
 #   make test       build, then run the UI tests on the simulator
 #   make ipa        archive + export a dev-signed .ipa for a real device
 #   make look       screenshot the booted sim + describe it with a vision sub-pi
+#   make subtrac    preserve HEAD + nested submodule commits in main.trac
 #   make clean      remove app build artifacts (not the libtailscale submodule)
 #
 # The libtailscale build needs Go 1.26.5 and the iOS SDK; the app build needs
@@ -23,6 +24,8 @@ XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphon
 # code into new archives (especially dangerous for local submodule edits).
 LIBTSCALE_SOURCES := $(shell git -C ThirdParty/libtailscale ls-files '*.go' '*.c' '*.h' 'swift/TailscaleKit/*.swift' 'swift/TailscaleKit/**/*.swift' | sed 's|^|ThirdParty/libtailscale/|')
 LIBTSCALEDIR := ThirdParty/libtailscale/swift
+SUBTRAC       := go tool git-subtrac
+SUBTRAC_BRANCH := $(shell git branch --show-current)
 
 # Device IPA build (see `make ipa`). Archive + export live under build/.
 ARCHIVE      := build/Aperture.xcarchive
@@ -236,6 +239,24 @@ crashtest: app  ## Verify real Go panic recovery through global logtail
 	@echo
 	@echo "::: Running process-log crash recovery test on $(SIM_NAME) :::"
 	./scripts/run-crashtest.sh "$(SIM_NAME)"
+
+# ----- commit/submodule history preservation -----
+# Run after EVERY commit. git-subtrac is content-addressed/idempotent, so this
+# is cheap when HEAD is already represented. The moving refs make detached
+# nested-submodule commits fetchable while subtrac recursively records them.
+.PHONY: subtrac
+subtrac:  ## Preserve HEAD and all nested submodule commits in <branch>.trac
+	@test -n "$(SUBTRAC_BRANCH)" || { echo "error: top-level HEAD is detached" >&2; exit 1; }
+	@git -C ThirdParty/libtailscale/tailscale-patched update-ref \
+		refs/heads/aperture-subtrac HEAD
+	@git -C ThirdParty/libtailscale update-ref refs/heads/aperture-subtrac HEAD
+	@$(SUBTRAC) update
+	@want="$$($(SUBTRAC) cid HEAD)"; \
+	 got="$$(git rev-parse '$(SUBTRAC_BRANCH).trac')"; \
+	 test "$$want" = "$$got" || { \
+	   echo "error: $(SUBTRAC_BRANCH).trac=$$got, expected $$want" >&2; exit 1; \
+	 }; \
+	 echo "::: $(SUBTRAC_BRANCH).trac -> $$got (HEAD and nested submodules preserved) :::"
 
 # ----- vision helper (manual / for debugging) -----
 .PHONY: look
