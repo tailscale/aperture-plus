@@ -85,7 +85,7 @@ struct SettingsView: View {
                 Section {
                     // Red (destructive) so Logout doesn't read as the
                     // tempting default blue "go" button — it deletes the
-                    // workspace's tsnet profile and drops the tailnet.
+                    // entire session and all of its local data.
                     StatusButton(text: "Logout",
                                  action: { showLogoutAlert = true },
                                  color: .red)
@@ -111,7 +111,7 @@ struct SettingsView: View {
                     dismissAction()
                 }
             } message: {
-                Text("Are you sure you want to log out?")
+                Text("This will delete this session, including its tabs, bookmarks, and website data.")
             }
         }
         .presentationDetents([.medium, .large])

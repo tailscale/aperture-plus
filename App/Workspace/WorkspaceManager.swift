@@ -146,6 +146,37 @@ final class WorkspaceManager: ObservableObject {
         persist()
     }
 
+    /// Removes a session rather than leaving a logged-out shell behind. If it
+    /// was the final session, create and activate a fresh blank one first so
+    /// the app always has a valid workspace and immediately returns to the
+    /// connection gate.
+    func deleteWorkspace(id: UUID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let removed = workspaces[index]
+
+        var replacement: Workspace?
+        if workspaces.count == 1 {
+            replacement = makeWorkspace(from: .makeDefault())
+        } else if activeId == id {
+            replacement = workspaces[index == workspaces.count - 1 ? index - 1 : index + 1]
+        }
+
+        workspaces.remove(at: index)
+        if let replacement {
+            if workspaces.isEmpty { workspaces.append(replacement) }
+            activeWorkspace = replacement
+            activeId = replacement.id
+        }
+        persist()
+
+        // Publish the replacement/removal immediately, then tear down and
+        // erase the old session away from the button action. The Workspace is
+        // retained by this task until its node and stores are no longer in use.
+        Task {
+            await removed.deleteSessionData()
+        }
+    }
+
     private func makeWorkspace(from definition: WorkspaceDefinition) -> Workspace {
         Workspace(definition: definition, authKey: authKey) { [weak self] updated in
             self?.handleDefinitionChange(updated)

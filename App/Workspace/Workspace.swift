@@ -152,24 +152,28 @@ final class Workspace: ObservableObject, Identifiable {
         manager.setExitNodeEnabled(enabled)
     }
 
-    func logout() {
-        Task { [manager] in
-            do {
-                guard let profile = try await manager.localAPIClient?.currentProfile() else {
-                    logger.log("Logout: no current profile; nothing to delete")
-                    return
-                }
-                try await manager.localAPIClient?.deleteProfile(profileID: profile.id)
-                logger.log("Logout: deleted profile \(profile.id)")
-            } catch {
-                // Previously this swallowed every error with `try?`, so a failed
-                // logout (network blip, node not running) left the UI silently
-                // stuck on the browser with no LoginBanner — the user could tap
-                // Logout repeatedly with no effect and no clue why. At least log
-                // it now; surfacing the error to the user is a follow-up.
-                logger.log("Logout failed: \(error)")
-            }
+    /// Stops this workspace and removes all session-owned data. The manager
+    /// has already removed it from the published workspace list before calling
+    /// this, so no new work can start against these stores.
+    func deleteSessionData() async {
+        tabManager.unloadAllWebViews()
+        await manager.shutdown()
+
+        let dataStoreID = definition.dataStoreUUID
+        await dataStore.removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast
+        )
+        do {
+            // This removes the named store itself when WebKit has released the
+            // last page process; the content wipe above is the privacy-critical
+            // fallback if WebKit is still winding one down.
+            try await WKWebsiteDataStore.remove(forIdentifier: dataStoreID)
+        } catch {
+            logger.log("Delete session: web data was cleared, but its empty store could not be removed \(dataStoreID): \(error)")
         }
+        WorkspaceStore.removeWorkspaceDir(id)
+        logger.log("Delete session: removed workspace \(id)")
     }
 
     // MARK: - Identity

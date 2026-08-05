@@ -4,8 +4,8 @@
 //  Backs the Settings sheet for the ACTIVE workspace. Reads the workspace's
 //  hostname/home page from its `WorkspaceDefinition` and writes edits back
 //  through the workspace (which persists the definition). Exit-node state is
-//  observed from the workspace's tsnet prefs; logout deletes the workspace's
-//  tsnet profile.
+//  observed from the workspace's tsnet prefs. Logout is coordinated by
+//  WorkspaceManager because it deletes the complete session.
 //
 
 import Foundation
@@ -88,10 +88,12 @@ final class SettingsViewModel: ObservableObject {
     }
 
     private let workspace: Workspace
+    private let deleteSession: () -> Void
     private var observers: Set<AnyCancellable> = []
 
-    init(workspace: Workspace) {
+    init(workspace: Workspace, deleteSession: @escaping () -> Void) {
         self.workspace = workspace
+        self.deleteSession = deleteSession
         // Seed from the workspace's persisted definition + home page.
         self.tailnetHostName = workspace.definition.hostname
         self.homePage = workspace.homePage.url
@@ -236,7 +238,7 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func logout() {
-        workspace.logout()
+        deleteSession()
     }
 }
 

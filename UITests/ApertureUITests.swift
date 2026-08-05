@@ -131,10 +131,10 @@ final class ApertureUITests: XCTestCase {
                       "Logout confirmation alert should appear")
         alertConfirm.tap()
 
-        // Logout deletes the tsnet profile → node drops to NeedsLogin. Because
-        // `hasConnected` is sticky, the view stays in browser mode and shows
-        // the `LoginBanner` ("Login Required" + a Login button) rather than
-        // switching back to the connection gate. Accept either signal.
+        // Logout deletes the whole (and currently only) session, then the
+        // workspace manager seeds a fresh session. That replacement reaches
+        // NeedsLogin and normally renders the connection gate. Accept the
+        // browser LoginBanner too in case the UI transition overlaps polling.
         let needsLoginAgain = waitForNeedsLoginAgain(app, timeout: 40)
         if !needsLoginAgain { attachScreenshot(app, named: "logout-no-needslogin") }
         XCTAssertTrue(needsLoginAgain,
@@ -154,13 +154,11 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(completeNullIdLogin(app, emailFieldTimeout: 90),
                       "Relogin via testuser@nullid.fly.dev should complete")
 
-        // Relogin success = the LoginBanner clearing. `needsAuth` flips false
-        // when the node leaves NeedsLogin (Starting/Running), so the banner
-        // disappearing is proof the callback completed. We CANNOT use
-        // `requireBrowserReady` here: the browser chrome from the first login
-        // persists across logout (hasConnected is sticky), so
-        // `add-bookmark-button` is present the whole time — it would pass
-        // even if the relogin never finished (a real false-pass risk).
+        // Relogin success = all NeedsLogin controls clearing. `needsAuth`
+        // flips false when the replacement node leaves NeedsLogin
+        // (Starting/Running), so their disappearance proves the callback
+        // completed. Using this state signal also avoids mistaking browser
+        // chrome appearing during startup for completed authentication.
         let bannerCleared = NSPredicate { obj, _ -> Bool in
             guard let app = obj as? XCUIApplication else { return false }
             return !app.buttons["login-banner-button"].exists
@@ -499,6 +497,63 @@ final class ApertureUITests: XCTestCase {
 
         // Restore the one-workspace baseline so this test cannot make every
         // later test start an extra tsnet node or alter interactive-login flow.
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+    }
+
+    /// Logout removes the complete workspace. Deleting the final workspace
+    /// immediately seeds a fresh session so the app never has an empty root.
+    func testLogoutDeletesWorkspaceAndReplacesLastSession() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.launch()
+
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSessionMenu(app))
+        let originalRows = workspaceRows(in: app)
+        XCTAssertEqual(originalRows.count, 1)
+        let originalID = originalRows[0].identifier
+
+        // Add a second session, then delete it from Settings. The original
+        // session should become active and be the only row left.
+        app.buttons["add-workspace-button"].tap()
+        app.buttons["Done"].tap()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSettings(app))
+        app.buttons["logout-button"].tap()
+        let firstConfirm = app.alerts["Logout"].buttons["Logout"]
+        XCTAssertTrue(firstConfirm.waitForExistence(timeout: 10))
+        firstConfirm.tap()
+
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSessionMenu(app))
+        let afterSecondDeletion = workspaceRows(in: app)
+        XCTAssertEqual(afterSecondDeletion.count, 1,
+                       "Logout should remove the session rather than retain a logged-out row")
+        XCTAssertEqual(afterSecondDeletion[0].identifier, originalID)
+        // Select the sole row to collapse the Menu before dismissing the tab
+        // overview; tapping its Done button while the Menu is expanded is not
+        // hittable on iOS.
+        afterSecondDeletion[0].tap()
+        app.buttons["Done"].tap()
+
+        // Delete the final session. A newly generated replacement should be
+        // visible at the connection gate and have a different workspace id.
+        XCTAssertTrue(openSettings(app))
+        app.buttons["logout-button"].tap()
+        let finalConfirm = app.alerts["Logout"].buttons["Logout"]
+        XCTAssertTrue(finalConfirm.waitForExistence(timeout: 10))
+        finalConfirm.tap()
+        XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
+        XCTAssertTrue(openSessionMenu(app))
+        let replacementRows = workspaceRows(in: app)
+        XCTAssertEqual(replacementRows.count, 1,
+                       "Deleting the last session should seed exactly one fresh session")
+        XCTAssertNotEqual(replacementRows[0].identifier, originalID)
+        attachScreenshot(app, named: "logout-replaced-last-session")
+
         app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
         app.terminate()
         app.launch()
@@ -1965,10 +2020,9 @@ final class ApertureUITests: XCTestCase {
         //    label is "Connect device to tailnet" (extra SR-only context),
         //    so match by label-contains rather than an exact "Connect".
         //
-        //    NOTE: do NOT shortcut this wait on the browser chrome appearing —
-        //    `add-bookmark-button` persists across logout (hasConnected is
-        //    sticky), so it's true during relogin before the callback completes.
-        //    Always wait for the real Connect control and tap it.
+        //    NOTE: do not shortcut this wait on browser chrome appearing;
+        //    chrome can render while the replacement node is still finishing
+        //    authentication. Always wait for the real Connect control and tap it.
         let connectButton = app.webViews.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "Connect")).firstMatch
         if connectButton.waitForExistence(timeout: 40) {
@@ -2016,10 +2070,9 @@ final class ApertureUITests: XCTestCase {
         return app.navigationBars["Settings"].waitForExistence(timeout: 10)
     }
 
-    /// After logout, the node drops to `NeedsLogin`. Because `hasConnected` is
-    /// sticky, the UI stays in browser mode and shows the `LoginBanner`
-    /// (`login-banner-button`) rather than reverting to the connection gate's
-    /// `login-button`. Accept either as proof that a relogin is required.
+    /// After logout, the final session is replaced by a fresh node that drops
+    /// to `NeedsLogin`. Normally this is the connection gate's `login-button`;
+    /// accept a `LoginBanner` too if a view transition overlaps the state update.
     @discardableResult
     private func waitForNeedsLoginAgain(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate { obj, _ -> Bool in

@@ -612,6 +612,40 @@ final class TSNetManager {
         }
     }
 
+    /// Permanently tears down this manager when its workspace is deleted.
+    /// Unlike scene backgrounding, deletion must release the node and all
+    /// observers so its state directory can be removed safely.
+    func shutdown() async {
+        statusPollTask?.cancel()
+        statusPollTask = nil
+        busRestartTask?.cancel()
+        busRestartTask = nil
+        loopbackRecoveryTask?.cancel()
+        loopbackRecoveryTask = nil
+        loopbackRecoveryGeneration &+= 1
+        busErrorWatcher?.cancel()
+        busErrorWatcher = nil
+        prefsWatcher?.cancel()
+        prefsWatcher = nil
+        processor?.cancel()
+        processor = nil
+        socksLogProxy?.stop()
+        socksLogProxy = nil
+        socksLogProxyPort = nil
+        localAPIClient = nil
+        model.proxyConfiguration = nil
+        model.proxyPolicy = nil
+
+        guard let node else { return }
+        self.node = nil
+        do {
+            try await node.close()
+            logger.log("Delete session: closed tsnet node")
+        } catch {
+            logger.log("Delete session: failed to close tsnet node: \(error)")
+        }
+    }
+
     func willEnterBackground() {
         logger.log("Background: leaving tsnet, proxy, and observers unchanged")
     }
