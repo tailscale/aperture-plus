@@ -8,7 +8,7 @@
 //  definition) its own WKWebsiteDataStore UUID. Everything lives under the
 //  app's persistent Application Support — NOT NSTemporaryDirectory, which iOS
 //  purges under storage pressure (a logged-in node could silently lose its
-//  credentials). CrashCapture already uses Application Support for its logs;
+//  credentials). Process-wide logtail state also uses Application Support;
 //  this does the same for tsnet state.
 //
 //  Layout:
@@ -96,6 +96,13 @@ enum WorkspaceStore {
         let dir = base.appending(path: "Aperture", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir,
                                                  withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// Process-wide filch/logtail state, independent of workspace/login resets.
+    static var logsDir: URL = {
+        let dir = appSupportDir.appending(path: "Logs", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
 

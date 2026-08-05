@@ -228,17 +228,13 @@ test: test-policy all  ## Build, then run the UI tests on the simulator (with lo
 	    ./scripts/run-uitests.sh "$(SIM_NAME)"; \
 	fi
 
-# ----- crash-capture + symbolication test (real Go abort) -----
-# Verifies the experiment end-to-end: a deliberate Go runtime panic aborts the
-# app, the panic+stack is captured to stderr.log in the container, and a
-# TailscaleKit frame in the Apple crash report symbolicates via the dSYM to a
-# named Go function + file:line. Uses mode 0 (real SIGABRT); the non-aborting
-# mode-2 capture/surface path is covered by the UI test above. See
-# TSNet/CrashCapture.swift and scripts/run-crashtest.sh.
+# ----- process-log crash recovery + symbolication test -----
+# A real Go panic is retained by the global filch, uploaded to the local fake
+# log service after relaunch, and symbolicated through TailscaleKit's dSYM.
 .PHONY: crashtest
-crashtest: app  ## Build, then verify Go panic capture + dSYM symbolication via a real abort
+crashtest: app  ## Verify real Go panic recovery through global logtail
 	@echo
-	@echo "::: Running crash-capture + symbolication test on $(SIM_NAME) :::"
+	@echo "::: Running process-log crash recovery test on $(SIM_NAME) :::"
 	./scripts/run-crashtest.sh "$(SIM_NAME)"
 
 # ----- vision helper (manual / for debugging) -----

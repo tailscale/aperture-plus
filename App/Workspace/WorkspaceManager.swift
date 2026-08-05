@@ -2,7 +2,7 @@
 //  Aperture
 //
 //  The app-level coordinator: owns the workspace list + the active workspace,
-//  runs the one-time app setup (`CrashCapture.start()`), applies the UI-test
+//  initializes process-wide persistent logging, applies the UI-test
 //  launch-arg resets across all workspaces, fans out `scenePhase` to every
 //  workspace, and persists the workspace list. Replaces the old single
 //  `TSNetManager` held directly by `ApertureApp`.
@@ -29,8 +29,13 @@ final class WorkspaceManager: ObservableObject {
 
     init() {
         // App-level one-time setup — MUST run before any TailscaleNode is
-        // created so the stderr redirect / tsnet log fd are in place first.
-        CrashCapture.start()
+        // created so all nodes share one logtail and Go runtime stderr is
+        // captured by its persistent filch from the beginning.
+        do {
+            try TailscaleLogging.setup(directory: WorkspaceStore.logsDir.path)
+        } catch {
+            fatalError("Could not initialize process logging: \(error)")
+        }
 
         let args = ProcessInfo.processInfo.arguments
 

@@ -66,7 +66,7 @@ final class TSNetManager {
     /// workspace's `WorkspaceDefinition` (plus the shared launch-arg auth key
     /// for the default/test workspace).
     ///
-    /// App-level one-time setup (CrashCapture, `-UITestResetLogin` state-dir
+    /// App-level one-time setup (process logging, `-UITestResetLogin` state-dir
     /// wipe) is handled by `WorkspaceManager`, NOT here — this class is now
     /// instantiated once per workspace and must not repeat global setup.
     @MainActor
@@ -137,13 +137,15 @@ final class TSNetManager {
     }
 
     /// The deliberate-crash mode requested via launch args, or nil if no crash
-    /// is requested. `-CrashTest` alone → mode 0 (immediate panic, the exact
-    /// overnight-crash mechanism); `-CrashTest -CrashTestMode <n>` → mode n.
-    /// TEST/DEBUG ONLY — see `TailscaleNode.crashTest` and the crash-capture UI
-    /// test. Never set outside automated tests.
+    /// is requested. `-CrashTest` alone → mode 0; `-CrashTestMode 1` panics in
+    /// a background goroutine. TEST/DEBUG ONLY.
     nonisolated static func tcpChaosTestRequested() -> Bool {
         ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback")
             || ProcessInfo.processInfo.arguments.contains("-UITestShutdownTCPConnections")
+    }
+
+    nonisolated static func flushLogsRequested() -> Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestFlushLogs")
     }
 
     nonisolated static func crashTestMode() -> Int? {
@@ -161,10 +163,9 @@ final class TSNetManager {
             // This sets up a localAPI client attached to the local node.
             let node = try await MainActor.run { try setupNode() }
 
-            // Test/debug hook: deliberately crash the Go runtime to verify that
-            // panic output is captured to stderr.log (see TSNet/CrashCapture.swift
-            // and UITests.testGoPanicIsCapturedToStderrLog). Gated by a launch
-            // arg so it can never fire in normal/TestFlight use. Done right after
+            // Test/debug hook: deliberately crash the Go runtime to verify the
+            // process-wide filch/logtail recovery path. Gated by a launch arg so
+            // it can never fire in normal/TestFlight use. Done right after
             // node creation (before `up()`) so it's connection-independent and
             // deterministic. Mode 0 panics synchronously and does not return.
             if let mode = Self.crashTestMode() {
@@ -179,6 +180,17 @@ final class TSNetManager {
             await MainActor.run { setLocalAPIClient(localAPIClient) }
 
             try await tailscaleUp(localAPI: localAPIClient, consumer: consumer)
+
+            // Test-only synchronization point: after startup leftovers have
+            // drained, force one subsequent acknowledged HTTP upload.
+            if Self.flushLogsRequested() {
+                do {
+                    try await TailscaleLogging.flush()
+                    logger.log("UITest log flush succeeded")
+                } catch {
+                    logger.log("UITest log flush failed: \(error)")
+                }
+            }
         } catch {
             await MainActor.run { startInFlight = false }
             fatalError("Error setting up Tailscale: \(error)")

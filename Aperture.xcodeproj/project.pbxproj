@@ -47,7 +47,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				AuthManager.swift,
-				CrashCapture.swift,
 				Logging.swift,
 				SocksLogProxy.swift,
 				TailnetProxyPolicy.swift,
