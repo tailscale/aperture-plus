@@ -323,6 +323,34 @@ final class BrowserViewModel: NSObject, ObservableObject {
 }
 
 extension BrowserViewModel: WKUIDelegate {
+    /// Supply a deliberately preview-free menu for links. WebKit's default
+    /// context menu includes Safari's large live preview, which can obscure
+    /// actions on compact screens.
+    func webView(_ webView: WKWebView,
+                 contextMenuConfigurationFor elementInfo: WKContextMenuElementInfo,
+                 completionHandler: @escaping (UIContextMenuConfiguration?) -> Void) {
+        guard let url = elementInfo.linkURL else {
+            completionHandler(nil)
+            return
+        }
+        let configuration = UIContextMenuConfiguration(
+            identifier: nil,
+            previewProvider: nil
+        ) { [weak self] _ in
+            let open = UIAction(title: "Open", image: UIImage(systemName: "arrow.up.right.square")) { _ in
+                Task { @MainActor [weak self] in self?.load(url: url) }
+            }
+            let openInTab = UIAction(title: "Open in New Tab", image: UIImage(systemName: "plus.square.on.square")) { _ in
+                Task { @MainActor [weak self] in self?.openNewTab(url) }
+            }
+            let copy = UIAction(title: "Copy Link", image: UIImage(systemName: "doc.on.doc")) { _ in
+                Task { @MainActor in UIPasteboard.general.url = url }
+            }
+            return UIMenu(children: [open, openInTab, copy])
+        }
+        completionHandler(configuration)
+    }
+
     /// WebKit asks its UI delegate to create a view for target=_blank,
     /// window.open(), and links whose target requests another browsing context.
     /// Route that request into this workspace's tab manager instead.
