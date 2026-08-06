@@ -17,8 +17,11 @@ SCHEME       := Aperture
 CONFIG       := Debug
 SIM_NAME     ?= iPhone 17
 DERIVED      := build/DerivedData
+MAC_SCHEME   := ApertureMac
+MAC_DERIVED  := build/DerivedDataMac
 
 XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
+MAC_FRAMEWORK := ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework
 # Rebuild the generated framework when a tracked libtailscale source changes.
 # Depending only on the xcframework's existence silently packaged stale native
 # code into new archives (especially dangerous for local submodule edits).
@@ -59,6 +62,14 @@ $(XCFRAMEWORK): $(LIBTSCALE_SOURCES)
 	@echo "(needs Go 1.26.5; slow the first time)"
 	cd $(LIBTSCALEDIR) && make ios-fat
 
+.PHONY: mac-framework
+mac-framework: $(MAC_FRAMEWORK)  ## Build native macOS TailscaleKit.framework
+
+$(MAC_FRAMEWORK): $(LIBTSCALE_SOURCES)
+	@echo
+	@echo "::: Building TailscaleKit.framework for native macOS :::"
+	cd $(LIBTSCALEDIR) && make macos
+
 # ----- app -----
 .PHONY: app
 app: framework  ## Build the Aperture app for the simulator
@@ -69,6 +80,21 @@ app: framework  ## Build the Aperture app for the simulator
 		-configuration $(CONFIG) \
 		-destination 'platform=iOS Simulator,name=$(SIM_NAME)' \
 		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
+
+.PHONY: mac-app
+mac-app: mac-framework  ## Build native Aperture for macOS (unsigned)
+	@echo
+	@echo "::: Building native Aperture for macOS :::"
+	$(XCB) build \
+		-project $(PROJECT) -scheme $(MAC_SCHEME) \
+		-configuration $(CONFIG) \
+		-destination 'platform=macOS,arch=arm64' \
+		-derivedDataPath $(MAC_DERIVED) \
+		CODE_SIGNING_ALLOWED=NO | $(XCPRETTIFIER)
+
+.PHONY: test-mac
+test-mac: mac-framework  ## Build, entitlement-check, and launch-smoke-test native macOS app
+	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
 # ----- device ipa (real device install) -----
 .PHONY: ipa
@@ -268,7 +294,7 @@ look:  ## Screenshot the booted sim + describe it with a vision sub-pi (ask Q=..
 .PHONY: clean
 clean:  ## Remove app build artifacts (keeps the libtailscale xcframework)
 	@echo "::: Cleaning app build artifacts :::"
-	rm -rf $(DERIVED) $(ARCHIVE) $(IPA_DIR)
+	rm -rf $(DERIVED) $(MAC_DERIVED) $(ARCHIVE) $(IPA_DIR)
 
 .PHONY: clean-all
 clean-all: clean  ## Also remove the libtailscale build artifacts (xcframework etc.)

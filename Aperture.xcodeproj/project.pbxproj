@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		C20F248B2EF1A0D300F57D67 /* TailscaleKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; };
 		C20F248D2EF1A0DF00F57D67 /* TailscaleKit.xcframework in CopyFiles */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10000010000000000000001 /* TailscaleKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000030000000000000003 /* TailscaleKit.framework */; };
+		A10000020000000000000002 /* TailscaleKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A10000030000000000000003 /* TailscaleKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -22,6 +24,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		A10000040000000000000004 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				A10000020000000000000002 /* TailscaleKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C20F248C2EF1A0D900F57D67 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -36,6 +49,8 @@
 
 /* Begin PBXFileReference section */
 		C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TailscaleKit.xcframework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework"; sourceTree = "<group>"; };
+		A10000030000000000000003 /* TailscaleKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TailscaleKit.framework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework"; sourceTree = "<group>"; };
+		A10000050000000000000005 /* Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20F24742EF19A5900F57D67 /* Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = Aperture/Info.plist; sourceTree = "<group>"; };
 		C25B4D752EF5F507000539A5 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
@@ -58,6 +73,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000060000000000000006 /* MacApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MacApp;
+			sourceTree = "<group>";
+		};
 		C20F24752EF19A5900F57D67 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = App;
@@ -79,6 +99,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A10000070000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000001 /* TailscaleKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C20F24712EF19A5900F57D67 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -110,6 +138,7 @@
 				C22045AD2EF45E7000242E27 /* Info.plist */,
 				C25B4D752EF5F507000539A5 /* README.md */,
 				C20F24752EF19A5900F57D67 /* App */,
+				A10000060000000000000006 /* MacApp */,
 				C20F24932EF1B4A700F57D67 /* TSNet */,
 				C213B98C2EE8BF80002D0531 /* Products */,
 				C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */,
@@ -122,6 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				C20F24742EF19A5900F57D67 /* Aperture.app */,
+				A10000050000000000000005 /* Aperture.app */,
 				F10000020000000000000002 /* ApertureUITests.xctest */,
 			);
 			name = Products;
@@ -138,6 +168,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A10000080000000000000008 /* ApertureMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A100000D000000000000000D /* Build configuration list for PBXNativeTarget "ApertureMac" */;
+			buildPhases = (
+				A10000090000000000000009 /* Sources */,
+				A10000070000000000000007 /* Frameworks */,
+				A100000A000000000000000A /* Resources */,
+				A10000040000000000000004 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000060000000000000006 /* MacApp */,
+			);
+			name = ApertureMac;
+			packageProductDependencies = (
+			);
+			productName = Aperture;
+			productReference = A10000050000000000000005 /* Aperture.app */;
+			productType = "com.apple.product-type.application";
+		};
 		C20F24732EF19A5900F57D67 /* Aperture */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "Aperture" */;
@@ -194,6 +247,9 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					A10000080000000000000008 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					C20F24732EF19A5900F57D67 = {
 						CreatedOnToolsVersion = 26.0;
 					};
@@ -214,12 +270,20 @@
 			projectRoot = "";
 			targets = (
 				C20F24732EF19A5900F57D67 /* Aperture */,
+				A10000080000000000000008 /* ApertureMac */,
 				F10000060000000000000006 /* ApertureUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A100000A000000000000000A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C20F24722EF19A5900F57D67 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -237,6 +301,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A10000090000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C20F24702EF19A5900F57D67 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -262,6 +333,80 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A100000B000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MacApp/ApertureMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
+				PRODUCT_NAME = Aperture;
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A100000C000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MacApp/ApertureMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
+				PRODUCT_NAME = Aperture;
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		C20F247F2EF19A5C00F57D67 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -500,6 +645,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A100000D000000000000000D /* Build configuration list for PBXNativeTarget "ApertureMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000B000000000000000B /* Debug */,
+				A100000C000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		C20F247E2EF19A5C00F57D67 /* Build configuration list for PBXNativeTarget "Aperture" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
