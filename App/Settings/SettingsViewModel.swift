@@ -146,7 +146,7 @@ final class SettingsViewModel: ObservableObject {
         // land and the netmap/routes to update.)
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            await self?.runExitNodeDiagnostic()
+            self?.runExitNodeDiagnostic()
         }
     }
 

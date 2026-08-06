@@ -33,7 +33,10 @@ private nonisolated final class BounceSchemeHandler: NSObject, WKURLSchemeHandle
                 urlSchemeTask.didReceive(response)
                 urlSchemeTask.didReceive(data)
                 urlSchemeTask.didFinish()
-                self?.queue.async { self?.delayedTasks.removeValue(forKey: id) }
+                guard let handler = self else { return }
+                handler.queue.async { [weak handler] in
+                    handler?.delayedTasks.removeValue(forKey: id)
+                }
             }
             queue.async { [weak self] in self?.delayedTasks[id] = task }
             return

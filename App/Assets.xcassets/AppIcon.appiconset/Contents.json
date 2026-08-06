@@ -10,6 +10,7 @@
     { "idiom": "iphone", "size": "60x60", "scale": "3x", "filename": "AppIcon-60@3x.png" },
 
     { "idiom": "ipad", "size": "20x20", "scale": "1x", "filename": "AppIcon-20.png" },
+
     { "idiom": "ipad", "size": "20x20", "scale": "2x", "filename": "AppIcon-20@2x-ipad.png" },
     { "idiom": "ipad", "size": "29x29", "scale": "1x", "filename": "AppIcon-29.png" },
     { "idiom": "ipad", "size": "29x29", "scale": "2x", "filename": "AppIcon-29@2x-ipad.png" },
@@ -18,9 +19,9 @@
     { "idiom": "ipad", "size": "76x76", "scale": "1x", "filename": "AppIcon-76.png" },
     { "idiom": "ipad", "size": "76x76", "scale": "2x", "filename": "AppIcon-76@2x.png" },
     { "idiom": "ipad", "size": "83.5x83.5", "scale": "2x", "filename": "AppIcon-83.5@2x.png" },
-    { "idiom": "ipad", "size": "167x167", "scale": "1x", "filename": "AppIcon-167.png" },
 
     { "idiom": "mac", "size": "16x16", "scale": "1x", "filename": "AppIcon-16.png" },
+
     { "idiom": "mac", "size": "16x16", "scale": "2x", "filename": "AppIcon-16@2x.png" },
     { "idiom": "mac", "size": "32x32", "scale": "1x", "filename": "AppIcon-32.png" },
     { "idiom": "mac", "size": "32x32", "scale": "2x", "filename": "AppIcon-32@2x.png" },

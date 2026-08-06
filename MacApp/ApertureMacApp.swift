@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppIntents
 import TailscaleKit
 
 /// Native macOS entry point. Each persisted Tailscale workspace is represented

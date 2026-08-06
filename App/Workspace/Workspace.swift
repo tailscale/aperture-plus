@@ -239,7 +239,7 @@ final class Workspace: ObservableObject, Identifiable {
     /// A last-resort in-memory bookmarks container, used only if a workspace's
     /// on-disk store can't be opened. In-memory containers essentially never
     /// fail to create.
-    private nonisolated(unsafe) static let fallbackContainer: ModelContainer = {
+    private static let fallbackContainer: ModelContainer = {
         do {
             return try ModelContainer(for: Bookmark.self,
                                       configurations: ModelConfiguration(isStoredInMemoryOnly: true))

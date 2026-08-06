@@ -93,12 +93,12 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
             logger.log("AuthManager presentationAnchor: no key window; using first scene")
             return ASPresentationAnchor(windowScene: scene)
         }
-        // A zero-frame anchor makes the auth sheet present invisibly (or not
-        // at all) — `session.start()` can return true yet nothing appears.
-        // Log it loudly so a cold-launch "tap Login, nothing happens" is
-        // diagnosable instead of silent.
-        logger.log("AuthManager presentationAnchor: NO UIWindowScene connected; auth sheet will be invisible!")
-        return ASPresentationAnchor(frame: .zero)
+        // AuthenticationServices asks for its anchor only after `start()` from
+        // a visible button action, so at least one connected scene is an API
+        // invariant here. Avoid the deprecated frameless UIWindow fallback;
+        // failing loudly is preferable to returning an anchor that can only
+        // produce an invisible authentication sheet.
+        preconditionFailure("AuthManager presentationAnchor requested with no connected UIWindowScene")
 #else
         if let key = NSApplication.shared.keyWindow {
             logger.log("AuthManager presentationAnchor: key Mac window \(key.frame)")

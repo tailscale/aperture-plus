@@ -502,7 +502,7 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         if ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") {
             logger.log("RESP-LOG action: \(navigationAction.request.url?.absoluteString ?? "(nil)") type=\(navigationAction.navigationType.rawValue)")
         }
@@ -510,7 +510,7 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
-                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
         if ProcessInfo.processInfo.arguments.contains("-UITestLogResponses") {
             let response = navigationResponse.response
             let url = response.url?.absoluteString ?? "(nil)"

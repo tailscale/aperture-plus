@@ -71,7 +71,7 @@ final class TSNetManager {
     /// instantiated once per workspace and must not repeat global setup.
     @MainActor
     init(config: Configuration) {
-        if let authKey = config.authKey {
+        if config.authKey != nil {
             logger.log("Launching with auth key (ephemeral=\(config.ephemeral))")
         }
         self.config = config
@@ -176,7 +176,7 @@ final class TSNetManager {
             }
 
             // Create a localAPIClient instance for our local node
-            let localAPIClient = await LocalAPIClient(localNode: node, logger: logger)
+            let localAPIClient = LocalAPIClient(localNode: node, logger: logger)
             await MainActor.run { setLocalAPIClient(localAPIClient) }
 
             try await tailscaleUp(localAPI: localAPIClient, consumer: consumer)
@@ -343,9 +343,7 @@ final class TSNetManager {
               (ns.code == NSURLErrorCannotConnectToHost
                 || ns.code == NSURLErrorNetworkConnectionLost)
         else { return false }
-        let rawURL = ns.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
-            ?? (ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
-            ?? ""
+        let rawURL = (ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString ?? ""
         guard let host = URL(string: rawURL)?.host()?.lowercased() else { return false }
         return host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
