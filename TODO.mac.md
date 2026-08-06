@@ -9,8 +9,8 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Add `com.apple.security.virtualization = true` to the macOS app now; do not add virtualization code yet.
 - [x] Start sandboxed with client/server network entitlements. The VM will use app-supplied userspace networking, with no host filesystem sharing entitlement.
 - [x] Assume a pure Linux guest, no host filesystem sharing, with userspace networking supplied by the app.
-- [ ] Confirm the intended minimum macOS version. Initially use macOS 26.0 to match the project's iOS-26-only posture and reduce compatibility branches.
-- [ ] Confirm whether Intel Macs matter. The initial build may support the architectures supplied by native `TailscaleKit`; Linux virtualization itself can be supported on both Intel and Apple silicon, but guest artifacts differ by architecture.
+- [x] Use macOS 26.0 as the minimum version for now.
+- [x] Support Apple silicon only for now; do not build an Intel slice.
 
 ## Project and dependency foundation
 
@@ -19,7 +19,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Verify the built macOS app's signed entitlements, not just the source plist (`make test-mac` ad-hoc signs and inspects it).
 - [x] Build/link the native macOS `TailscaleKit.framework` from the existing libtailscale macOS scheme.
 - [x] Add top-level `make mac-framework`, `make mac-app`, and `make test-mac` entry points.
-- [ ] Make ordinary Apple Development signing reliable in the current headless environment. It currently reaches framework signing and fails with `errSecInternalComponent`, matching the repository's known locked-keychain behavior; unsigned/ad-hoc automated tests pass.
+- [x] Make ordinary Apple Development signing reliable in the current environment. After the keychain was unlocked/approved, Xcode signed the framework and app successfully and the resulting app retained the virtualization entitlement.
 - [x] Keep host-only policy tests green (102 routing checks + 17 hostname checks at foundation milestone).
 - [x] Keep the iOS simulator app build green at the foundation milestone.
 - [ ] Keep the full iOS UI suite green after shared-source porting begins.
@@ -59,7 +59,8 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 ## Distribution
 
 - [ ] Add macOS to the existing App Store Connect app record for `io.tailscale.Aperture`.
-- [ ] Verify the App ID/provisioning profile authorizes the Virtualization entitlement. Current local profiles are iOS-only and contain no virtualization grant, so this requires Developer Portal/App Store Connect action and a fresh Mac profile.
+- [x] Verify a development-signed Mac app carries the Virtualization entitlement. Xcode's direct Mac development signing succeeds without an embedded profile and preserves `com.apple.security.virtualization=true`.
+- [ ] Verify the Mac App Store distribution profile/archive authorizes the Virtualization entitlement; the currently cached provisioning profiles are iOS-only.
 - [ ] Archive and validate a native Mac build before implementing VM functionality.
 - [ ] Add TestFlight archive/export/upload commands and documentation for macOS.
 - [ ] Record any App Store Connect or App Review response about the entitlement.
@@ -73,4 +74,4 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 - [ ] Minimum macOS version?
 - [ ] Apple silicon only, or Intel too?
-- [ ] Should the first Mac TestFlight build expose a placeholder/disabled VM UI, or contain no VM UI at all?
+- [x] The first Mac TestFlight build contains no VM UI at all.

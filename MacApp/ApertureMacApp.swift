@@ -48,8 +48,6 @@ private struct NativeMacSettingsView: View {
             LabeledContent("Platform", value: "Native macOS")
             Text("Browser settings are available from the browser toolbar.")
                 .foregroundStyle(.secondary)
-            Text("Virtual machine functionality is not implemented yet.")
-                .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .padding()

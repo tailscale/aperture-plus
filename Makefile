@@ -19,6 +19,7 @@ SIM_NAME     ?= iPhone 17
 DERIVED      := build/DerivedData
 MAC_SCHEME   := ApertureMac
 MAC_DERIVED  := build/DerivedDataMac
+MAC_SIGNED_DERIVED := build/DerivedDataMacSigned
 
 XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
 MAC_FRAMEWORK := ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework
@@ -95,6 +96,24 @@ mac-app: mac-framework  ## Build native Aperture for macOS (unsigned)
 .PHONY: test-mac
 test-mac: mac-framework  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
+
+.PHONY: mac-app-signed
+mac-app-signed: mac-framework  ## Development-sign native Mac app and verify virtualization entitlement
+	@echo
+	@echo "::: Building Apple Development-signed Aperture for macOS :::"
+	$(XCB) build \
+		-project $(PROJECT) -scheme $(MAC_SCHEME) \
+		-configuration Debug \
+		-destination 'platform=macOS,arch=arm64' \
+		-derivedDataPath $(MAC_SIGNED_DERIVED) \
+		-allowProvisioningUpdates | $(XCPRETTIFIER)
+	@entitlements="$$(mktemp)"; \
+	 trap 'rm -f "$$entitlements"' EXIT; \
+	 codesign -d --entitlements :- "$(MAC_SIGNED_DERIVED)/Build/Products/Debug/Aperture.app" >"$$entitlements" 2>/dev/null; \
+	 test "$$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.virtualization' "$$entitlements")" = true || { \
+	   echo "error: development-signed Mac app lacks virtualization entitlement" >&2; exit 1; \
+	 }; \
+	 echo "::: development-signed app retains virtualization entitlement :::"
 
 # ----- device ipa (real device install) -----
 .PHONY: ipa
@@ -294,7 +313,7 @@ look:  ## Screenshot the booted sim + describe it with a vision sub-pi (ask Q=..
 .PHONY: clean
 clean:  ## Remove app build artifacts (keeps the libtailscale xcframework)
 	@echo "::: Cleaning app build artifacts :::"
-	rm -rf $(DERIVED) $(MAC_DERIVED) $(ARCHIVE) $(IPA_DIR)
+	rm -rf $(DERIVED) $(MAC_DERIVED) $(MAC_SIGNED_DERIVED) $(ARCHIVE) $(IPA_DIR)
 
 .PHONY: clean-all
 clean-all: clean  ## Also remove the libtailscale build artifacts (xcframework etc.)

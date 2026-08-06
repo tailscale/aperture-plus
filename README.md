@@ -74,6 +74,7 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make app` | Build just the iOS simulator app (depends on `framework`) |
 | `make mac-framework` | Build native macOS `TailscaleKit.framework` |
 | `make mac-app` | Build the native macOS app unsigned |
+| `make mac-app-signed` | Apple Development-sign the native Mac app and verify its virtualization entitlement |
 | `make test-mac` | Build, ad-hoc sign, verify the virtualization entitlement, and launch-smoke-test the native Mac app |
 | `make ipa` | Archive + export a dev-signed `.ipa` for a real iOS device (needs an unlocked keychain; prompts or aborts — see [Installing on a real device](#installing-on-a-real-device)) |
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
