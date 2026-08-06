@@ -168,6 +168,7 @@ private struct BrowserRootContent: View {
     /// read the app's logs on a device that can't be attached to a Mac.
     @State private var showingLogs = false
     @State private var addressFocusRequested = false
+    @State private var isEditingAddress = false
     init(workspace: Workspace,
          tabManager: TabManager,
          tab: BrowserTab,
@@ -192,6 +193,9 @@ private struct BrowserRootContent: View {
                     VStack(spacing: 0) {
                         browserToolbar
                         browserContent
+                            .simultaneousGesture(TapGesture().onEnded {
+                                if isEditingAddress { isEditingAddress = false }
+                            })
                     }
                     // The iPad toolbar is at the top, so the bottom safe area
                     // belongs to the page. Without this the root layout leaves
@@ -204,6 +208,9 @@ private struct BrowserRootContent: View {
                     // here; WebKit and SwiftUI already coordinate this layout.
                     VStack(spacing: 0) {
                         browserContent
+                            .simultaneousGesture(TapGesture().onEnded {
+                                if isEditingAddress { isEditingAddress = false }
+                            })
                         browserToolbar
                     }
                 }
@@ -276,6 +283,7 @@ private struct BrowserRootContent: View {
             onAddBookmark: { showingBookmarkEditor = true },
             onSettings: onSettings,
             addressFocusRequested: $addressFocusRequested,
+            isEditing: $isEditingAddress,
             onLogs: { showingLogs = true }
         )
         .fixedSize(horizontal: false, vertical: true)

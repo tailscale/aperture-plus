@@ -29,11 +29,11 @@ struct CompactBrowserToolbar: View {
     let onAddBookmark: () -> Void
     let onSettings: () -> Void
     @Binding var addressFocusRequested: Bool
+    @Binding var isEditing: Bool
     /// Opens the in-app log viewer — the only way to read the app's logs on a
     /// device that can't be attached to a Mac (no `log stream`/Console.app).
     let onLogs: () -> Void
 
-    @State private var isEditing = false
     @State private var urlFieldText = ""
     @State private var backPressed = false
     @State private var forwardPressed = false
@@ -89,6 +89,12 @@ struct CompactBrowserToolbar: View {
             guard requested else { return }
             startEditing()
             addressFocusRequested = false
+        }
+        .onChange(of: isEditing) { _, editing in
+            if !editing {
+                urlFieldFocused = false
+                urlFieldText = ""
+            }
         }
     }
 
@@ -232,10 +238,16 @@ struct CompactBrowserToolbar: View {
                 .accessibilityLabel("Clear")
             }
 
-            Button("Cancel") {
+            Button {
                 cancelEditing()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 28, height: 28)
             }
-            .font(.subheadline)
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel("Cancel")
             .accessibilityIdentifier("url-cancel-button")
         }
         .padding(.horizontal, 10)
