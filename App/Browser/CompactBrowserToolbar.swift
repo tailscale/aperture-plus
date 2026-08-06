@@ -237,18 +237,6 @@ struct CompactBrowserToolbar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear")
             }
-
-            Button {
-                cancelEditing()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .accessibilityLabel("Cancel")
-            .accessibilityIdentifier("url-cancel-button")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -263,11 +251,6 @@ struct CompactBrowserToolbar: View {
         urlFieldText = viewModel.url?.absoluteString ?? tab.displayURL
         isEditing = true
         urlFieldFocused = true
-    }
-
-    private func cancelEditing() {
-        isEditing = false
-        urlFieldText = ""
     }
 
     private func submit() {

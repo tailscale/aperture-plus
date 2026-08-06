@@ -1251,7 +1251,7 @@ final class ApertureUITests: XCTestCase {
     ///
     /// Reported sequence (real device, http://ai/chat):
     ///   1. Tap the URL pill → keyboard rises, URL bar floats up. ✓
-    ///   2. Tap Cancel → keyboard falls, URL bar returns to the bottom. ✓
+    ///   2. Tap the page → keyboard falls, URL bar returns to the bottom. ✓
     ///   3. Tap the web page's text editor → keyboard rises (web focus). ✓
     ///   4. Tap outside the text editor → keyboard falls (blur). ✓
     ///   5. Tap the URL pill again → **the URL bar disappears entirely.** ✗
@@ -1310,16 +1310,16 @@ final class ApertureUITests: XCTestCase {
         XCTAssertTrue(frameIsOnScreen(urlField.frame, screen: screen),
                       "URL editor should be on-screen after tapping the pill (step 1); frame=\(urlField.frame)")
 
-        // --- Step 2: Cancel → URL bar returns to the bottom. ---
-        let cancel = app.buttons["url-cancel-button"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Cancel should appear in the editing bar")
-        cancel.tap()
-        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after Cancel")
+        // --- Step 2: tap outside the editor → URL bar returns. ---
+        let page = app.webViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 5), "Web page should exist behind the editing bar")
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after tapping outside")
         _ = waitForKeyboardDismissed(app, timeout: 8)
         print("CYCLE: step2 url-pill frame = \(pill.frame) hittable=\(pill.isHittable)")
         attachScreenshot(app, named: "cycle-step2-cancelled")
         saveScreenshot(app, to: "/tmp/cycle-step2-cancelled.png")
-        XCTAssertTrue(pill.isHittable, "url-pill should be hittable after Cancel (step 2)")
+        XCTAssertTrue(pill.isHittable, "url-pill should be hittable after outside dismissal (step 2)")
 
         // --- Step 3: focus the web chat input → keyboard rises (web focus). ---
         // Re-resolve in case the reference went stale during the URL cycle, but
@@ -1363,27 +1363,11 @@ final class ApertureUITests: XCTestCase {
         }
 
         // --- Step 6 + 7: dismiss, then tap the pill once more → still works. ---
-        // When step 5 has the simulator-only stale frame described above,
-        // XCUITest also gives Cancel an invalid hit point. Calling `tap()` then
-        // does nothing, so asserting that the pill returned is only a second
-        // assertion on the same stale accessibility geometry. We already proved
-        // the production state transition reached the native editor; stop the
-        // diagnostic sequence rather than pretending an undelivered tap was a
-        // product failure.
-        let cancelAgain = app.buttons["url-cancel-button"]
-        if cancelAgain.waitForExistence(timeout: 4), !cancelAgain.isHittable {
-            print("CYCLE: step6 Cancel has stale simulator hit geometry; " +
-                  "skipping the redundant final focus cycle")
-            return
-        }
-
-        if cancelAgain.exists {
-            cancelAgain.tap()
-        } else {
-            blurWebInput(in: app, screen: screen)
-        }
+        // Dismiss by tapping the page, which is the production interaction now
+        // that the redundant second X button has been removed.
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         _ = waitForKeyboardDismissed(app, timeout: 8)
-        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after step-6 dismiss")
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "url-pill should return after step-6 outside tap")
         print("CYCLE: step6 url-pill frame = \(pill.frame)")
         pill.tap()
         _ = urlField.waitForExistence(timeout: 8)
