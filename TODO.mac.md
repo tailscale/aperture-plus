@@ -21,7 +21,8 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Add top-level `make mac-framework`, `make mac-app`, and `make test-mac` entry points.
 - [ ] Make ordinary Apple Development signing reliable in the current headless environment. It currently reaches framework signing and fails with `errSecInternalComponent`, matching the repository's known locked-keychain behavior; unsigned/ad-hoc automated tests pass.
 - [x] Keep host-only policy tests green (102 routing checks + 17 hostname checks at foundation milestone).
-- [ ] Keep the full iOS simulator build/UI suite green after shared-source porting begins.
+- [x] Keep the iOS simulator app build green at the foundation milestone.
+- [ ] Keep the full iOS UI suite green after shared-source porting begins.
 
 ## Shared app port
 
