@@ -218,8 +218,9 @@ tf:  ## Archive -> export -> upload to TestFlight (fails fast if no ASC creds)
 # simulator, no signing. See scripts/proxy-semantics/ for how the expectations
 # were measured against a real SOCKS proxy.
 .PHONY: test-policy
-test-policy:  ## Run the split-tunnel routing unit tests (fast, host-only)
+test-policy:  ## Run split-tunnel and hostname-qualification unit tests (fast, host-only)
 	@./scripts/test-proxy-policy.sh
+	@./scripts/test-hostname-qualifier.sh
 
 .PHONY: test
 test: test-policy all  ## Build, then run the UI tests on the simulator (with log capture)

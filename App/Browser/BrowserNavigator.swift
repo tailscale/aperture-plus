@@ -219,7 +219,9 @@ struct BrowserNavigator: View {
     }
 
     /// Normalizes a URL-bar input into a string suitable for `URL(string:)` /
-    /// `WKWebView.load`. Prepends `https://` when there's no scheme, and — to
+    /// `WKWebView.load`. A scheme-less bareword denotes a tailnet host and gets
+    /// `http://`; other scheme-less hosts get `https://`. Explicit http(s) is
+    /// preserved. Additionally — to
     /// survive real-keyboard input mangling on iPad (where the toolbar
     /// TextField's `.textInputAutocapitalization(.never)`/`.autocorrectionDisabled()`
     /// are not always honored, so autocorrect can mutate `https` into a
@@ -248,7 +250,8 @@ struct BrowserNavigator: View {
             // Scheme but no "://" (e.g. "mailto:foo"); prepend https to the lot.
             return "https://\(input)"
         }
-        return "https://\(input)"
+        let scheme = TailnetHostnameQualifier.defaultScheme(forSchemeLessInput: input)
+        return "\(scheme)://\(input)"
     }
 }
 

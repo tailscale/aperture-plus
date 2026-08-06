@@ -2,12 +2,13 @@
 //  ConnectionType.swift
 //  Aperture
 //
-//  Classifies a browser tab's current page as one of three connection types, so
+//  Classifies a browser tab's current page for its URL-bar status indicator, so
 //  we can show a small per-tab indicator (see the URL pill on iPhone, the tab
 //  chips on iPad, and the tab-overview cards):
 //
 //    .direct   — tailnet peer, connected peer-to-peer (no relay)
 //    .derped   — tailnet peer, connected via a DERP relay
+//    .unknownTailnetHost — a *.ts.net name absent from the signed peer list
 //    .internet — not a tailnet peer (e.g. a public site, reached via an exit
 //                node or not in the netmap at all)
 //
@@ -22,12 +23,15 @@ import TailscaleKit
 enum ConnectionType: Equatable, Sendable {
     case direct
     case derped
+    /// A *.ts.net destination absent from the signed peer list.
+    case unknownTailnetHost
     case internet
 
     var accessibilityDescription: String {
         switch self {
         case .direct: "Direct tailnet connection"
         case .derped: "Tailnet connection via relay"
+        case .unknownTailnetHost: "Unknown tailnet host"
         case .internet: "Internet (off tailnet)"
         }
     }
@@ -55,6 +59,13 @@ enum ConnectionTypeResolver {
             return .derped
         }
 
+        // A *.ts.net URL is visibly inside the tailnet namespace, but an FQDN
+        // absent from the complete signed status list is a clear bad target.
+        if let status, TailnetHostnameQualifier.isTailnetFQDN(host),
+           !TailnetHostnameQualifier.isKnownFQDN(host, hosts: hostRecords(from: status)) {
+            return .unknownTailnetHost
+        }
+
         // A status response can transiently omit a peer while the independently
         // maintained split-tunnel policy still knows the destination belongs to
         // the tailnet. The policy is authoritative for routing; conservatively
@@ -76,6 +87,12 @@ enum ConnectionTypeResolver {
         }
 
         return .internet
+    }
+
+    private static func hostRecords(from status: IpnState.Status) -> [TailnetHostRecord] {
+        var peers: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
+        if let selfStatus = status.SelfStatus { peers.append(selfStatus) }
+        return peers.map { TailnetHostRecord(shortName: $0.HostName, fullName: $0.DNSName) }
     }
 
     /// Matches a host against a peer's `DNSName` (FQDN, often with a trailing

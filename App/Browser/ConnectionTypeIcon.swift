@@ -7,6 +7,7 @@
 //
 //    .direct   — two green dots (both ends directly connected)
 //    .derped   — one green dot (going via a relay)
+//    .unknownTailnetHost — a red dot (tailnet namespace, but no such peer)
 //    .internet — an external-link icon (this page leaves the tailnet)
 //
 //  Shown next to the URL pill (iPhone), on each tab chip (iPad TabBar), and on
@@ -31,6 +32,9 @@ struct ConnectionTypeIcon: View {
             // One green dot — connected via a DERP relay.
             Circle().fill(.green).frame(width: 8, height: 8)
                 .accessibilityLabel("Tailnet connection via relay")
+        case .unknownTailnetHost:
+            Circle().fill(.red).frame(width: 8, height: 8)
+                .accessibilityLabel("Unknown tailnet host")
         case .internet:
             // External-link-style icon — this page is off the tailnet.
             Image(systemName: "arrow.up.forward.square")

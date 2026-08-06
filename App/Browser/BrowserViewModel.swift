@@ -47,10 +47,6 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     private(set) var didLoadInitial = false
     private var pendingLoadURL: URL?
-    /// One-shot fallback for a bare name that also has a unique peer-advertised
-    /// FQDN outside this tailnet's primary MagicDNS suffix. The primary URL is
-    /// always attempted first; this alternate is consumed only if it fails.
-    private var shortNameFallback: (primary: URL, alternate: URL)?
 
     init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore,
          configureWebView: ((WKWebViewConfiguration) -> Void)? = nil,
@@ -177,8 +173,6 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func load(url: URL) {
-        // Every explicit navigation starts a fresh qualification attempt.
-        shortNameFallback = nil
         guard let target = resolveForTailnet(url) else { return }
         clearNavError()
         guard webView != nil else {
@@ -232,68 +226,41 @@ final class BrowserViewModel: NSObject, ObservableObject {
         else { return url }
 
         guard let status = tsnetModel.localStatus else { return url }
-        var peers: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
-        if let selfStatus = status.SelfStatus { peers.append(selfStatus) }
-
-        let isKnownHost = peers.contains { peer in
-            let shortHost = TailnetProxyPolicy.normalizeDomain(peer.HostName)
-            let dnsName = TailnetProxyPolicy.normalizeDomain(peer.DNSName)
-            return shortHost == host || dnsName.split(separator: ".").first.map(String.init) == host
-        }
-        guard isKnownHost else {
-            reportUnknownTailnetHost(host, attemptedURL: url)
+        let result = TailnetHostnameQualifier.qualify(
+            url,
+            searchDomains: status.CurrentTailnet.map { [$0.MagicDNSSuffix] } ?? [],
+            hosts: tailnetHostRecords(from: status)
+        )
+        switch result {
+        case .unchanged(let unchanged):
+            return unchanged
+        case .qualified(let qualified):
+            logger.log("Expanded known tailnet short name \(url) -> \(qualified)")
+            return qualified
+        case .unknown(let label):
+            reportUnknownTailnetHost(label, attemptedURL: url)
+            return nil
+        case .ambiguous(let label, let candidates):
+            reportAmbiguousTailnetHost(label, candidates: candidates, attemptedURL: url)
             return nil
         }
-
-        guard let rawSuffix = status.CurrentTailnet?.MagicDNSSuffix else { return url }
-        let suffix = TailnetProxyPolicy.normalizeDomain(rawSuffix)
-        guard !suffix.isEmpty,
-              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        else { return url }
-
-        // The input label is authoritative. `PeerStatus.HostName` and DNSName
-        // are different identity fields and are not guaranteed to correspond;
-        // using an arbitrary HostName-matched peer's DNSName could turn `ai`
-        // into an entirely different device. The first attempt is therefore
-        // always `<input>.<this tailnet's suffix>`.
-        let primaryFQDN = "\(host).\(suffix)"
-        parts.host = primaryFQDN
-        guard let primary = parts.url else { return url }
-
-        // A shared-in peer can live under another tailnet's MagicDNS suffix.
-        // Record its advertised FQDN only when its first label exactly equals
-        // the user's input and the match is unique. It is not loaded yet:
-        // `retryWithSharedPeerFQDN` consumes it only if `primary` fails.
-        let alternateNames = Set(peers.compactMap { peer -> String? in
-            let dnsName = TailnetProxyPolicy.normalizeDomain(peer.DNSName)
-            guard dnsName.contains("."), dnsName != primaryFQDN,
-                  dnsName.split(separator: ".").first.map(String.init) == host
-            else { return nil }
-            return dnsName
-        })
-        if alternateNames.count == 1, let alternateFQDN = alternateNames.first {
-            parts.host = alternateFQDN
-            if let alternate = parts.url {
-                shortNameFallback = (primary, alternate)
-                logger.log("Qualified short name to primary \(primary); will try shared-peer FQDN \(alternate) only if it fails")
-            }
-        } else if alternateNames.count > 1 {
-            logger.log("Not guessing alternate FQDN for \(host): multiple peer domains match")
-        }
-
-        logger.log("Expanded known tailnet short name \(url) -> \(primary)")
-        return primary
     }
 
-    /// Retries a failed primary-suffix qualification using a unique FQDN from
-    /// the signed local peer list. Returns true when it consumed the failure.
-    private func retryWithSharedPeerFQDN(afterFailureOf failedURL: URL) -> Bool {
-        guard let fallback = shortNameFallback, fallback.primary == failedURL else { return false }
-        shortNameFallback = nil // Exactly one alternate attempt; never loop.
-        logger.log("Primary MagicDNS name \(failedURL) failed; trying shared-peer FQDN \(fallback.alternate)")
-        clearNavError()
-        loadResolved(fallback.alternate)
-        return true
+    private func tailnetHostRecords(from status: IpnState.Status) -> [TailnetHostRecord] {
+        var peers: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
+        if let selfStatus = status.SelfStatus { peers.append(selfStatus) }
+        return peers.map { TailnetHostRecord(shortName: $0.HostName, fullName: $0.DNSName) }
+    }
+
+    private func reportAmbiguousTailnetHost(_ host: String, candidates: [String], attemptedURL: URL) {
+        logger.log("Ambiguous tailnet short name \(host): \(candidates.joined(separator: ", "))")
+        let error = URLError(.cannotFindHost)
+        navError = (error, attemptedURL)
+        navErrorMessage = "More than one tailnet device matches “\(host)”: \(candidates.joined(separator: ", ")). Enter the full name."
+        navErrorKind = .retrieval
+        navErrorURLString = attemptedURL.absoluteString
+        url = attemptedURL
+        failedInitialURL = attemptedURL == initialURL ? attemptedURL : nil
     }
 
     private func reportUnknownTailnetHost(_ host: String, attemptedURL: URL) {
@@ -459,9 +426,6 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // Any committed document means the primary attempt succeeded (or
-        // redirected successfully); an alternate must never replace it later.
-        shortNameFallback = nil
         refreshState(from: webView, includeCommittedURL: true)
         failedInitialURL = nil
     }
@@ -495,7 +459,6 @@ extension BrowserViewModel: WKNavigationDelegate {
         let ns = error as NSError
         guard !(ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) else { return }
         let failedURL = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL
-        if retryWithSharedPeerFQDN(afterFailureOf: failedURL) { return }
         navigationError(error, for: failedURL)
     }
 
@@ -506,7 +469,6 @@ extension BrowserViewModel: WKNavigationDelegate {
         // provisional destination or the old committed page depending on the
         // failure phase, so it is never used as address-bar truth here.
         let failedURL = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL
-        if retryWithSharedPeerFQDN(afterFailureOf: failedURL) { return }
         navigationError(error, for: failedURL)
     }
 
