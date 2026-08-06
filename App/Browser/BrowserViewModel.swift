@@ -229,27 +229,28 @@ final class BrowserViewModel: NSObject, ObservableObject {
         var peers: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
         if let selfStatus = status.SelfStatus { peers.append(selfStatus) }
 
-        let match = peers.first { peer in
+        let isKnownHost = peers.contains { peer in
             let shortHost = TailnetProxyPolicy.normalizeDomain(peer.HostName)
             let dnsName = TailnetProxyPolicy.normalizeDomain(peer.DNSName)
             return shortHost == host || dnsName.split(separator: ".").first.map(String.init) == host
         }
-        guard let match else {
+        guard isKnownHost else {
             reportUnknownTailnetHost(host, attemptedURL: url)
             return nil
         }
 
-        let peerDNSName = TailnetProxyPolicy.normalizeDomain(match.DNSName)
-        let suffix: String? = {
-            guard let raw = status.CurrentTailnet?.MagicDNSSuffix else { return nil }
-            let normalized = TailnetProxyPolicy.normalizeDomain(raw)
-            return normalized.isEmpty ? nil : normalized
-        }()
-        let fqdn = peerDNSName.contains(".") ? peerDNSName
-            : suffix.flatMap { $0.isEmpty ? nil : "\(host).\($0)" }
-        guard let fqdn, !fqdn.isEmpty,
+        guard let rawSuffix = status.CurrentTailnet?.MagicDNSSuffix else { return url }
+        let suffix = TailnetProxyPolicy.normalizeDomain(rawSuffix)
+        guard !suffix.isEmpty,
               var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { return url }
+
+        // The input label is authoritative. `PeerStatus.HostName` and DNSName
+        // are different identity fields and are not guaranteed to correspond;
+        // using an arbitrary matching peer's DNSName could turn `ai` into an
+        // entirely different device. Once membership is validated above, the
+        // only correct qualification is `<input>.<tailnet suffix>`.
+        let fqdn = "\(host).\(suffix)"
         parts.host = fqdn
         guard let expanded = parts.url else { return url }
         logger.log("Expanded known tailnet short name \(url) -> \(expanded)")
