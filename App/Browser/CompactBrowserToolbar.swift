@@ -164,11 +164,13 @@ struct CompactBrowserToolbar: View {
             .accessibilityIdentifier("tab-overview-button")
             .accessibilityLabel("Tabs")
 
-            toolbarIcon("bookmark", action: onAddBookmark)
-                .accessibilityIdentifier("add-bookmark-button")
-                .accessibilityLabel("Add Bookmark")
-
             Menu {
+                Button {
+                    onAddBookmark()
+                } label: {
+                    Label("Add Bookmark", systemImage: "bookmark")
+                }
+                .accessibilityIdentifier("add-bookmark-button")
                 Button {
                     onBookmarks()
                 } label: {
