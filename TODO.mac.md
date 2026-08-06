@@ -26,19 +26,20 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 ## Shared app port
 
-- [ ] Inventory source into platform-neutral, iOS-specific, and macOS-specific pieces.
-- [ ] Share workspace, bookmarks, tab state, routing policy, and tsnet lifecycle code.
-- [ ] Add native macOS `WKWebView` hosting via `NSViewRepresentable`.
-- [ ] Port browser context menus and pasteboard use to AppKit.
-- [ ] Port `ASWebAuthenticationSession` presentation anchoring to `NSWindow`.
-- [ ] Replace UIKit semantic colors and other UIKit-only APIs behind small platform adapters.
+- [x] Inventory source into platform-neutral, iOS-specific, and macOS-specific pieces.
+- [x] Share workspace, bookmarks, tab state, routing policy, and tsnet lifecycle code in the native target.
+- [x] Add native macOS `WKWebView` hosting via `NSViewRepresentable`.
+- [ ] Port custom browser context menus to AppKit (native WebKit defaults work for now; iOS keeps its custom menu).
+- [x] Port log-viewer pasteboard use to AppKit.
+- [x] Port `ASWebAuthenticationSession` presentation anchoring to `NSWindow`.
+- [x] Replace UIKit semantic colors and guard UIKit-only text-input/sheet APIs behind platform adapters/conditions.
 - [ ] Decide whether website data/proxy configuration behaves identically in macOS WebKit and add focused coverage.
 - [ ] Preserve per-workspace SwiftData stores and web-data isolation.
 
 ## Native Mac experience
 
-- [ ] Create a normal resizable browser window with sensible default and minimum sizes.
-- [ ] Use native window sheets instead of iPad-style full-screen covers.
+- [x] Create a normal resizable browser window with initial 1100×760 and minimum 720×480 sizes.
+- [x] Use native window sheets instead of iPad-style full-screen covers.
 - [ ] Add a Mac toolbar/address field and desktop tab presentation.
 - [ ] Add application commands and menus: New Tab, Close Tab, Focus Location, Reload, Settings, and tab navigation.
 - [ ] Verify standard keyboard, pointer, context-menu, text-selection, and clipboard behavior.
@@ -48,7 +49,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 ## Automated testing
 
 - [ ] Add a native macOS UI test target or a small launch/smoke test target.
-- [x] Add a no-login process launch smoke test for the foundation app, including framework loading and entitlement verification.
+- [x] Add a hermetic no-login process launch smoke test for the shared browser app, including framework loading and entitlement verification.
 - [ ] Extend no-login smoke coverage to Settings, tabs, and bookmark editor as those are ported.
 - [ ] Add a connected macOS test using the existing staged auth-key convention.
 - [ ] Add tests for platform adapters and native WebKit navigation behavior.

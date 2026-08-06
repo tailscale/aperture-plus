@@ -17,7 +17,11 @@
 
 import Combine
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 struct LogViewer: View {
     var dismissAction: () -> Void
@@ -59,8 +63,10 @@ struct LogViewer: View {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                         .foregroundStyle(.secondary)
                     TextField("Filter (e.g. socks, proxyConfig, error)", text: $filter)
+#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+#endif
                         .font(.callout)
                         .accessibilityIdentifier("log-filter-field")
                     if !filter.isEmpty {
@@ -99,7 +105,7 @@ struct LogViewer: View {
                                         .textSelection(.enabled)
                                         .contextMenu {
                                             Button("Copy Line") {
-                                                UIPasteboard.general.string = entry.line
+                                                copyToPasteboard(entry.line)
                                             }
                                         }
                                 }
@@ -142,7 +148,9 @@ struct LogViewer: View {
                 .padding(.vertical, 6)
             }
             .navigationTitle("Logs")
+#if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismissAction() }
@@ -156,7 +164,7 @@ struct LogViewer: View {
                                 entries.map(\.line).joined(separator: "\n")
                             }.value
                             guard !Task.isCancelled else { return }
-                            UIPasteboard.general.string = text
+                            copyToPasteboard(text)
                             copied = true
                             try? await Task.sleep(for: .seconds(1.5))
                             copied = false
@@ -178,6 +186,15 @@ struct LogViewer: View {
                 Task { await refresh() }
             }
         }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+#if canImport(UIKit)
+        UIPasteboard.general.string = text
+#else
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+#endif
     }
 
     private var statusLine: String {

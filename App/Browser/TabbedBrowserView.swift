@@ -66,10 +66,10 @@ struct TabbedBrowserView: View {
                 ProgressView()
             }
         }
-        .fullScreenCover(isPresented: $showingTabOverview) {
+        .sheet(isPresented: $showingTabOverview) {
             TabOverview(workspaceManager: workspaceManager)
         }
-        .fullScreenCover(isPresented: $showingSettings) {
+        .sheet(isPresented: $showingSettings) {
             if let ws = workspaceManager.activeWorkspace {
                 SettingsView(
                     viewModel: SettingsViewModel(workspace: ws) {
@@ -215,7 +215,9 @@ private struct BrowserRootContent: View {
                     }
                 }
             }
+#if canImport(UIKit)
             .toolbar(.hidden, for: .navigationBar)
+#endif
         }
         .overlay(alignment: .bottomLeading) {
             if (ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback")

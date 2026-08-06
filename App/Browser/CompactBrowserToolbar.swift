@@ -159,7 +159,7 @@ struct CompactBrowserToolbar: View {
             .padding(.trailing, 3)
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity)
-            .background(Capsule().fill(Color(.secondarySystemBackground)))
+            .background(Capsule().fill(Color.platformSecondarySystemBackground))
 
             toolbarIcon("plus", action: onNewChat)
                 .disabled(!tabManager.canOpenNewTab)
@@ -219,10 +219,12 @@ struct CompactBrowserToolbar: View {
                 .foregroundStyle(.secondary)
 
             TextField("Enter URL", text: $urlFieldText)
+#if canImport(UIKit)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .submitLabel(.go)
+#endif
                 .focused($urlFieldFocused)
                 .onSubmit(submit)
                 .accessibilityIdentifier("url-field")
@@ -240,7 +242,7 @@ struct CompactBrowserToolbar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Capsule().fill(Color(.secondarySystemBackground)))
+        .background(Capsule().fill(Color.platformSecondarySystemBackground))
         .padding(.horizontal, 6)
         .padding(.vertical, 6)
     }

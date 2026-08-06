@@ -16,8 +16,10 @@ struct SettingsView: View {
             Form {
                 Section(header: Text("Name")) {
                     TextField("Tailnet HostName", text: $viewModel.tailnetHostName)
+#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+#endif
                         .onSubmit {
                             viewModel.setTailnetHostName(viewModel.tailnetHostName)
                         }
@@ -27,8 +29,10 @@ struct SettingsView: View {
 
                 Section(header: Text("Home Page")) {
                     TextField("Home Page", text: $viewModel.homePage)
+#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+#endif
                         .accessibilityIdentifier("home-page-field")
                         // Persist on every change — not only on Submit (Return).
                         // A fresh SettingsViewModel is built each time the
@@ -114,7 +118,9 @@ struct SettingsView: View {
                 Text("This will delete this session, including its tabs, bookmarks, and website data.")
             }
         }
+#if canImport(UIKit)
         .presentationDetents([.medium, .large])
+#endif
         .onAppear {
             // Seed the exit-node diagnostic (availability + egress IP) so the
             // banner is populated when Settings opens, not only after a toggle.
@@ -167,9 +173,11 @@ struct SettingsView: View {
             }
 
             TextField("Test a host or URL", text: $routeTestHost)
+#if canImport(UIKit)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
+#endif
                 .accessibilityIdentifier("routing-test-field")
             if let explanation = viewModel.routeExplanation(for: routeTestHost) {
                 Text(explanation)

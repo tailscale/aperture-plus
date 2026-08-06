@@ -81,7 +81,7 @@ private struct TabChip: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.blue : Color(.secondarySystemBackground))
+                .fill(isSelected ? Color.blue : Color.platformSecondarySystemBackground)
         )
         .onTapGesture { onSelect() }
         .accessibilityElement(children: .combine)

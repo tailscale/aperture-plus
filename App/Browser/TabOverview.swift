@@ -29,7 +29,9 @@ struct TabOverview: View {
                 }
             }
             .navigationTitle("Tabs")
+#if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -151,7 +153,7 @@ struct TabOverview: View {
                     .padding(16)
                 }
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color.platformSystemGroupedBackground)
         }
     }
 }
@@ -182,7 +184,7 @@ private struct TabCard: View {
                 // expose a snapshot API). The title/url below identify the tab.
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(isSelected ? Color.blue.opacity(0.12) : Color(.secondarySystemBackground))
+                        .fill(isSelected ? Color.blue.opacity(0.12) : Color.platformSecondarySystemBackground)
                     Image(systemName: "bubble.left.fill")
                         .font(.system(size: 30))
                         .foregroundStyle(.tertiary)
@@ -208,11 +210,11 @@ private struct TabCard: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.systemBackground))
+                    .fill(Color.platformSystemBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color.blue : Color(.separator), lineWidth: isSelected ? 2 : 0.5)
+                    .stroke(isSelected ? Color.blue : Color.platformSeparator, lineWidth: isSelected ? 2 : 0.5)
             )
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .onTapGesture { onSelect() }

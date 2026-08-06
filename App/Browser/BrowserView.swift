@@ -35,7 +35,7 @@ struct BrowserView: View {
         }
         // Cover the instant before UIViewRepresentable installs WKWebView with
         // the same adaptive background used by RawWebView itself.
-        .background(Color(.systemBackground))
+        .background(Color.platformSystemBackground)
     }
 }
 
@@ -102,7 +102,7 @@ struct NavErrorPage: View {
         .padding(32)
         .frame(maxWidth: 520)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.platformSystemBackground)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("nav-error-overlay")
     }

@@ -24,13 +24,17 @@ struct BookmarkEditor: View {
             Form {
                 Section(header: Text("Details")) {
                     TextField("Name", text: $newName)
+#if canImport(UIKit)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
+#endif
                         .accessibilityIdentifier("bookmark-name-field")
                     TextField("URL", text: $newURLString)
+#if canImport(UIKit)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+#endif
                         .accessibilityIdentifier("bookmark-url-field")
                 }
             }
@@ -51,7 +55,9 @@ struct BookmarkEditor: View {
                 }
             }
         }
+#if canImport(UIKit)
         .presentationDetents([.medium, .large])
+#endif
     }
 
     private var canSave: Bool {

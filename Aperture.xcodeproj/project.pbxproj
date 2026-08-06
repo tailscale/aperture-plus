@@ -58,6 +58,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A100000F000000000000000F /* Exceptions for "App" folder in "ApertureMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ApertureApp.swift,
+				LaunchScreen.storyboard,
+				TimingHarness.swift,
+				Browser/ProxyBounceTestHarness.swift,
+			);
+			target = A10000080000000000000008 /* ApertureMac */;
+		};
 		C20F24982EF1B4A700F57D67 /* Exceptions for "TSNet" folder in "Aperture" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -80,6 +90,9 @@
 		};
 		C20F24752EF19A5900F57D67 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A100000F000000000000000F /* Exceptions for "App" folder in "ApertureMac" target */,
+			);
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -183,6 +196,8 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A10000060000000000000006 /* MacApp */,
+				C20F24752EF19A5900F57D67 /* App */,
+				C20F24932EF1B4A700F57D67 /* TSNet */,
 			);
 			name = ApertureMac;
 			packageProductDependencies = (

@@ -10,6 +10,7 @@
 import SwiftUI
 import WebKit
 
+#if canImport(UIKit)
 struct RawWebView: UIViewRepresentable {
     @ObservedObject var model: BrowserViewModel
     @Environment(\.colorScheme) private var colorScheme
@@ -36,3 +37,16 @@ struct RawWebView: UIViewRepresentable {
         webView.underPageBackgroundColor = color
     }
 }
+#else
+struct RawWebView: NSViewRepresentable {
+    @ObservedObject var model: BrowserViewModel
+
+    func makeNSView(context: Context) -> WKWebView {
+        model.makeWebView()
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        model.attach(webView)
+    }
+}
+#endif

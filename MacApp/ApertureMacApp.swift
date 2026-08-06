@@ -1,34 +1,44 @@
 import SwiftUI
+import SwiftData
 import TailscaleKit
 
-/// Native macOS entry point.
+/// Native macOS entry point. The app shares its workspace, browser, bookmarks,
+/// and userspace-Tailscale implementation with iOS, while platform bridges and
+/// desktop presentation remain native macOS code paths.
 ///
-/// This deliberately contains no Virtualization framework code yet. The first
-/// milestone is a distributable, signed native app carrying the virtualization
-/// entitlement; browser and VM functionality will be added incrementally.
+/// This target intentionally contains no Virtualization framework code yet.
+/// Its signed product already carries the entitlement so distribution can be
+/// validated before VM implementation starts.
 @main
 struct ApertureMacApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var workspaceManager = WorkspaceManager()
+
     var body: some Scene {
         WindowGroup {
-            NativeMacFoundationView()
+            TabbedBrowserView(workspaceManager: workspaceManager)
                 .frame(minWidth: 720, minHeight: 480)
         }
         .defaultSize(width: 1100, height: 760)
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                workspaceManager.willEnterBackground()
+            case .inactive:
+                break
+            case .active:
+                workspaceManager.willEnterForeground()
+            @unknown default:
+                break
+            }
+        }
 
+        // The in-browser Settings sheet remains available while the port is
+        // underway. Keep a native Settings command as a transparent status
+        // surface rather than leaving Command-, unhandled.
         Settings {
             NativeMacSettingsView()
         }
-    }
-}
-
-private struct NativeMacFoundationView: View {
-    var body: some View {
-        ContentUnavailableView(
-            "Aperture for Mac",
-            systemImage: "network",
-            description: Text("The native macOS foundation is ready. Browser functionality is being ported next.")
-        )
-        .accessibilityIdentifier("mac-foundation-view")
     }
 }
 
@@ -36,6 +46,8 @@ private struct NativeMacSettingsView: View {
     var body: some View {
         Form {
             LabeledContent("Platform", value: "Native macOS")
+            Text("Browser settings are available from the browser toolbar.")
+                .foregroundStyle(.secondary)
             Text("Virtual machine functionality is not implemented yet.")
                 .foregroundStyle(.secondary)
         }

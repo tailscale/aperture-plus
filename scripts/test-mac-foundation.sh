@@ -36,15 +36,20 @@ test "$actual" = true || {
   exit 1
 }
 
-# Ensure dyld can load the native TailscaleKit framework and the SwiftUI app
-# stays alive. This does not log in or exercise any VM functionality.
+# Ensure dyld can load the native TailscaleKit framework and shared browser app
+# stays alive. Use a disposable HOME and reset launch flags so this never reads
+# or mutates the developer's normal workspaces. This does not log in or exercise
+# any VM functionality.
 : > "$LOG"
-"$APP/Contents/MacOS/Aperture" >"$LOG" 2>&1 &
+smoke_home="$(mktemp -d)"
+HOME="$smoke_home" "$APP/Contents/MacOS/Aperture" \
+  -UITestResetWorkspaces -UITestResetLogin >"$LOG" 2>&1 &
 pid=$!
 cleanup() {
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   rm -f "$extracted_entitlements"
+  rm -rf "$smoke_home"
 }
 trap cleanup EXIT
 sleep 3

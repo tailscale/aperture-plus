@@ -73,11 +73,13 @@ struct BrowserNavigator: View {
             HStack(spacing: 8) {
                 VStack {
                     TextField("Enter URL", text: $urlFieldText, onEditingChanged: { isEditingURL = $0 })
+#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                         .textContentType(.URL)
                         .submitLabel(.go)
+#endif
                         .accessibilityIdentifier("url-field")
                         .onSubmit {
                             // Normalize and load URL via the watched loader so
@@ -151,11 +153,11 @@ struct BrowserNavigator: View {
             .padding(.horizontal, 12)
             .background(
                 RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .fill(Color(.secondarySystemBackground))
+                    .fill(Color.platformSecondarySystemBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .stroke(Color(.separator), lineWidth: 0.5)
+                    .stroke(Color.platformSeparator, lineWidth: 0.5)
             )
 
             NavCircleButton(
@@ -271,7 +273,7 @@ private struct NavCircleButton: View {
                 .frame(width: 32, height: 32)
                 .overlay(
                     Circle()
-                        .stroke(Color(.separator), lineWidth: 0.5)
+                        .stroke(Color.platformSeparator, lineWidth: 0.5)
                 )
                 .scaleEffect(pressed ? 0.92 : 1.0)
                 .animation(.smooth(duration: 0.12), value: pressed)

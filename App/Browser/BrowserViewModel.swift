@@ -87,10 +87,12 @@ final class BrowserViewModel: NSObject, ObservableObject {
         configureWebView?(configuration)
 
         let view = WKWebView(frame: .zero, configuration: configuration)
+#if canImport(UIKit)
         // Match Safari's subtle feathering as content scrolls beneath the
         // status indicators. This is iOS 26's public scroll-edge effect, not a
         // hand-built blur/gradient overlay.
         view.scrollView.topEdgeEffect.style = .soft
+#endif
         // Keep UIKit's default automatic adjustment. With the WKWebView laid
         // out beneath the notch, WebKit can then distinguish ordinary pages
         // (safe rectangular viewport) from viewport-fit=cover pages (edge to
@@ -439,6 +441,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
 }
 
 extension BrowserViewModel: WKUIDelegate {
+#if canImport(UIKit)
     /// Supply a deliberately preview-free menu for links. WebKit's default
     /// context menu includes Safari's large live preview, which can obscure
     /// actions on compact screens.
@@ -466,6 +469,7 @@ extension BrowserViewModel: WKUIDelegate {
         }
         completionHandler(configuration)
     }
+#endif
 
     /// WebKit asks its UI delegate to create a view for target=_blank,
     /// window.open(), and links whose target requests another browsing context.

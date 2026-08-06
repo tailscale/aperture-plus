@@ -20,7 +20,9 @@ struct BookmarksSheet: View {
                 BookMarkList(onSelect: handle)
             }
             .navigationTitle("Bookmarks")
+#if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }

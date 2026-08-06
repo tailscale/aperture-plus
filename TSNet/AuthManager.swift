@@ -77,6 +77,7 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+#if canImport(UIKit)
         // Prefer the key window; fall back to the first connected window scene;
         // only as a last resort return a frameless window. The previous code
         // force-unwrapped `connectedScenes.first as! UIWindowScene`, which
@@ -98,6 +99,18 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
         // diagnosable instead of silent.
         logger.log("AuthManager presentationAnchor: NO UIWindowScene connected; auth sheet will be invisible!")
         return ASPresentationAnchor(frame: .zero)
+#else
+        if let key = NSApplication.shared.keyWindow {
+            logger.log("AuthManager presentationAnchor: key Mac window \(key.frame)")
+            return key
+        }
+        if let window = NSApplication.shared.windows.first {
+            logger.log("AuthManager presentationAnchor: no key Mac window; using first window")
+            return window
+        }
+        logger.log("AuthManager presentationAnchor: NO NSWindow connected; using fallback window")
+        return ASPresentationAnchor()
+#endif
     }
 
 }
