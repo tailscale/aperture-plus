@@ -18,7 +18,8 @@ xcodebuild build \
   -configuration Debug \
   -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath "$DERIVED" \
-  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_ALLOWED=NO \
+  PRODUCT_BUNDLE_IDENTIFIER=io.tailscale.Aperture.SmokeTest
 
 test -x "$APP/Contents/MacOS/Aperture"
 test -d "$FRAMEWORK"
