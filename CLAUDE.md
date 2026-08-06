@@ -6,15 +6,22 @@ non-obvious things that are easy to get wrong.
 
 ## What this is
 
-An iOS-only SwiftUI browser (WebKit) that routes traffic through an embedded
-userspace Tailscale node (`TailscaleKit` / `libtailscale`). Single Xcode target,
-single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
+A SwiftUI browser (WebKit) that routes traffic through an embedded userspace
+Tailscale node (`TailscaleKit` / `libtailscale`). The shipping iPhone/iPad target
+and scheme are **`Aperture`**. A native macOS target/scheme, **`ApertureMac`**,
+shares the browser/workspace implementation and is being polished incrementally;
+see `TODO.mac.md`. Both products use bundle ID `io.tailscale.Aperture`.
 
 ## Hard constraints (will break the build if ignored)
 
-- **iOS 26.0 only.** `IPHONEOS_DEPLOYMENT_TARGET = 26.0`, `SDKROOT = iphoneos`. No
-  macOS target. Do not lower the deployment target or add macOS-only APIs without
-  `if #available`/availability guards.
+- **iOS 26.0 and macOS 26.0 only.** The iOS target retains
+  `IPHONEOS_DEPLOYMENT_TARGET = 26.0`, `SDKROOT = iphoneos`; the native Mac target
+  uses `MACOSX_DEPLOYMENT_TARGET = 26.0`, `SDKROOT = macosx`. Keep platform-only
+  APIs behind target membership, `canImport`, or availability guards.
+- **Future Virtualization use requires native macOS.** `ApertureMac` carries
+  `com.apple.security.virtualization = true` now, but contains no VM code yet.
+  Do not convert it to Catalyst or remove the entitlement. The intended guest is
+  pure Linux with app-supplied userspace networking and no shared filesystem.
 - **Swift 6 strict concurrency.** `SWIFT_STRICT_CONCURRENCY = complete` and
   `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. The whole module is implicitly
   `@MainActor`-isolated unless you opt out. New code must be concurrency-clean
@@ -43,7 +50,7 @@ single scheme, both named **`Aperture`**. Bundle ID `io.tailscale.Aperture`.
 
 ## Adding source files (do NOT hand-edit project.pbxproj for new files)
 
-`App/` and `TSNet/` are Xcode **synchronized folder groups**
+`App/`, `MacApp/`, and `TSNet/` are Xcode **synchronized folder groups**
 (`PBXFileSystemSynchronizedRootGroup`). New `.swift` files dropped into either
 directory are automatically compiled into the `Aperture` target — no
 `project.pbxproj` editing required. The `UITests/` directory is the same kind of
@@ -54,7 +61,9 @@ The `TSNet/` group is different: it has a `membershipExceptions` list in
 and in this project's configuration that list **does** gate compilation — a new
 `.swift` file dropped into `TSNet/` is NOT picked up until you add its name to the
 `membershipExceptions` list (e.g. `TSNet/CrashCapture.swift` had to be added).
-(`App/` and `UITests/` have no such list, so files there are auto-compiled.)
+(`App/` and `UITests/` have no such list for the iOS app, so files there are
+ auto-compiled. `App/` has macOS membership exceptions for iOS-only entry points
+ and harnesses; `MacApp/` compiles only into `ApertureMac`.)
 
 Other files (Info.plist, README.md, assets) are normal pbxproj references and do
 require project edits if you add/relocate them.

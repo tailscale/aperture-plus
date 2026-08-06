@@ -26,9 +26,14 @@ See **Settings → Routing** in the app to view the live rules and test any host
 
 ## Supported platforms
 
-- **iOS only.** The app target's `SDKROOT` is `iphoneos`; there is no macOS target.
-- **iPhone and iPad** (`TARGETED_DEVICE_FAMILY = 1,2`).
-- **Deployment target: iOS 26.0.** You need the iOS 26 SDK (ships with Xcode 26.x).
+- **iPhone and iPad** (`TARGETED_DEVICE_FAMILY = 1,2`), deployment target iOS 26.0.
+- **Native macOS foundation**, deployment target macOS 26.0. The `ApertureMac`
+  target builds and launches the shared browser/workspace implementation using
+  native AppKit WebKit bridges. Desktop-specific UI polish is in progress; see
+  [`TODO.mac.md`](TODO.mac.md).
+- The native Mac app is sandboxed and already carries the
+  `com.apple.security.virtualization` entitlement for a future pure-Linux guest.
+  It contains **no virtualization implementation yet**.
 
 ## Requirements
 
@@ -65,8 +70,11 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make test` | `make test-policy` + `make all`, then run the UI tests on the simulator (with log capture) |
 | `make test-policy` | Split-tunnel routing unit tests (~2s, host-only — no simulator or xcframework needed) |
 | `make look` | Screenshot the booted sim + describe it with a vision sub-pi (`make look Q="describe the UI"`) |
-| `make framework` | Build just the `TailscaleKit.xcframework` |
-| `make app` | Build just the app (depends on `framework`) |
+| `make framework` | Build just the iOS `TailscaleKit.xcframework` |
+| `make app` | Build just the iOS simulator app (depends on `framework`) |
+| `make mac-framework` | Build native macOS `TailscaleKit.framework` |
+| `make mac-app` | Build the native macOS app unsigned |
+| `make test-mac` | Build, ad-hoc sign, verify the virtualization entitlement, and launch-smoke-test the native Mac app |
 | `make ipa` | Archive + export a dev-signed `.ipa` for a real iOS device (needs an unlocked keychain; prompts or aborts — see [Installing on a real device](#installing-on-a-real-device)) |
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
 | `make clean-all` | Also remove the libtailscale build artifacts |
@@ -79,8 +87,9 @@ $ make test SIM_NAME="iPad (A16)"
 
 ### From Xcode
 
-Open `Aperture.xcodeproj` in Xcode 26.x and build the **Aperture** scheme
-(⌘B). Pick an iOS 26 simulator or a provisioned device.
+Open `Aperture.xcodeproj` in Xcode 26.x. Build the **Aperture** scheme for iOS
+or **ApertureMac** for native macOS. Pick an iOS 26 simulator/provisioned device
+for the former or My Mac for the latter.
 
 ### Raw xcodebuild (without make)
 
