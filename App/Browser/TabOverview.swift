@@ -176,9 +176,7 @@ private struct TabCard: View {
     let onClose: () -> Void
 
     var body: some View {
-        Button {
-            onSelect()
-        } label: {
+        ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 0) {
                 // Card "preview" area — a placeholder glyph (WKWebView doesn't
                 // expose a snapshot API). The title/url below identify the tab.
@@ -216,9 +214,13 @@ private struct TabCard: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(isSelected ? Color.blue : Color(.separator), lineWidth: isSelected ? 2 : 0.5)
             )
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .topTrailing) {
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .onTapGesture { onSelect() }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("tab-card-\(tab.id.uuidString)")
+            .accessibilityLabel("\(tab.displayTitle) — \(tab.displayURL)")
+            .accessibilityAddTraits(.isButton)
+
             Button {
                 onClose()
             } label: {
@@ -226,13 +228,14 @@ private struct TabCard: View {
                     .font(.system(size: 22))
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.5))
+                    // Generous independent hit target for pointer use on iPad
+                    // apps running on macOS.
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(6)
+            .accessibilityIdentifier("close-tab-\(tab.id.uuidString)")
             .accessibilityLabel("Close Tab")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("tab-card-\(tab.id.uuidString)")
-        .accessibilityLabel("\(tab.displayTitle) — \(tab.displayURL)")
     }
 }
