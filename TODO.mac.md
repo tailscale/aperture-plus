@@ -40,6 +40,10 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 - [x] Create a normal resizable browser window with initial 1100×760 and minimum 720×480 sizes.
 - [x] Use native window sheets instead of iPad-style full-screen covers.
+- [x] Represent each workspace as a value-addressed native window; closing a window preserves the workspace.
+- [x] Make Command-N create a persisted workspace and open its native window.
+- [x] List every persisted workspace in the Window menu so closed windows can be reopened and open ones raised.
+- [ ] Remove the iPad-style workspace selector from the Mac tab overview (windows are the Mac workspace switcher).
 - [ ] Add a Mac toolbar/address field and desktop tab presentation.
 - [ ] Add application commands and menus: New Tab, Close Tab, Focus Location, Reload, Settings, and tab navigation.
 - [ ] Verify standard keyboard, pointer, context-menu, text-selection, and clipboard behavior.
@@ -48,10 +52,11 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 ## Automated testing
 
-- [ ] Add a native macOS UI test target or a small launch/smoke test target.
+- [x] Add a native macOS UI test target with window, auth-presentation, and auth-key login/logout cases.
+- [ ] Get native Mac UI tests executing reliably in this environment. They build and Xcode discovers all three, but Xcode 26.6's macOS UI-test launcher currently aborts in `IDELaunchServicesLauncher` (`childPID > 0`) before test code runs.
 - [x] Add a hermetic no-login process launch smoke test for the shared browser app, including framework loading and entitlement verification.
 - [ ] Extend no-login smoke coverage to Settings, tabs, and bookmark editor as those are ported.
-- [ ] Add a connected macOS test using the existing staged auth-key convention.
+- [x] Add a connected macOS test using the existing staged auth-key convention.
 - [ ] Add tests for platform adapters and native WebKit navigation behavior.
 - [x] Add an automated assertion that a built app carries `com.apple.security.virtualization` (Debug/ad-hoc today; repeat against the future distribution archive).
 - [ ] Document local and CI test commands.
@@ -72,6 +77,6 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 ## Questions to batch for the owner
 
-- [ ] Minimum macOS version?
-- [ ] Apple silicon only, or Intel too?
+- [x] Minimum macOS version: 26.0.
+- [x] Apple silicon only for now.
 - [x] The first Mac TestFlight build contains no VM UI at all.

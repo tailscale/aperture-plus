@@ -21,6 +21,13 @@
 			remoteGlobalIDString = C20F24732EF19A5900F57D67;
 			remoteInfo = Aperture;
 		};
+		B10000010000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000080000000000000008;
+			remoteInfo = ApertureMac;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -55,6 +62,7 @@
 		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = Aperture/Info.plist; sourceTree = "<group>"; };
 		C25B4D752EF5F507000539A5 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		F10000020000000000000002 /* ApertureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000020000000000000002 /* ApertureMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -109,6 +117,11 @@
 			path = UITests;
 			sourceTree = "<group>";
 		};
+		B10000030000000000000003 /* MacUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MacUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +146,12 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000040000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -166,6 +185,7 @@
 				C20F24742EF19A5900F57D67 /* Aperture.app */,
 				A10000050000000000000005 /* Aperture.app */,
 				F10000020000000000000002 /* ApertureUITests.xctest */,
+				B10000020000000000000002 /* ApertureMacUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -174,6 +194,7 @@
 			isa = PBXGroup;
 			children = (
 				F10000010000000000000001 /* UITests */,
+				B10000030000000000000003 /* MacUITests */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -252,6 +273,23 @@
 			productReference = F10000020000000000000002 /* ApertureUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		B10000050000000000000005 /* ApertureMacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */;
+			buildPhases = (
+				B10000060000000000000006 /* Sources */,
+				B10000040000000000000004 /* Frameworks */,
+				B10000070000000000000007 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = (B10000080000000000000008 /* PBXTargetDependency */,);
+			fileSystemSynchronizedGroups = (B10000030000000000000003 /* MacUITests */,);
+			name = ApertureMacUITests;
+			packageProductDependencies = ();
+			productName = ApertureMacUITests;
+			productReference = B10000020000000000000002 /* ApertureMacUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -264,6 +302,10 @@
 				TargetAttributes = {
 					A10000080000000000000008 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					B10000050000000000000005 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A10000080000000000000008;
 					};
 					C20F24732EF19A5900F57D67 = {
 						CreatedOnToolsVersion = 26.0;
@@ -287,6 +329,7 @@
 				C20F24732EF19A5900F57D67 /* Aperture */,
 				A10000080000000000000008 /* ApertureMac */,
 				F10000060000000000000006 /* ApertureUITests */,
+				B10000050000000000000005 /* ApertureMacUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -313,6 +356,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000070000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -337,6 +386,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000060000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -344,6 +399,11 @@
 			isa = PBXTargetDependency;
 			target = C20F24732EF19A5900F57D67 /* Aperture */;
 			targetProxy = F10000070000000000000007 /* PBXContainerItemProxy */;
+		};
+		B10000080000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000080000000000000008 /* ApertureMac */;
+			targetProxy = B10000010000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -657,6 +717,40 @@
 			};
 			name = Release;
 		};
+		B10000090000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = ApertureMac;
+			};
+			name = Debug;
+		};
+		B100000B000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = ApertureMac;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -692,6 +786,15 @@
 			buildConfigurations = (
 				F100000A000000000000000A /* Debug */,
 				F100000B000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000090000000000000009 /* Debug */,
+				B100000B000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

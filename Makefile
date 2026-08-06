@@ -97,6 +97,15 @@ mac-app: mac-framework  ## Build native Aperture for macOS (unsigned)
 test-mac: mac-framework  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
+.PHONY: build-mac-uitests
+build-mac-uitests: mac-framework  ## Build native macOS UI tests (execution currently hits an Xcode 26.6 launcher bug)
+	$(XCB) build-for-testing \
+		-project $(PROJECT) -scheme $(MAC_SCHEME) \
+		-configuration Debug \
+		-destination 'platform=macOS,arch=arm64' \
+		-derivedDataPath build/DerivedDataMacUITests \
+		-allowProvisioningUpdates | $(XCPRETTIFIER)
+
 .PHONY: mac-app-signed
 mac-app-signed: mac-framework  ## Development-sign native Mac app and verify virtualization entitlement
 	@echo

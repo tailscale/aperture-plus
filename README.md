@@ -76,6 +76,7 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make mac-app` | Build the native macOS app unsigned |
 | `make mac-app-signed` | Apple Development-sign the native Mac app and verify its virtualization entitlement |
 | `make test-mac` | Build, ad-hoc sign, verify the virtualization entitlement, and launch-smoke-test the native Mac app |
+| `make build-mac-uitests` | Build the native Mac window/auth UI tests (execution currently hits an Xcode 26.6 launcher assertion in this environment) |
 | `make ipa` | Archive + export a dev-signed `.ipa` for a real iOS device (needs an unlocked keychain; prompts or aborts — see [Installing on a real device](#installing-on-a-real-device)) |
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
 | `make clean-all` | Also remove the libtailscale build artifacts |

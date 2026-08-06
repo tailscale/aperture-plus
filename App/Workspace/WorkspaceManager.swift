@@ -123,6 +123,10 @@ final class WorkspaceManager: ObservableObject {
 
     // MARK: - Workspace actions
 
+    func workspace(id: UUID) -> Workspace? {
+        workspaces.first(where: { $0.id == id })
+    }
+
     /// Creates and immediately activates a fresh, independently persisted
     /// tsnet identity. Constructing `Workspace` starts its node; existing
     /// workspaces remain alive and are not torn down when selection changes.

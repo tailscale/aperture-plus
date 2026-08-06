@@ -29,6 +29,9 @@ import TailscaleKit
 
 struct TabbedBrowserView: View {
     @ObservedObject var workspaceManager: WorkspaceManager
+    /// Native macOS windows pin themselves to one workspace. A nil id retains
+    /// the iOS/iPad workspace switcher behavior driven by activeWorkspace.
+    var pinnedWorkspaceID: UUID? = nil
 
     /// Settings is global (reachable from both the gate and the browser), so
     /// its full-screen cover lives here.
@@ -37,9 +40,16 @@ struct TabbedBrowserView: View {
     /// repopulate the open tab pane without dismissing it.
     @State private var showingTabOverview = false
 
+    private var presentedWorkspace: Workspace? {
+        if let pinnedWorkspaceID {
+            return workspaceManager.workspace(id: pinnedWorkspaceID)
+        }
+        return workspaceManager.activeWorkspace
+    }
+
     var body: some View {
         Group {
-            if let ws = workspaceManager.activeWorkspace {
+            if let ws = presentedWorkspace {
                 WorkspaceRoot(workspace: ws,
                               showingSettings: $showingSettings,
                               showingTabOverview: $showingTabOverview)
@@ -70,9 +80,11 @@ struct TabbedBrowserView: View {
             TabOverview(workspaceManager: workspaceManager)
         }
         .sheet(isPresented: $showingSettings) {
-            if let ws = workspaceManager.activeWorkspace {
+            if let ws = presentedWorkspace {
                 SettingsView(
                     viewModel: SettingsViewModel(workspace: ws) {
+                        // Logout explicitly deletes the session. Merely closing
+                        // a native Mac window never calls this path.
                         workspaceManager.deleteWorkspace(id: ws.id)
                     },
                     dismissAction: { showingSettings = false }
