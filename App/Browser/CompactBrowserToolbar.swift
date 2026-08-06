@@ -101,33 +101,53 @@ struct CompactBrowserToolbar: View {
                             onPress: { forwardPressed = $0 })
             }
 
-            // Narrow URL pill — tap to expand into a full-width editor.
-            Button {
-                startEditing()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: pillIcon)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text(pillText)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    // Connection-type indicator (direct/derped/internet).
-                    ConnectionTypeIcon(type: tab.connectionType)
-                    Spacer(minLength: 0)
+            // Narrow URL pill — tap its address to edit. Reload/stop stays
+            // inside the pill at the far right, matching Safari.
+            HStack(spacing: 4) {
+                Button {
+                    startEditing()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: pillIcon)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(pillText)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ConnectionTypeIcon(type: tab.connectionType)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity)
-                .background(Capsule().fill(Color(.secondarySystemBackground)))
-                .contentShape(Capsule())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("url-pill")
+                .accessibilityLabel("Address: \(pillText)")
+                .accessibilityValue(tab.connectionType.accessibilityDescription)
+
+                Button {
+                    if viewModel.isLoading {
+                        viewModel.stopLoading()
+                    } else {
+                        viewModel.reload()
+                    }
+                } label: {
+                    Image(systemName: viewModel.isLoading ? "xmark" : "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("reload-button")
+                .accessibilityLabel(viewModel.isLoading ? "Stop Loading" : "Reload")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("url-pill")
-            .accessibilityLabel("Address: \(pillText)")
-            .accessibilityValue(tab.connectionType.accessibilityDescription)
+            .padding(.leading, 10)
+            .padding(.trailing, 3)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity)
+            .background(Capsule().fill(Color(.secondarySystemBackground)))
 
             toolbarIcon("plus", action: onNewChat)
                 .disabled(!tabManager.canOpenNewTab)
@@ -149,11 +169,6 @@ struct CompactBrowserToolbar: View {
                 .accessibilityLabel("Add Bookmark")
 
             Menu {
-                Button {
-                    viewModel.reload()
-                } label: {
-                    Label("Reload", systemImage: "arrow.clockwise")
-                }
                 Button {
                     onBookmarks()
                 } label: {
