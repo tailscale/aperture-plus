@@ -12,12 +12,27 @@ import WebKit
 
 struct RawWebView: UIViewRepresentable {
     @ObservedObject var model: BrowserViewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> WKWebView {
-        model.makeWebView()
+        let webView = model.makeWebView()
+        applyThemeBackground(to: webView)
+        return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         model.attach(webView)
+        applyThemeBackground(to: webView)
+    }
+
+    /// WKWebView otherwise flashes its default white backing store before the
+    /// first document paints. Set both the view and under-page colors so fresh
+    /// startup and later new tabs match the active appearance consistently.
+    private func applyThemeBackground(to webView: WKWebView) {
+        let color: UIColor = colorScheme == .dark ? .black : .white
+        webView.isOpaque = true
+        webView.backgroundColor = color
+        webView.scrollView.backgroundColor = color
+        webView.underPageBackgroundColor = color
     }
 }

@@ -33,6 +33,9 @@ struct BrowserView: View {
                     .ignoresSafeArea(.container, edges: .top)
             }
         }
+        // Cover the instant before UIViewRepresentable installs WKWebView with
+        // the same adaptive background used by RawWebView itself.
+        .background(Color(.systemBackground))
     }
 }
 
