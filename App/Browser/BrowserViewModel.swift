@@ -42,17 +42,20 @@ final class BrowserViewModel: NSObject, ObservableObject {
     private let initialURL: URL
     private let dataStore: WKWebsiteDataStore
     private let configureWebView: ((WKWebViewConfiguration) -> Void)?
+    private let openNewTab: (URL) -> Void
     private var webView: WKWebView?
 
     private(set) var didLoadInitial = false
     private var pendingLoadURL: URL?
 
     init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore,
-         configureWebView: ((WKWebViewConfiguration) -> Void)? = nil) {
+         configureWebView: ((WKWebViewConfiguration) -> Void)? = nil,
+         openNewTab: @escaping (URL) -> Void = { _ in }) {
         self.tsnetModel = model
         self.initialURL = initialURL
         self.dataStore = dataStore
         self.configureWebView = configureWebView
+        self.openNewTab = openNewTab
         super.init()
 
         if let proxy = model.proxyConfiguration {
@@ -111,6 +114,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
         // at an unload boundary it could be exposing a provisional destination.
         if let url { pendingLoadURL = url }
         webView.navigationDelegate = nil
+        webView.uiDelegate = nil
         webViewObservations.removeAll()
         self.webView = nil
         isLoading = false
@@ -125,6 +129,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
         guard webView !== view else { return }
         webView = view
         view.navigationDelegate = self
+        view.uiDelegate = self
         observeWebView(view)
     }
 
@@ -314,6 +319,22 @@ final class BrowserViewModel: NSObject, ObservableObject {
             if let error { logger.log("LOADED-PAGE error: \(error)") }
             else { logger.log("LOADED-PAGE: \(result ?? "(null)")") }
         }
+    }
+}
+
+extension BrowserViewModel: WKUIDelegate {
+    /// WebKit asks its UI delegate to create a view for target=_blank,
+    /// window.open(), and links whose target requests another browsing context.
+    /// Route that request into this workspace's tab manager instead.
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard navigationAction.targetFrame == nil,
+              let url = navigationAction.request.url
+        else { return nil }
+        openNewTab(url)
+        return nil
     }
 }
 

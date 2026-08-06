@@ -57,8 +57,15 @@ final class TabManager: ObservableObject {
 
     @discardableResult
     func openChatTab(select: Bool = true) -> BrowserTab? {
-        guard canOpenNewTab else { return nil }
         let url = URL(string: homePage.url) ?? URL(string: HomePage.defaultURL)!
+        return openTab(url: url, select: select)
+    }
+
+    /// Opens a page requested by web content (target=_blank/window.open) in
+    /// this workspace, preserving the same website data store and proxy.
+    @discardableResult
+    func openTab(url: URL, select: Bool = true) -> BrowserTab? {
+        guard canOpenNewTab else { return nil }
         let tab = makeTab(url: url)
         tabs.append(tab)
         if select {
@@ -108,9 +115,9 @@ final class TabManager: ObservableObject {
     private func makeTab(id: UUID = UUID(), url: URL,
                          restoredTitle: String? = nil) -> BrowserTab {
         BrowserTab(id: id, model: model, initialURL: url,
-                   restoredTitle: restoredTitle, dataStore: dataStore) { [weak self] in
-            self?.persist()
-        }
+                   restoredTitle: restoredTitle, dataStore: dataStore,
+                   openNewTab: { [weak self] url in self?.openTab(url: url) },
+                   onMetadataChange: { [weak self] in self?.persist() })
     }
 
     private func persist() {
