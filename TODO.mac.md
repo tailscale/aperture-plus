@@ -59,7 +59,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 ## Distribution
 
 - [ ] Add macOS to the existing App Store Connect app record for `io.tailscale.Aperture`.
-- [ ] Verify the App ID/provisioning profile authorizes the Virtualization entitlement.
+- [ ] Verify the App ID/provisioning profile authorizes the Virtualization entitlement. Current local profiles are iOS-only and contain no virtualization grant, so this requires Developer Portal/App Store Connect action and a fresh Mac profile.
 - [ ] Archive and validate a native Mac build before implementing VM functionality.
 - [ ] Add TestFlight archive/export/upload commands and documentation for macOS.
 - [ ] Record any App Store Connect or App Review response about the entitlement.
