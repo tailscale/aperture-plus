@@ -56,10 +56,14 @@ expectEqual(
     "exact DNS first-label match beats unrelated HostName record")
 
 expectEqual(
-    qualified("http://missing/", domains: domains,
+    qualified("http://slork/path", domains: domains,
               hosts: [.init(shortName: "ai", fullName: "ai.corp.ts.net")]),
-    "unknown:missing",
-    "unknown bare label is rejected")
+    "http://slork.corp.ts.net/path",
+    "unknown bare label is pinned to primary tailnet DNS")
+expectEqual(
+    qualified("http://slork/", domains: [], hosts: []),
+    "unknown:slork",
+    "bare label is rejected rather than leaked when no primary domain exists")
 
 expectEqual(
     qualified("http://tsx/", domains: domains,

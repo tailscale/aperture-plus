@@ -19,7 +19,8 @@ struct TailnetHostRecord: Equatable, Sendable {
 enum TailnetHostnameQualification: Equatable, Sendable {
     /// Not an http(s) URL with a single-label host; no qualification applies.
     case unchanged(URL)
-    /// The bare label is not present in the signed peer list.
+    /// No safe qualification is possible (normally because no primary search
+    /// domain is available). A bare label is never returned unchanged.
     case unknown(label: String)
     /// More than one non-primary advertised FQDN has this exact first label.
     case ambiguous(label: String, candidates: [String])
@@ -39,10 +40,12 @@ enum TailnetHostnameQualifier {
     ///    is the primary search domain wins.
     /// 2. Otherwise, a unique advertised FQDN whose first label equals the input
     ///    wins, including a shared-in peer from another `*.ts.net` tailnet.
-    /// 3. A matching shortName with no same-label advertised FQDN may use the
-    ///    primary suffix. Critically, it never adopts that record's differently
-    ///    named FQDN (the historical `ai` -> `benson-…` bug).
-    /// 4. Unknown and ambiguous labels are explicit errors.
+    /// 3. Any remaining bare label uses the primary suffix, whether or not a
+    ///    peer currently exists there. This ensures barewords never leak to
+    ///    ordinary DNS; nonexistent names become explicit `*.ts.net` failures.
+    ///    A differently labeled DNSName is never substituted (the historical
+    ///    `ai` -> `benson-…` bug).
+    /// 4. Ambiguous shared names and a missing primary domain are errors.
     static func qualify(_ url: URL,
                         searchDomains: [String],
                         hosts: [TailnetHostRecord]) -> TailnetHostnameQualification {
@@ -81,11 +84,11 @@ enum TailnetHostnameQualifier {
             return .ambiguous(label: label, candidates: advertised)
         }
 
-        // HostName can be useful when DNSName is empty or independently named,
-        // but it is only evidence that the input label exists. It is never
-        // permission to substitute the unrelated DNSName.
-        let hasShortName = records.contains { $0.shortName == label }
-        if hasShortName, let primaryDomain = domains.first,
+        // No peer advertises this exact label. Still pin the bareword to the
+        // primary tailnet namespace so it cannot escape to system/public DNS.
+        // This is also the safe fallback for a matching HostName paired with an
+        // independently named DNSName: never substitute that unrelated name.
+        if let primaryDomain = domains.first,
            let result = replacingHost(in: url, with: "\(label).\(primaryDomain)") {
             return .qualified(result)
         }
