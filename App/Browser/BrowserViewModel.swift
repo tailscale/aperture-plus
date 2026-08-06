@@ -47,6 +47,11 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     private(set) var didLoadInitial = false
     private var pendingLoadURL: URL?
+    /// The backend can publish Running a moment before its first SOCKS dial is
+    /// usable. Only the automatic startup navigation gets this settling grace;
+    /// user-initiated loads continue to surface failures immediately.
+    private var startupLoad: (url: URL, deadline: ContinuousClock.Instant)?
+    private var startupRetryTask: Task<Void, Never>?
 
     init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore,
          configureWebView: ((WKWebViewConfiguration) -> Void)? = nil,
@@ -110,6 +115,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
     func unloadWebView() {
         guard let webView else { return }
         webView.stopLoading()
+        startupRetryTask?.cancel()
+        startupRetryTask = nil
+        startupLoad = nil
         // `url` is our validated address-bar URL. Do not read WKWebView.url here:
         // at an unload boundary it could be exposing a provisional destination.
         if let url { pendingLoadURL = url }
@@ -169,11 +177,23 @@ final class BrowserViewModel: NSObject, ObservableObject {
             return
         }
         didLoadInitial = true
-        load(url: initialURL)
+        load(url: initialURL, isAutomaticStartupLoad: true)
     }
 
     func load(url: URL) {
+        load(url: url, isAutomaticStartupLoad: false)
+    }
+
+    private func load(url: URL, isAutomaticStartupLoad: Bool) {
+        if !isAutomaticStartupLoad {
+            startupRetryTask?.cancel()
+            startupRetryTask = nil
+            startupLoad = nil
+        }
         guard let target = resolveForTailnet(url) else { return }
+        if isAutomaticStartupLoad {
+            startupLoad = (target, ContinuousClock.now + .seconds(20))
+        }
         clearNavError()
         guard webView != nil else {
             // Preserve an unloaded tab's committed URL. Automatic initial-load
@@ -185,7 +205,51 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     private func loadResolved(_ url: URL) {
-        webView?.load(URLRequest(url: url))
+        // Be deliberately patient with slow private services. This does not
+        // delay explicit connection failures; it only extends how long an
+        // otherwise-silent request may remain pending.
+        webView?.load(URLRequest(url: url, timeoutInterval: 120))
+    }
+
+    /// During initial connection only, retry immediate transport failures while
+    /// tsnet settles instead of replacing the page with an error that requires
+    /// a manual reload. Returns true when the failure has been consumed.
+    private func retryStartupLoadIfAppropriate(_ error: Error, failedURL: URL) -> Bool {
+        guard let startupLoad, startupLoad.url == failedURL,
+              ContinuousClock.now < startupLoad.deadline,
+              Self.isTransientStartupError(error)
+        else { return false }
+
+        startupRetryTask?.cancel()
+        startupRetryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self,
+                      let pending = self.startupLoad,
+                      pending.url == failedURL,
+                      ContinuousClock.now < pending.deadline
+                else { return }
+                logger.log("Startup page transport not ready; retrying \(failedURL)")
+                self.loadResolved(failedURL)
+            } catch {
+                return
+            }
+        }
+        return true
+    }
+
+    nonisolated private static func isTransientStartupError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return false }
+        // WebKit maps any SOCKS CONNECT failure to badURL (-1000), so it is a
+        // transport error here despite the misleading name.
+        return [NSURLErrorBadURL,
+                NSURLErrorTimedOut,
+                NSURLErrorCannotFindHost,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorNotConnectedToInternet,
+                NSURLErrorCannotLoadFromNetwork].contains(ns.code)
     }
 
     func reload() {
@@ -426,6 +490,9 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        startupRetryTask?.cancel()
+        startupRetryTask = nil
+        startupLoad = nil
         refreshState(from: webView, includeCommittedURL: true)
         failedInitialURL = nil
     }
@@ -459,6 +526,8 @@ extension BrowserViewModel: WKNavigationDelegate {
         let ns = error as NSError
         guard !(ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled) else { return }
         let failedURL = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL
+        if retryStartupLoadIfAppropriate(error, failedURL: failedURL) { return }
+        startupLoad = nil
         navigationError(error, for: failedURL)
     }
 
@@ -469,6 +538,8 @@ extension BrowserViewModel: WKNavigationDelegate {
         // provisional destination or the old committed page depending on the
         // failure phase, so it is never used as address-bar truth here.
         let failedURL = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url ?? initialURL
+        if retryStartupLoadIfAppropriate(error, failedURL: failedURL) { return }
+        startupLoad = nil
         navigationError(error, for: failedURL)
     }
 
