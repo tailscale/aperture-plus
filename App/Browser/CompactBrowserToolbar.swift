@@ -282,7 +282,7 @@ struct CompactBrowserToolbar: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 4)
                     .frame(height: 14)
-                    .background(Capsule().fill(Color.blue))
+                    .background(Capsule().fill(Color.gray))
                     .offset(x: 6, y: -6)
             }
         }
