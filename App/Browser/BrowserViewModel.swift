@@ -173,7 +173,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func load(url: URL) {
-        let target = resolveForTailnet(url)
+        guard let target = resolveForTailnet(url) else { return }
         clearNavError()
         guard webView != nil else {
             // Preserve an unloaded tab's committed URL. Automatic initial-load
@@ -214,12 +214,57 @@ final class BrowserViewModel: NSObject, ObservableObject {
         return !host.contains(".") && !host.contains(":")
     }
 
-    private func resolveForTailnet(_ url: URL) -> URL {
-        guard let policy = tsnetModel.proxyPolicy else { return url }
-        let suffix = tsnetModel.localStatus?.CurrentTailnet?.MagicDNSSuffix
-        let expanded = policy.expandWithheldShortName(in: url, magicDNSSuffix: suffix)
-        if expanded != url { logger.log("Expanded withheld short name \(url) -> \(expanded)") }
+    /// Canonicalizes every known bare MagicDNS peer name to its FQDN. iOS
+    /// applies proxy match rules to the literal URL host before DNS search-path
+    /// expansion, so the rewrite is required for deterministic routing. A bare
+    /// name absent from the complete peer list is rejected rather than leaked
+    /// to public/system DNS.
+    private func resolveForTailnet(_ url: URL) -> URL? {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host()?.lowercased(),
+              !host.isEmpty, !host.contains("."), !host.contains(":")
+        else { return url }
+
+        guard let status = tsnetModel.localStatus else { return url }
+        var peers: [IpnState.PeerStatus] = Array(status.Peer?.values ?? [:].values)
+        if let selfStatus = status.SelfStatus { peers.append(selfStatus) }
+
+        let match = peers.first { peer in
+            let shortHost = TailnetProxyPolicy.normalizeDomain(peer.HostName)
+            let dnsName = TailnetProxyPolicy.normalizeDomain(peer.DNSName)
+            return shortHost == host || dnsName.split(separator: ".").first.map(String.init) == host
+        }
+        guard let match else {
+            reportUnknownTailnetHost(host, attemptedURL: url)
+            return nil
+        }
+
+        let peerDNSName = TailnetProxyPolicy.normalizeDomain(match.DNSName)
+        let suffix: String? = {
+            guard let raw = status.CurrentTailnet?.MagicDNSSuffix else { return nil }
+            let normalized = TailnetProxyPolicy.normalizeDomain(raw)
+            return normalized.isEmpty ? nil : normalized
+        }()
+        let fqdn = peerDNSName.contains(".") ? peerDNSName
+            : suffix.flatMap { $0.isEmpty ? nil : "\(host).\($0)" }
+        guard let fqdn, !fqdn.isEmpty,
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else { return url }
+        parts.host = fqdn
+        guard let expanded = parts.url else { return url }
+        logger.log("Expanded known tailnet short name \(url) -> \(expanded)")
         return expanded
+    }
+
+    private func reportUnknownTailnetHost(_ host: String, attemptedURL: URL) {
+        logger.log("Unknown tailnet short name: \(host)")
+        let error = URLError(.cannotFindHost)
+        navError = (error, attemptedURL)
+        navErrorMessage = "No device named “\(host)” exists in this tailnet. Check the name and try again."
+        navErrorKind = .retrieval
+        navErrorURLString = attemptedURL.absoluteString
+        url = attemptedURL
+        failedInitialURL = attemptedURL == initialURL ? attemptedURL : nil
     }
 
     func navigationError(_ error: Error, for url: URL) {
@@ -327,8 +372,8 @@ extension BrowserViewModel: WKUIDelegate {
     /// context menu includes Safari's large live preview, which can obscure
     /// actions on compact screens.
     func webView(_ webView: WKWebView,
-                 contextMenuConfigurationFor elementInfo: WKContextMenuElementInfo,
-                 completionHandler: @escaping (UIContextMenuConfiguration?) -> Void) {
+                 contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo,
+                 completionHandler: @escaping @MainActor @Sendable (UIContextMenuConfiguration?) -> Void) {
         guard let url = elementInfo.linkURL else {
             completionHandler(nil)
             return
