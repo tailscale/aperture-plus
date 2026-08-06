@@ -172,7 +172,7 @@ final class ApertureUITests: XCTestCase {
                       "false once the tailnet reaches Running). If it stays, the " +
                       "relogin callback did not complete.")
         // And the browser chrome should still be there.
-        XCTAssertTrue(app.buttons["add-bookmark-button"].exists,
+        XCTAssertTrue(app.buttons["more-menu-button"].exists,
                       "Browser chrome should remain after a successful relogin")
         attachScreenshot(app, named: "relogin-success")
     }
@@ -600,7 +600,7 @@ final class ApertureUITests: XCTestCase {
         // With an auth key still in launchEnvironment the reset workspace can
         // connect immediately, so accept either gate branding or browser chrome.
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20)
-                      || app.buttons["add-bookmark-button"].waitForExistence(timeout: 20))
+                      || app.buttons["more-menu-button"].waitForExistence(timeout: 20))
     }
 
     /// Tabs are persisted as lightweight URL/title records, restore the active
@@ -643,7 +643,7 @@ final class ApertureUITests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20)
-                      || app.buttons["add-bookmark-button"].waitForExistence(timeout: 20))
+                      || app.buttons["more-menu-button"].waitForExistence(timeout: 20))
     }
 
     /// Home-page settings belong to a workspace, not the app globally.
@@ -794,11 +794,8 @@ final class ApertureUITests: XCTestCase {
             }, object: chaos)
         XCTAssertEqual(XCTWaiter().wait(for: [damaged], timeout: 20), .completed)
 
-        let more = app.buttons["more-menu-button"]
-        XCTAssertTrue(more.waitForExistence(timeout: 10))
-        more.tap()
-        let reload = app.buttons["Reload"]
-        XCTAssertTrue(reload.waitForExistence(timeout: 5))
+        let reload = app.buttons["reload-button"]
+        XCTAssertTrue(reload.waitForExistence(timeout: 10))
         reload.tap()
 
         let recovered = XCTNSPredicateExpectation(
@@ -825,11 +822,8 @@ final class ApertureUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 5)
         app.activate()
 
-        let more = app.buttons["more-menu-button"]
-        XCTAssertTrue(more.waitForExistence(timeout: 10))
-        more.tap()
-        let reload = app.buttons["Reload"]
-        XCTAssertTrue(reload.waitForExistence(timeout: 5))
+        let reload = app.buttons["reload-button"]
+        XCTAssertTrue(reload.waitForExistence(timeout: 10))
         reload.tap()
 
         XCTAssertTrue(waitForPageLoaded(in: app, contains: "ai", timeout: 30),
@@ -866,12 +860,11 @@ final class ApertureUITests: XCTestCase {
 
     // MARK: - Connected tests (require a logged-in sim; auth key automates it)
 
-    /// The connected browser is up when its bottom-toolbar bookmark button
-    /// (`add-bookmark-button`) is present — that control only exists in the
-    /// browser chrome, which only shows once the tailnet has connected.
+    /// The connected browser is up when its More button is present — that
+    /// control only exists in browser chrome after the tailnet has connected.
     @discardableResult
     private func waitForBrowserReady(_ app: XCUIApplication, timeout: TimeInterval = 90) -> Bool {
-        app.buttons["add-bookmark-button"].waitForExistence(timeout: timeout)
+        app.buttons["more-menu-button"].waitForExistence(timeout: timeout)
     }
 
     /// Launches the app, forwarding a staged auth key if one is available so a
@@ -920,9 +913,12 @@ final class ApertureUITests: XCTestCase {
 
         guard requireBrowserReady(app) else { return }
 
+        let more = app.buttons["more-menu-button"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
         let addButton = app.buttons["add-bookmark-button"]
-        XCTAssertTrue(addButton.waitForExistence(timeout: 10),
-                      "Add Bookmark button should be in the browser bottom toolbar")
+        XCTAssertTrue(addButton.waitForExistence(timeout: 5),
+                      "Add Bookmark should be in the More menu")
         addButton.tap()
 
         XCTAssertTrue(
@@ -957,7 +953,7 @@ final class ApertureUITests: XCTestCase {
         cancelButton.tap()
 
         XCTAssertTrue(
-            waitForHittable(app.buttons["add-bookmark-button"], timeout: 10),
+            waitForHittable(app.buttons["more-menu-button"], timeout: 10),
             "Should return to the browser after Cancel"
         )
     }
@@ -1578,7 +1574,7 @@ final class ApertureUITests: XCTestCase {
 
         app.buttons["Done"].tap()
         XCTAssertTrue(
-            waitForHittable(app.buttons["add-bookmark-button"], timeout: 10),
+            waitForHittable(app.buttons["more-menu-button"], timeout: 10),
             "Should return to the browser after Done"
         )
     }
