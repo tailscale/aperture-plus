@@ -12,48 +12,33 @@ struct BrowserView: View {
     }
 
     var body: some View {
-        ZStack {
-            // The webview itself. The navigation/URL toolbar and tab chrome
-            // are owned by `TabbedBrowserView` (so they persist across tab
-            // switches and can carry tab controls); this view is just the
-            // page plus its error overlay.
-            //
-            // The owned WKWebView extends beneath the notch/Dynamic Island.
-            // Pages using `viewport-fit=cover` can consume the real CSS safe-
-            // area environment values, matching Safari's edge-to-edge model.
-            RawWebView(model: model)
-                // UIViewRepresentable otherwise reuses the previous tab's
-                // UIView when its `model` input changes. A WKWebView belongs to
-                // exactly one tab, so changing tabs must install that tab's
-                // distinct view rather than attaching the old page to the new
-                // model (the "+ duplicates current frame" bug).
-                .id(ObjectIdentifier(model))
-                .ignoresSafeArea(.container, edges: .top)
-
-            // Navigation error overlay. Driven directly by `model.navError`
-            // (set by `watchForNavitationErrors` on a failed load, cleared on
-            // the next navigation), so it stays visible until the user retries
-            // or navigates away — previously it auto-hid after 2s, which made
-            // real failures easy to miss and hard for tests to catch.
+        Group {
             if let navError = model.navError {
-                NavErrorOverlay(
+                // A failed navigation replaces the page, like a conventional
+                // browser error document. Because no old page remains visible,
+                // the chrome may safely show the attempted URL.
+                NavErrorPage(
                     urlString: model.navErrorURLString ?? navError.url?.absoluteString ?? "",
                     kind: model.navErrorKind,
-                    message: model.navErrorMessage,
-                    onRetry: { model.reload() },
-                    onDismiss: { model.clearNavError() }
+                    message: model.navErrorMessage
                 )
-                .transition(.opacity.combined(with: .scale))
+            } else {
+                // The owned WKWebView extends beneath the notch/Dynamic Island.
+                // Pages using viewport-fit=cover can consume the real CSS safe-
+                // area values, matching Safari's edge-to-edge model.
+                RawWebView(model: model)
+                    // A WKWebView belongs to exactly one tab; prevent
+                    // UIViewRepresentable from reusing the previous tab's view.
+                    .id(ObjectIdentifier(model))
+                    .ignoresSafeArea(.container, edges: .top)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.navErrorURLString)
     }
 }
 
-/// The "Unable to load" card shown over the webview when a navigation fails.
-/// Persistent (no auto-hide): tap Retry to reload, or the close button to
-/// dismiss. Carries the `nav-error-overlay` accessibility identifier so UI
-/// tests can detect that a load failed.
+/// The full-page error document shown in place of web content when navigation
+/// fails. The `nav-error-overlay` identifier is retained for UI-test
+/// compatibility even though this is no longer an overlay or modal card.
 ///
 /// The URL is rendered **escaped** (via `debugEscaped`) so invisible or
 /// problematic characters the keyboard may have injected — non-breaking space
@@ -61,33 +46,20 @@ struct BrowserView: View {
 /// newlines, etc. — are visible as `\u{XXXX}` instead of silently breaking the
 /// URL. `kind` distinguishes a URL **format** error (parse/validation rejected)
 /// from a **retrieval** error (couldn't connect) via a small category label.
-struct NavErrorOverlay: View {
+struct NavErrorPage: View {
     let urlString: String
     let kind: NavErrorKind?
     let message: String?
-    let onRetry: () -> Void
-    let onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text("Unable to Load Page")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Button {
-                    onDismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss")
-            }
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(.orange)
+                .padding(.bottom, 4)
+            Text("Unable to Load Page")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(.primary)
 
             // Category label — distinguishes a URL format problem (the URL
             // itself is bad) from a retrieval problem (the URL is fine but we
@@ -123,26 +95,11 @@ struct NavErrorOverlay: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Button {
-                onRetry()
-            } label: {
-                Label("Retry", systemImage: "arrow.clockwise")
-                    .font(.subheadline.weight(.medium))
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
         }
-        .padding(16)
-        .frame(maxWidth: 300)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(.separator), lineWidth: 0.5)
-        )
-        .shadow(radius: 12)
+        .padding(32)
+        .frame(maxWidth: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("nav-error-overlay")
     }

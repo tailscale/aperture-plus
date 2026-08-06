@@ -26,11 +26,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
     /// Security-sensitive, user-visible URL. This advances after WebKit commits
-    /// a document navigation, or when the committed document makes a
-    /// same-origin History API / fragment change. It never follows a
-    /// cross-origin provisional request. A failed navigation therefore leaves
-    /// the address bar showing the page that is still rendered; the attempted
-    /// URL appears only in the error overlay.
+    /// a document navigation, when the committed document makes a same-origin
+    /// History API / fragment change, or after a failed navigation replaces
+    /// web content with our own full-page error document. It never follows an
+    /// in-flight cross-origin provisional request.
     @Published private(set) var url: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var estimatedProgress = 0.0
@@ -224,6 +223,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
         navErrorMessage = Self.describe(error)
         navErrorKind = Self.categorize(error)
         navErrorURLString = url.absoluteString
+        // The failed page has been replaced by our trusted error document, so
+        // showing the attempted URL cannot disguise the previously rendered
+        // origin. Slow/in-flight loads still retain the committed URL.
+        self.url = url
         failedInitialURL = url == initialURL ? url : nil
     }
 
