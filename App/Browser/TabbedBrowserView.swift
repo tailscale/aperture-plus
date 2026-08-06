@@ -167,6 +167,7 @@ private struct BrowserRootContent: View {
     /// In-app log viewer (Settings → Logs / the "more" menu). The only way to
     /// read the app's logs on a device that can't be attached to a Mac.
     @State private var showingLogs = false
+    @State private var addressFocusRequested = false
     init(workspace: Workspace,
          tabManager: TabManager,
          tab: BrowserTab,
@@ -235,6 +236,20 @@ private struct BrowserRootContent: View {
                 initialURLString: tab.viewModel.url?.absoluteString ?? ""
             )
         }
+        // Hidden command targets keep hardware-keyboard shortcuts available
+        // regardless of toolbar placement or focused web content.
+        .background {
+            Group {
+                Button("Focus Address Bar") { addressFocusRequested = true }
+                    .keyboardShortcut("l", modifiers: .command)
+                Button("Close Tab") { tabManager.closeTab(tab) }
+                    .keyboardShortcut("w", modifiers: .command)
+                Button("New Tab") { tabManager.openChatTab() }
+                    .keyboardShortcut("t", modifiers: .command)
+                    .disabled(!tabManager.canOpenNewTab)
+            }
+            .hidden()
+        }
     }
 
     private var browserContent: some View {
@@ -260,6 +275,7 @@ private struct BrowserRootContent: View {
             onBookmarks: { showingBookmarks = true },
             onAddBookmark: { showingBookmarkEditor = true },
             onSettings: onSettings,
+            addressFocusRequested: $addressFocusRequested,
             onLogs: { showingLogs = true }
         )
         .fixedSize(horizontal: false, vertical: true)

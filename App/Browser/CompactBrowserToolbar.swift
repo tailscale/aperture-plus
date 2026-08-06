@@ -28,6 +28,7 @@ struct CompactBrowserToolbar: View {
     let onBookmarks: () -> Void
     let onAddBookmark: () -> Void
     let onSettings: () -> Void
+    @Binding var addressFocusRequested: Bool
     /// Opens the in-app log viewer — the only way to read the app's logs on a
     /// device that can't be attached to a Mac (no `log stream`/Console.app).
     let onLogs: () -> Void
@@ -83,6 +84,11 @@ struct CompactBrowserToolbar: View {
             if horizontalSizeClass == .compact {
                 Divider()
             }
+        }
+        .onChange(of: addressFocusRequested) { _, requested in
+            guard requested else { return }
+            startEditing()
+            addressFocusRequested = false
         }
     }
 
