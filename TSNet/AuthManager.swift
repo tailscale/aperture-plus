@@ -18,22 +18,29 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
 
 
         let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "ipnauth") { [weak self] callbackURL, error in
-            // The Tailscale login URL normally completes out-of-band through
-            // the control plane, so LoginFinished (not this callback) is the
-            // authoritative success signal. Keep the callback for cancellation
-            // and diagnostics; using Tailscale's callback scheme also lets any
-            // future redirect complete the session normally.
-            let elapsed = self?.elapsedDescription() ?? "unknown"
-            if let error {
-                logger.log("Auth session ended after \(elapsed) with error: \(error)")
-            } else {
-                logger.log("Auth session completed after \(elapsed), callback=\(callbackURL?.absoluteString ?? "nil")")
+            // AuthenticationServices calls this completion on its private XPC
+            // reply queue on macOS. AuthManager is MainActor-isolated, so even
+            // reading `self` here directly triggers Swift 6's executor check.
+            // Hop before touching any manager state (or invoking `onEnded`,
+            // which updates SwiftUI-observed state).
+            Task { @MainActor [weak self] in
+                // The Tailscale login URL normally completes out-of-band through
+                // the control plane, so LoginFinished (not this callback) is the
+                // authoritative success signal. Keep the callback for cancellation
+                // and diagnostics; using Tailscale's callback scheme also lets any
+                // future redirect complete the session normally.
+                let elapsed = self?.elapsedDescription() ?? "unknown"
+                if let error {
+                    logger.log("Auth session ended after \(elapsed) with error: \(error)")
+                } else {
+                    logger.log("Auth session completed after \(elapsed), callback=\(callbackURL?.absoluteString ?? "nil")")
+                }
+                self?.authSession = nil
+                self?.startedAt = nil
+                let ended = self?.sessionEnded
+                self?.sessionEnded = nil
+                ended?()
             }
-            self?.authSession = nil
-            self?.startedAt = nil
-            let ended = self?.sessionEnded
-            self?.sessionEnded = nil
-            ended?()
         }
 
         session.prefersEphemeralWebBrowserSession = true
