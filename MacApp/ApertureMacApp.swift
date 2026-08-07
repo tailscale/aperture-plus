@@ -72,7 +72,7 @@ struct ApertureMacApp: App {
         }
 
         Settings {
-            NativeMacSettingsView()
+            MacSettingsHost(workspaceManager: workspaceManager)
         }
     }
 }
@@ -92,6 +92,22 @@ private struct WorkspaceWindowRoot: View {
                 pinnedWorkspaceID: workspace.id
             )
             .navigationTitle(workspace.identifier)
+            .onDisappear {
+                // Closing a native workspace window deletes the workspace when
+                // it was never connected (still at NeedsLogin) and it isn't the
+                // last one. A fresh Cmd+N workspace that you close right away
+                // shouldn't linger in the Window menu — it has no session data
+                // worth keeping. Connected workspaces are preserved (closing a
+                // window keeps the workspace, reachable from the Window menu),
+                // and the last workspace is never auto-deleted, so closing the
+                // final window just leaves the app running with no windows
+                // rather than churning a replacement node.
+                if let ws = workspaceManager.workspace(id: workspaceID),
+                   ws.statusViewModel.needsAuth,
+                   workspaceManager.workspaces.count > 1 {
+                    workspaceManager.deleteWorkspace(id: workspaceID)
+                }
+            }
         } else {
             ProgressView("Restoring Workspace…")
         }
@@ -127,16 +143,28 @@ private struct MacWorkspaceCommands: Commands {
     }
 }
 
-private struct NativeMacSettingsView: View {
+/// macOS app-menu Settings (Cmd+,). Hosts the SAME shared `SettingsView` the
+/// browser/gear sheet uses, so there is one settings codebase across iOS and
+/// macOS. "Done" closes the settings window (`dismissWindow`); Logout deletes
+/// the active workspace's session exactly as it does from the in-window sheet.
+private struct MacSettingsHost: View {
+    @ObservedObject var workspaceManager: WorkspaceManager
+    @Environment(\.dismissWindow) private var dismissWindow
+
     var body: some View {
-        Form {
-            LabeledContent("Platform", value: "Native macOS")
-            Text("Workspace settings are available from each browser window.")
-                .foregroundStyle(.secondary)
+        if let ws = workspaceManager.activeWorkspace {
+            SettingsView(
+                viewModel: SettingsViewModel(workspace: ws) {
+                    workspaceManager.deleteWorkspace(id: ws.id)
+                },
+                dismissAction: { dismissWindow() }
+            )
+        } else {
+            ContentUnavailableView(
+                "No Workspace",
+                systemImage: "person.crop.circle.badge.questionmark",
+                description: Text("Open a workspace window to configure it.")
+            )
         }
-        .formStyle(.grouped)
-        .padding()
-        .frame(width: 460)
-        .accessibilityIdentifier("mac-settings-view")
     }
 }

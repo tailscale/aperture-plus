@@ -118,6 +118,14 @@ struct SettingsView: View {
                 Text("This will delete this session, including its tabs, bookmarks, and website data.")
             }
         }
+#if os(macOS)
+        // Present the shared Settings Form as a generously-sized, scrollable
+        // sheet on macOS so the exact same iOS UI (including the routing /
+        // exit-node diagnostics) is reused without a separate Mac codebase.
+        // The Form scrolls naturally when content exceeds the height; the
+        // frame just keeps the sheet from collapsing to a cramped default.
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 660)
+#endif
 #if canImport(UIKit)
         .presentationDetents([.medium, .large])
 #endif

@@ -70,6 +70,26 @@ struct TabOverview: View {
                 .accessibilityValue(
                     workspaceManager.activeWorkspace?.id == workspace.id ? "Selected" : ""
                 )
+                #if canImport(UIKit)
+                // iOS has no window-close gesture, so a logged-out workspace
+                // (still at NeedsLogin, never connected) that you don't want —
+                // e.g. one you added by mistake — needs a way to be removed
+                // without going through Settings → Logout. On macOS the
+                // equivalent is closing the workspace's window (see
+                // WorkspaceWindowRoot.onDisappear); here a logged-out row gets
+                // a destructive "Delete" item, mirroring that cleanup. The last
+                // workspace is never offered for deletion (deleting it would
+                // just seed a replacement — pointless from a menu).
+                if workspace.statusViewModel.needsAuth,
+                   workspaceManager.workspaces.count > 1 {
+                    Button(role: .destructive) {
+                        workspaceManager.deleteWorkspace(id: workspace.id)
+                    } label: {
+                        Label("Delete \(workspace.identifier)", systemImage: "trash")
+                    }
+                    .accessibilityIdentifier("delete-workspace-\(workspace.id.uuidString)")
+                }
+                #endif
             }
             Divider()
             Button {
