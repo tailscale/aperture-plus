@@ -12,8 +12,74 @@ struct SettingsView: View {
     @State private var routeTestHost: String = ""
 
     var body: some View {
+        settingsContainer
+#if os(macOS)
+        // Keep the shared, single-column grouped form used on iOS instead of
+        // macOS's default two-column preferences layout. The latter turns
+        // TextField prompts into a second label column and leaves large,
+        // uneven gaps between these phone-sized settings sections.
+        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 660)
+#endif
+#if canImport(UIKit)
+        .presentationDetents([.medium, .large])
+#endif
+        .onAppear {
+            // Seed the exit-node diagnostic (availability + egress IP) so the
+            // banner is populated when Settings opens, not only after a toggle.
+            viewModel.runExitNodeDiagnostic()
+        }
+    }
+
+    @ViewBuilder
+    private var settingsContainer: some View {
+#if os(macOS)
+        VStack(spacing: 0) {
+            HStack {
+                Text("Settings")
+                    .font(.title2.bold())
+                Spacer()
+                Button("Done") { dismissAction() }
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("settings-done-button")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            Divider()
+            settingsForm
+                .formStyle(.grouped)
+        }
+        .alert("Logout", isPresented: $showLogoutAlert) {
+            logoutAlertActions
+        } message: {
+            logoutAlertMessage
+        }
+#else
         NavigationStack {
-            Form {
+            settingsForm
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismissAction() }
+                        .accessibilityIdentifier("settings-done-button")
+                }
+            }
+        }
+        .alert("Logout", isPresented: $showLogoutAlert) {
+            logoutAlertActions
+        } message: {
+            logoutAlertMessage
+        }
+#endif
+    }
+
+    private var settingsForm: some View {
+        Form {
+            settingsSections
+        }
+    }
+
+    @ViewBuilder
+    private var settingsSections: some View {
                 Section(header: Text("Name")) {
                     TextField("Tailnet HostName", text: $viewModel.tailnetHostName)
 #if canImport(UIKit)
@@ -34,12 +100,6 @@ struct SettingsView: View {
                         .autocorrectionDisabled()
 #endif
                         .accessibilityIdentifier("home-page-field")
-                        // Persist on every change — not only on Submit (Return).
-                        // A fresh SettingsViewModel is built each time the
-                        // settings cover is presented, and it seeds `homePage`
-                        // from UserDefaults, so a value that was never written
-                        // back (e.g. the user typed a URL then tapped Done
-                        // without pressing Return) would be lost on reopen.
                         .onChange(of: viewModel.homePage) { _, newValue in
                             viewModel.setHomePage(newValue)
                         }
@@ -51,7 +111,6 @@ struct SettingsView: View {
                         set: { newValue in
                             togglingExitNode = true
                             viewModel.setExitNodeEnabled(newValue)
-                            // UI will update via Combine when prefs arrives
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                 togglingExitNode = false
                             }
@@ -74,66 +133,32 @@ struct SettingsView: View {
                             .lineLimit(1)
                     }
 
-                    // Live diagnostic banner: shows how many exit nodes are
-                    // available, and the egress IP a fetch through tsnet sees
-                    // (or the error — a blackhole makes it fail). This is the
-                    // ground truth for whether the toggle actually does
-                    // anything: with 0 exit nodes, `auto:any` blackholes all
-                    // non-tailnet traffic, so the ipify fetch through the SOCKS
-                    // proxy should FAIL.
                     if let diag = viewModel.exitNodeDiagnostic {
                         exitNodeDiagnosticBanner(diag)
                     }
                 }
 
                 Section {
-                    // Red (destructive) so Logout doesn't read as the
-                    // tempting default blue "go" button — it deletes the
-                    // entire session and all of its local data.
                     StatusButton(text: "Logout",
                                  action: { showLogoutAlert = true },
                                  color: .red)
                         .accessibilityIdentifier("logout-button")
                 }
 
-                // Diagnostics last: this section is informational and can be
-                // long (it lists every proxy rule), so keeping it below Logout
-                // leaves the primary controls above the fold.
                 routingSection
-            }
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismissAction() }
-                        .accessibilityIdentifier("settings-done-button")
-                }
-            }
-            .alert("Logout", isPresented: $showLogoutAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Logout", role: .destructive) {
-                    viewModel.logout()
-                    dismissAction()
-                }
-            } message: {
-                Text("This will delete this session, including its tabs, bookmarks, and website data.")
-            }
+    }
+
+    @ViewBuilder
+    private var logoutAlertActions: some View {
+        Button("Cancel", role: .cancel) { }
+        Button("Logout", role: .destructive) {
+            viewModel.logout()
+            dismissAction()
         }
-#if os(macOS)
-        // Present the shared Settings Form as a generously-sized, scrollable
-        // sheet on macOS so the exact same iOS UI (including the routing /
-        // exit-node diagnostics) is reused without a separate Mac codebase.
-        // The Form scrolls naturally when content exceeds the height; the
-        // frame just keeps the sheet from collapsing to a cramped default.
-        .frame(minWidth: 480, idealWidth: 520, minHeight: 560, idealHeight: 660)
-#endif
-#if canImport(UIKit)
-        .presentationDetents([.medium, .large])
-#endif
-        .onAppear {
-            // Seed the exit-node diagnostic (availability + egress IP) so the
-            // banner is populated when Settings opens, not only after a toggle.
-            viewModel.runExitNodeDiagnostic()
-        }
+    }
+
+    private var logoutAlertMessage: some View {
+        Text("This will delete this session, including its tabs, bookmarks, and website data.")
     }
 
     // MARK: - Routing (split tunnel) diagnostic

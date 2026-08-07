@@ -121,9 +121,11 @@ final class ApertureUITests: XCTestCase {
 
         // --- Phase 2: logout from Settings ---
         XCTAssertTrue(openSettings(app), "Settings should open from the browser gear")
-        XCTAssertTrue(app.buttons["logout-button"].waitForExistence(timeout: 10),
+        let logout = settingsLogoutButton(in: app)
+        scrollToElement(logout, in: app)
+        XCTAssertTrue(logout.waitForExistence(timeout: 10),
                       "The (red) Logout button should be present on Settings")
-        app.buttons["logout-button"].tap()
+        logout.tap()
 
         // SwiftUI confirmation alert: title "Logout", destructive confirm "Logout".
         let alertConfirm = app.alerts["Logout"].buttons["Logout"]
@@ -200,8 +202,10 @@ final class ApertureUITests: XCTestCase {
             "Settings screen should appear after tapping the gear"
         )
         // A connection-independent control that only lives on the Settings screen.
+        let logout = settingsLogoutButton(in: app)
+        scrollToElement(logout, in: app)
         XCTAssertTrue(
-            app.buttons["Logout"].waitForExistence(timeout: 5),
+            logout.waitForExistence(timeout: 5),
             "Logout button should be present on the Settings screen"
         )
 
@@ -268,6 +272,11 @@ final class ApertureUITests: XCTestCase {
             .matching(identifier: "exit-node-available-count").firstMatch
         let noneAvailable = app.descendants(matching: .any)
             .matching(identifier: "exit-node-none-available").firstMatch
+        // Form is lazy: the diagnostic can be just below the initial viewport
+        // after recent Settings rows grew. Bring it on-screen before waiting.
+        for _ in 0..<4 where !countLabel.exists && !noneAvailable.exists {
+            app.swipeUp()
+        }
 
         let availabilityShown = countLabel.waitForExistence(timeout: 20)
             || noneAvailable.waitForExistence(timeout: 3)
@@ -509,7 +518,10 @@ final class ApertureUITests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(waitForBrandHeader(app, timeout: 20))
         XCTAssertTrue(openSettings(app))
-        app.buttons["logout-button"].tap()
+        let firstLogout = settingsLogoutButton(in: app)
+        scrollToElement(firstLogout, in: app)
+        XCTAssertTrue(firstLogout.waitForExistence(timeout: 10))
+        firstLogout.tap()
         let firstConfirm = app.alerts["Logout"].buttons["Logout"]
         XCTAssertTrue(firstConfirm.waitForExistence(timeout: 10))
         firstConfirm.tap()
@@ -529,7 +541,10 @@ final class ApertureUITests: XCTestCase {
         // Delete the final session. A newly generated replacement should be
         // visible at the connection gate and have a different workspace id.
         XCTAssertTrue(openSettings(app))
-        app.buttons["logout-button"].tap()
+        let finalLogout = settingsLogoutButton(in: app)
+        scrollToElement(finalLogout, in: app)
+        XCTAssertTrue(finalLogout.waitForExistence(timeout: 10))
+        finalLogout.tap()
         let finalConfirm = app.alerts["Logout"].buttons["Logout"]
         XCTAssertTrue(finalConfirm.waitForExistence(timeout: 10))
         finalConfirm.tap()
@@ -2071,6 +2086,13 @@ final class ApertureUITests: XCTestCase {
         return (v?.isEmpty == false) ? v! : "1"
     }
 
+    /// Form rows are lazily materialized, so a query made before scrolling may
+    /// have neither the custom identifier nor SwiftUI's visible-title identity.
+    private func settingsLogoutButton(in app: XCUIApplication) -> XCUIElement {
+        let identified = app.buttons["logout-button"]
+        return identified.exists ? identified : app.buttons["Logout"].firstMatch
+    }
+
     private func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<8 where !element.exists || !element.isHittable {
             app.swipeUp()
@@ -2183,7 +2205,13 @@ final class ApertureUITests: XCTestCase {
             // URL text fields (either layout).
             for id in ["Enter URL", "url-field"] {
                 let f = app.textFields[id]
-                if let val = f.value as? String, val.contains(substring) { return true }
+                // Asking `value` of a zero-match XCUI query throws an internal
+                // "Failed to get matching snapshot" test failure instead of
+                // simply returning nil. The unified toolbar has no persistent
+                // text field while its compact URL pill is showing.
+                if f.exists, let val = f.value as? String, val.contains(substring) {
+                    return true
+                }
             }
             // Fallback: the WKWebView's identifier/label.
             let webView = app.webViews.firstMatch
