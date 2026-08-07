@@ -48,7 +48,18 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [ ] Add application commands and menus: New Tab, Close Tab, Focus Location, Reload, Settings, and tab navigation.
 - [ ] Verify standard keyboard, pointer, context-menu, text-selection, and clipboard behavior.
 - [ ] Add Settings and Logs presentation appropriate for macOS.
-- [ ] Review app icon and Mac App Store screenshots/metadata.
+- [x] Use the shared iOS/macOS AppIcon asset catalog for the native Mac app.
+- [ ] Review Mac App Store screenshots/metadata.
+
+## Experimental Linux VM prototype
+
+- [x] Add File → New VM (experimental), with no keyboard shortcut and one disposable VM per window.
+- [x] Boot a cached ARM64 Alpine Linux ISO with EFI and display it in `VZVirtualMachineView`.
+- [x] Stop the VM and delete its temporary EFI state when its window closes; provide no persistent guest disk.
+- [x] Validate multiple independent VM windows can be created and that Alpine reaches `localhost login:`.
+- [ ] Replace the prototype `VZNATNetworkDeviceAttachment` with tailvisor's Ethernet/DHCP/gVisor bridge.
+- [ ] Put that bridge in `TailscaleKit` and use the owning workspace's existing tsnet node. Do not link tailvisor's standalone 59 MB Go c-archive beside TailscaleKit: that duplicates the Go runtime and creates a second tsnet identity instead of merging networking.
+- [ ] Decide whether each VM should share its workspace's tailnet identity or deliberately receive a distinct tailnet identity.
 
 ## Automated testing
 

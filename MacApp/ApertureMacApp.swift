@@ -71,6 +71,14 @@ struct ApertureMacApp: App {
             }
         }
 
+        WindowGroup("Linux VM (Experimental)", id: "experimental-vm", for: UUID.self) { vmID in
+            ExperimentalVMView(id: vmID.wrappedValue)
+        } defaultValue: {
+            UUID()
+        }
+        .defaultSize(width: 960, height: 640)
+        .restorationBehavior(.disabled)
+
         Settings {
             MacSettingsHost(workspaceManager: workspaceManager)
         }
@@ -125,6 +133,11 @@ private struct MacWorkspaceCommands: Commands {
                 openWindow(id: "workspace", value: workspace.id)
             }
             .keyboardShortcut("n", modifiers: .command)
+
+            Button("New VM (experimental)") {
+                openWindow(id: "experimental-vm", value: UUID())
+            }
+            // Deliberately no keyboard shortcut while VM support is experimental.
         }
 
         // The standard Window menu lists only windows that are currently open.
