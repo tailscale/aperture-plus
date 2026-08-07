@@ -30,6 +30,31 @@ struct ApertureMacApp: App {
             workspaceManager.activeWorkspace?.id ?? workspaceManager.addWorkspace().id
         }
         .defaultSize(width: 1100, height: 760)
+        // A value-based WindowGroup does not auto-present a window on launch
+        // (it opens only via `openWindow` or state restoration). Without this,
+        // a fresh launch — or relaunch after the app was terminated with no
+        // open windows — shows no window at all: the process runs (tsnet
+        // starts) but there's nothing to interact with, and clicking the Dock
+        // icon of a running-with-no-windows app does nothing either. `.presented`
+        // makes the workspace scene present itself on launch using `defaultValue`
+        // when there is no saved state to restore, which is exactly the
+        // always-show-a-window behavior a single-window-by-default browser
+        // needs. (macOS 15.0+; the target is macOS 26.0.)
+        .defaultLaunchBehavior(.presented)
+        // Opt out of AppKit window state restoration. The workspace list and
+        // each workspace's tsnet state are persisted in workspaces.json +
+        // per-workspace dirs, so NSWindow restoration is not load-bearing —
+        // and leaving it enabled makes the app hostage to macOS's
+        // "Aperture unexpectedly quit while reopening windows" guard. That
+        // dialog is driven by talagent's per-app `restorecount.plist`: once
+        // the count is non-zero (after a crash or an abrupt UI-test terminate
+        // mid-restoration), the next launch blocks on a Reopen/Don't-Reopen
+        // modal — and under XCUITest the dialog is suppressed, so the app
+        // comes up with NO window at all and every test times out at its
+        // first `app.windows` wait. Disabling scene restoration stops the
+        // app from participating in that flow, so launches are deterministic
+        // for both users and the test harness.
+        .restorationBehavior(.disabled)
         .commands {
             MacWorkspaceCommands(workspaceManager: workspaceManager)
         }

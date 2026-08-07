@@ -141,7 +141,16 @@ final class ApertureMacUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if app.state == .notRunning { return false }
-            if app.descendants(matching: .any)["connected-browser"].exists { return true }
+            // The connected browser is up when its chrome appears. The
+            // `connected-browser` overlay is an opacity-0.01 Text that AppKit
+            // does not surface in the accessibility tree, so it can't be the
+            // signal. Instead look for a real, browser-only toolbar control.
+            // `new-chat-tab-button` (the "+") lives only in CompactBrowserToolbar,
+            // never in ConnectionGateView, and is a Button — reliably surfaced.
+            if app.buttons["new-chat-tab-button"].exists { return true }
+            // `url-pill` is the other always-present browser-only control; a
+            // fallback in case the "+" is momentarily disabled/off-screen.
+            if app.buttons["url-pill"].exists { return true }
 
             let errorPage = app.descendants(matching: .any)
                 .matching(identifier: "nav-error-overlay").firstMatch
@@ -159,6 +168,14 @@ final class ApertureMacUITests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
+        // Timeout — emit diagnostics so a missing-window or stuck-gate failure
+        // is diagnosable from the test log without a screenshot.
+        print("waitForBrowserOrFail TIMEOUT after \(timeout)s: "
+              + "app.state=\(app.state.rawValue) windows=\(app.windows.count) "
+              + "login=\(app.buttons["login-button"].exists) "
+              + "newtab=\(app.buttons["new-chat-tab-button"].exists) "
+              + "url-pill=\(app.buttons["url-pill"].exists) "
+              + "settings=\(app.buttons["settings-button"].exists)")
         return false
     }
 
