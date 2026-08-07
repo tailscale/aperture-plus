@@ -19,6 +19,7 @@ make test-ios-ui             # required iOS UI leg only
 make test-mac                # native Mac entitlement + launch smoke check
 make test-mac-ui             # all required native Mac UI tests
 make look Q="describe the UI" # screenshot sim + vision-describe it
+scripts/check-mac-automation.sh   # preflight: verify macOS perms + prereqs
 ```
 
 The iOS simulator build/run/screenshot loop works headlessly with no permission
@@ -70,9 +71,11 @@ The native `ApertureMac` scheme includes three macOS UI tests in `MacUITests/`:
   workspace reconnects with the inherited launch key.
 
 Run all of them with `make test-mac-ui` (or as part of the complete required
-`make test` suite). `make build-mac-uitests` only compiles them. macOS Automation
-Mode must be approved for Xcode/the runner. Missing auth keys or failures in the
-external nullid/control-plane flow fail the suite; no Mac test skips.
+`make test` suite). `make build-mac-uitests` only compiles them. Run
+`scripts/check-mac-automation.sh` first to confirm the macOS permissions are
+granted (see *One-time native Mac permission setup* below). Missing auth keys
+or failures in the external nullid/control-plane flow fail the suite; no Mac
+test skips.
 
 ## Required-test policy
 
@@ -94,13 +97,41 @@ This means the required environment must provide:
 
 ### One-time native Mac permission setup
 
-1. Select the **ApertureMac** scheme and **My Mac** destination in Xcode.
-2. Run one `ApertureMacUITests` test from Xcode's Test navigator.
-3. Approve any Automation/Accessibility prompt.
-4. In **System Settings → Privacy & Security**, ensure Xcode (and Terminal when
-   running `make test-mac-ui`) has the requested Accessibility/Automation access.
-5. Stop stale suspended `ApertureMacUITests-Runner` processes before retrying a
-   test aborted from the debugger.
+The native Mac leg needs three things granted to the process that runs the
+automation (Xcode for interactive runs; the **SSH/Terminal responsible process**
+for headless/agent runs). A single self-test checks them all:
+
+```bash
+scripts/check-mac-automation.sh          # verify; prints ✅/❌ per check
+scripts/check-mac-automation.sh --fix    # also clear stale window-restoration state
+```
+
+If anything fails, here is the full checklist:
+
+1. **Frameworks.** `make mac-framework` (macOS `TailscaleKit.framework`) and
+   `make ios-fat` (iOS `TailscaleKit.xcframework`) must have run once. The
+   self-test checks both exist.
+2. **Auth key.** Stage `~/.aperture-ios-authkey` (or pass `AUTHKEY=…`).
+3. **Screen Recording** — System Settings → Privacy & Security → Screen
+   Recording → `+` → press ⌘⇧G and enter the responsible-process path (for
+   SSH: `/usr/libexec/sshd-keygen-wrapper`; for Terminal: add
+   `com.apple.Terminal`) → toggle ON. Needed for `screencapture` /
+   `scripts/look.sh --mac`.
+4. **Accessibility** — same System Settings panel, add the same responsible
+   process, toggle ON. Needed for System Events `click`/`AXPress` and for
+   XCUITest to see the app. (For interactive Xcode runs, Xcode itself is the
+   responsible process — run one `ApertureMacUITests` test from Xcode's Test
+   navigator and approve the prompt.)
+5. **Clear stale window-restoration state.** A prior crash or an abrupt
+   UI-test terminate can leave talagent's per-app `restorecount.plist` non-zero,
+   which makes the next native launch block on a "Reopen windows?" modal — and
+   under XCUITest that modal is suppressed, so the app comes up with **no
+   window** and every test times out at its first `app.windows` wait.
+   `scripts/check-mac-automation.sh --fix` clears it. (The app also sets
+   `.restorationBehavior(.disabled)`, but a marker left by an older build or a
+   real crash still blocks until cleared.)
+6. **Stop stale suspended `ApertureMacUITests-Runner` processes** before
+   retrying a test aborted from the debugger: `pkill -9 -f ApertureMacUITests-Runner`.
 
 The Mac runner stages the key at `/tmp/aperture-test-authkey`, just like the iOS
 runner. `make test-mac-ui AUTHKEY=...` passes a key explicitly; otherwise it
@@ -195,6 +226,19 @@ reach to controlplane/login.tailscale.com + nullid.fly.dev):
   tailnet", not "Connect". This test also depends on a `StatusViewModel` fix
   (clearing a stale `browseToURL` after login) so that post-logout relogin
   requests a fresh auth URL instead of reusing a stale one.
+
+  **macOS difference (the interactive Mac test cannot use `app.webViews`):**
+  on macOS `ASWebAuthenticationSession` does NOT present an in-process web
+  view the way iOS does — per Apple's docs it opens the user's **default
+  browser (Safari) as a separate process**. `app.webViews` queries Aperture's
+  process, so it will never see the login form (it lives in Safari). The iOS
+  `app.webViews.textFields` approach is therefore not portable to the Mac
+  test as written; it would need to drive Safari via a separate
+  `XCUIApplication(bundleIdentifier: "com.apple.Safari")`, which is fragile,
+  or use a non-web-auth path. The auth itself no longer crashes on macOS (the
+  `AuthManager.makeCompletion` nonisolated closure fixed the `EXC_BREAKPOINT`
+  that happened when AuthenticationServices called a MainActor-isolated
+  completion on its XPC queue).
 
 ### Automating login with an auth key (`AUTHKEY`)
 
@@ -336,7 +380,7 @@ run destination with the native Mac scheme:
 |---|---|---|
 | Build from CLI | ✅ no signing required | ✅ `make mac-app` unsigned or `make mac-app-signed` |
 | Run | ✅ `simctl install` + `simctl launch` | ✅ Xcode/Finder/direct launch when signed; smoke script ad-hoc signs |
-| Screenshot | ✅ `simctl io` without TCC | `screencapture` requires Screen Recording permission |
+| Screenshot | ✅ `simctl io` without TCC | ✅ `screencapture` once Screen Recording is granted to the shell's responsible process |
 | UI automation | ✅ XCUITest | ✅ `ApertureMacUITests`, requires logged-in GUI + Automation/Accessibility approval |
 
 **For autonomous visual work, prefer the simulator.** Native Mac builds and
@@ -352,6 +396,38 @@ xcodebuild build -project Aperture.xcodeproj -scheme ApertureMac \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath build/DerivedDataMac CODE_SIGNING_ALLOWED=NO
 ```
+
+### Driving macOS UI from a headless / SSH session
+
+Once `scripts/check-mac-automation.sh` is green, a non-vision agent can capture
+**and drive** the native Mac UI from an SSH session. The non-obvious parts:
+
+- **`screencapture` works from SSH** once Screen Recording is granted to the
+  responsible process (`/usr/libexec/sshd-keygen-wrapper` for SSH; see the
+  preflight script, which detects it). Capture to a file and either attach it
+  to a vision sub-pi (below) or read the PNG.
+- **`CGEventPost` (synthetic HID clicks) does NOT deliver from SSH** — the
+  events are silently dropped even with Accessibility granted. Use **System
+  Events `click <element>`** instead, which performs `AXPress` via the trusted
+  System Events process and works from SSH.
+- **Clicking a control with no readable `name`.** Image-only buttons (e.g. the
+  gate's gear) report `name = missing value` to System Events, so you can't
+  click by name. `entire contents` is flaky (it races the gate's ~5s status
+  re-render). Instead traverse the stable structure: the window's first UI
+  element is the content group, and the gear is its second child:
+  ```bash
+  osascript -e 'tell application "System Events" to click \
+    (UI element 2 of (UI element 1 of window 1 of \
+    (first process whose name is "Aperture")))'
+  ```
+- **The native app opts out of window restoration** (`.restorationBehavior(.disabled)`)
+  so launches are deterministic. If an old build or a real crash left
+  talagent's `restorecount.plist` non-zero, the next launch blocks on a
+  "Reopen windows?" modal (suppressed under XCUITest → no window → tests
+  timeout). `scripts/check-mac-automation.sh --fix` clears it.
+- **Reading a screenshot.** pi's main model may not ingest images; describe a
+  captured PNG with a vision sub-pi: `pi --provider aperture --model
+  gpt-4.1-nano -p @/tmp/shot.png "describe the UI"` (see *Vision* below).
 
 ---
 
@@ -477,4 +553,5 @@ Interpreting the probe:
 | `scripts/run-mac-uitests.sh` | Stage the required auth key and run every native Mac UI test. |
 | `scripts/test-mac-foundation.sh` | Build/ad-hoc-sign the native app, verify virtualization entitlement, and launch-smoke-test it. |
 | `scripts/look.sh` | Screenshot the booted simulator (or `--mac` display) + describe it with a vision sub-pi. |
+| `scripts/check-mac-automation.sh` | Preflight: verify the macOS permissions (Screen Recording + Accessibility for the SSH/Terminal responsible process) and prerequisites (frameworks, auth key, simulator) needed for autonomous Mac UI automation; `--fix` clears stale talagent window-restoration state. |
 | `scripts/probe-xcode-mcp.py` | Minimal probe of the Xcode MCP server (`xcrun mcpbridge`); reports which JSON-RPC step stalls. |
