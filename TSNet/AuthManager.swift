@@ -17,31 +17,15 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
         }
 
 
-        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "ipnauth") { [weak self] callbackURL, error in
-            // AuthenticationServices calls this completion on its private XPC
-            // reply queue on macOS. AuthManager is MainActor-isolated, so even
-            // reading `self` here directly triggers Swift 6's executor check.
-            // Hop before touching any manager state (or invoking `onEnded`,
-            // which updates SwiftUI-observed state).
-            Task { @MainActor [weak self] in
-                // The Tailscale login URL normally completes out-of-band through
-                // the control plane, so LoginFinished (not this callback) is the
-                // authoritative success signal. Keep the callback for cancellation
-                // and diagnostics; using Tailscale's callback scheme also lets any
-                // future redirect complete the session normally.
-                let elapsed = self?.elapsedDescription() ?? "unknown"
-                if let error {
-                    logger.log("Auth session ended after \(elapsed) with error: \(error)")
-                } else {
-                    logger.log("Auth session completed after \(elapsed), callback=\(callbackURL?.absoluteString ?? "nil")")
-                }
-                self?.authSession = nil
-                self?.startedAt = nil
-                let ended = self?.sessionEnded
-                self?.sessionEnded = nil
-                ended?()
-            }
-        }
+        // Build this closure in a nonisolated context. A closure literal made
+        // directly in this @MainActor method inherits MainActor isolation, so
+        // AuthenticationServices' private XPC queue traps at closure ENTRY —
+        // before a Task hop inside the body can run.
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "ipnauth",
+            completionHandler: Self.makeCompletion(for: self)
+        )
 
         session.prefersEphemeralWebBrowserSession = true
         session.presentationContextProvider = self
@@ -54,6 +38,43 @@ final class AuthManager: NSObject, ASWebAuthenticationPresentationContextProvidi
         // foregrounded, …) — surface that so "tap Login, nothing happens" is
         // debuggable instead of silent.
         logger.log("AuthManager.showAuth: session.start() -> \(started) for \(authURL)")
+    }
+
+    nonisolated private static func makeCompletion(
+        for manager: AuthManager
+    ) -> @Sendable (URL?, Error?) -> Void {
+        { [weak manager] callbackURL, error in
+            // Reduce Foundation objects to Sendable values before crossing to
+            // MainActor. AuthenticationServices is free to invoke this on any
+            // queue on both iOS and macOS.
+            let callback = callbackURL?.absoluteString
+            let errorDescription = error.map(String.init(describing:))
+            Task { @MainActor [weak manager] in
+                manager?.authenticationSessionEnded(
+                    callback: callback,
+                    errorDescription: errorDescription
+                )
+            }
+        }
+    }
+
+    private func authenticationSessionEnded(
+        callback: String?,
+        errorDescription: String?
+    ) {
+        // The Tailscale login URL normally completes out-of-band through the
+        // control plane, so LoginFinished (not this callback) is authoritative.
+        let elapsed = elapsedDescription()
+        if let errorDescription {
+            logger.log("Auth session ended after \(elapsed) with error: \(errorDescription)")
+        } else {
+            logger.log("Auth session completed after \(elapsed), callback=\(callback ?? "nil")")
+        }
+        authSession = nil
+        startedAt = nil
+        let ended = sessionEnded
+        sessionEnded = nil
+        ended?()
     }
 
     func authenticationSucceeded() {
