@@ -231,6 +231,13 @@ private struct BrowserRootContent: View {
             .toolbar(.hidden, for: .navigationBar)
 #endif
         }
+        .overlay(alignment: .bottomTrailing) {
+            // A concrete accessibility element for UI automation. Applying an
+            // identifier to a container view isn't reliably surfaced by AppKit.
+            Text("Connected Browser")
+                .accessibilityIdentifier("connected-browser")
+                .opacity(0.01)
+        }
         .overlay(alignment: .bottomLeading) {
             if (ProcessInfo.processInfo.arguments.contains("-UITestDefunctLoopback")
                 || ProcessInfo.processInfo.arguments.contains("-UITestShutdownTCPConnections")),

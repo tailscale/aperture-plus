@@ -53,10 +53,11 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 ## Automated testing
 
 - [x] Add a native macOS UI test target with window, auth-presentation, and auth-key login/logout cases.
-- [ ] Get native Mac UI tests executing reliably in this environment. They build and Xcode discovers all three, but Xcode 26.6's macOS UI-test launcher currently aborts in `IDELaunchServicesLauncher` (`childPID > 0`) before test code runs.
+- [ ] Get native Mac UI tests executing reliably from CLI/MCP. They execute from Xcode after Automation Mode approval, but CLI can still abort in `IDELaunchServicesLauncher` (`childPID > 0`) and leave the runner suspended.
 - [x] Add a hermetic no-login process launch smoke test for the shared browser app, including framework loading and entitlement verification.
 - [ ] Extend no-login smoke coverage to Settings, tabs, and bookmark editor as those are ported.
 - [x] Add a connected macOS test using the existing staged auth-key convention.
+- [x] Add native interactive nullid login → logout → relogin coverage (implemented; still needs one uninterrupted green run through the external login service).
 - [ ] Add tests for platform adapters and native WebKit navigation behavior.
 - [x] Add an automated assertion that a built app carries `com.apple.security.virtualization` (Debug/ad-hoc today; repeat against the future distribution archive).
 - [ ] Document local and CI test commands.

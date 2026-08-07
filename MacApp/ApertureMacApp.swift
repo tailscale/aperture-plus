@@ -23,7 +23,7 @@ struct ApertureMacApp: App {
         ) { workspaceID in
             WorkspaceWindowRoot(
                 workspaceManager: workspaceManager,
-                workspaceID: workspaceID.wrappedValue
+                workspaceID: workspaceID
             )
             .frame(minWidth: 720, minHeight: 480)
         } defaultValue: {
@@ -54,21 +54,21 @@ struct ApertureMacApp: App {
 
 private struct WorkspaceWindowRoot: View {
     @ObservedObject var workspaceManager: WorkspaceManager
-    let workspaceID: UUID
+    @Binding var workspaceID: UUID
+
+    private var resolvedWorkspace: Workspace? {
+        workspaceManager.workspace(id: workspaceID) ?? workspaceManager.activeWorkspace
+    }
 
     var body: some View {
-        if let workspace = workspaceManager.workspace(id: workspaceID) {
+        if let workspace = resolvedWorkspace {
             TabbedBrowserView(
                 workspaceManager: workspaceManager,
-                pinnedWorkspaceID: workspaceID
+                pinnedWorkspaceID: workspace.id
             )
             .navigationTitle(workspace.identifier)
         } else {
-            ContentUnavailableView(
-                "Workspace Unavailable",
-                systemImage: "person.crop.circle.badge.questionmark",
-                description: Text("Choose a workspace from the Window menu.")
-            )
+            ProgressView("Restoring Workspace…")
         }
     }
 }

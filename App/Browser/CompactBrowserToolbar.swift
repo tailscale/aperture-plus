@@ -176,6 +176,16 @@ struct CompactBrowserToolbar: View {
             .accessibilityIdentifier("tab-overview-button")
             .accessibilityLabel("Tabs")
 
+#if os(macOS)
+            Button(action: onSettings) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-button")
+            .accessibilityLabel("Workspace Settings")
+#else
             Menu {
                 Button {
                     onAddBookmark()
@@ -206,6 +216,7 @@ struct CompactBrowserToolbar: View {
             }
             .accessibilityIdentifier("more-menu-button")
             .accessibilityLabel("More")
+#endif
         }
         .padding(.horizontal, 6)
         .padding(.vertical, horizontalSizeClass == .regular ? 3 : 6)

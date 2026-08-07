@@ -66,6 +66,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A10000100000000000000010 /* Exceptions for "MacApp" folder in "ApertureMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A10000080000000000000008 /* ApertureMac */;
+		};
 		A100000F000000000000000F /* Exceptions for "App" folder in "ApertureMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -93,6 +100,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A10000060000000000000006 /* MacApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A10000100000000000000010 /* Exceptions for "MacApp" folder in "ApertureMac" target */,
+			);
 			path = MacApp;
 			sourceTree = "<group>";
 		};
@@ -426,6 +436,7 @@
 					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MacApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -464,6 +475,7 @@
 					"$(PROJECT_DIR)/ThirdParty/libtailscale/swift/build/Build/Products/Release",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MacApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -82,6 +82,19 @@ final class WorkspaceManager: ObservableObject {
             }
         }
 
+        // UI-test-only override for flows that exercise authentication rather
+        // than a particular tailnet web service. Keeping those tests on a
+        // direct HTTPS page prevents an unrelated private-service outage from
+        // masquerading as a login failure.
+        if let index = args.firstIndex(of: "-UITestHomePage"), index + 1 < args.count {
+            let testURL = args[index + 1]
+            defs = defs.map {
+                var d = $0
+                d.homePageURL = testURL
+                return d
+            }
+        }
+
         if activeId == nil { activeId = defs.first?.id }
 
         // The shared launch-arg auth key (tests). Applied to every workspace —

@@ -54,17 +54,17 @@ The native `ApertureMac` scheme includes three macOS UI tests in `MacUITests/`:
 
 - `testCommandNOpensSeparateWorkspaceWindow` — Command-N creates a second
   persisted workspace window and closing it leaves the other window running.
-- `testLoginPresentsAuthenticationWindow` — exercises the native
-  `ASWebAuthenticationSession` presentation path and checks that auth web
-  content appears without trapping or terminating the app.
+- `testInteractiveLoginLogoutRelogin` — drives native AuthenticationServices
+  through Tailscale login, `testuser@nullid.fly.dev`, device authorization,
+  Settings logout, and a second full interactive login.
 - `testAuthKeyLoginAndLogout` — uses `~/.aperture-ios-authkey` for deterministic
   connected login, then drives Settings logout and verifies a fresh workspace
   returns to NeedsLogin.
 
-Build them with `make build-mac-uitests`. Xcode 26.6 currently aborts before test
-code runs in this environment (`IDELaunchServicesLauncher`, assertion
-`childPID > 0`) for both CLI and MCP launches. The target compiles and Xcode
-successfully discovers all three tests; this is tracked in `TODO.mac.md`.
+Build them with `make build-mac-uitests`. The tests execute from Xcode after
+macOS Automation Mode is approved. CLI execution in this environment can still
+abort in `IDELaunchServicesLauncher` (`childPID > 0`) and leave the runner
+suspended, so use Xcode's Test action for the interactive flow for now.
 
 ## iOS UI test target (`ApertureUITests`)
 
