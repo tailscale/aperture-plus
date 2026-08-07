@@ -37,8 +37,8 @@ See **Settings → Routing** in the app to view the live rules and test any host
 
 ## Requirements
 
-- **Xcode 26.x** (project uses Xcode synchronized folder groups and the iOS 26 SDK).
-- **iOS 26.0 SDK** (included with Xcode 26).
+- **Xcode 26.x** (project uses Xcode synchronized folder groups and the iOS/macOS 26 SDKs).
+- **iOS 26.0 and macOS 26.0 SDKs** (included with Xcode 26).
 - **Go 1.26.5** — only needed to build the embedded `TailscaleKit.xcframework`
   dependency (see `ThirdParty/libtailscale/go.mod`). You do **not** need Go to build
   the app itself once the framework exists.
@@ -82,7 +82,8 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
 | `make clean-all` | Also remove the libtailscale build artifacts |
 
-Pick a different simulator with `SIM_NAME=`:
+Pick a different simulator with `SIM_NAME=`. This changes the iOS leg of the
+complete suite; the native Mac leg still runs on the local Apple-silicon Mac:
 
 ```bash
 $ make test SIM_NAME="iPad (A16)"
@@ -160,23 +161,37 @@ development); once registered, automatic signing on the build host picks it up.
 
 ## Tests & UI automation
 
-There is a **UI test target**, `ApertureUITests` (XCUITest), whose sources live
-in `UITests/`. The current tests are connection-independent smoke tests (launch,
-open Settings, open the Add-Bookmark editor) — no Tailnet login needed. There is
-also a `testHomePageLoadsWhenConnected` test that **fails** (never skips) if the
-tailnet doesn't come up. Connected tests need an auth key — stage one at
-`~/.aperture-ios-authkey` (or `make test AUTHKEY=...`).
+There are two XCUITest targets:
+
+- **`ApertureUITests`** (`UITests/`) runs on an iOS simulator.
+- **`ApertureMacUITests`** (`MacUITests/`) runs against the native Mac app and
+  covers native workspace windows, auth-key login/logout, and the complete
+  interactive nullid login → logout → relogin flow.
+
+Every test is required: there are no skip paths. The full environment therefore
+needs a compatible ephemeral auth key, a working exit-node peer, network access
+to Tailscale's control plane and `nullid.fly.dev`, the simulator software
+keyboard configuration used by keyboard tests, and macOS Automation permission.
+See [`README.ui-automation.md`](README.ui-automation.md) for exact setup.
 
 ```bash
-# Easiest — builds everything then runs the UI tests with log capture:
+# Complete required suite (iOS + native Mac):
 $ make test
+$ make test AUTHKEY=tskey-auth-...   # explicit key alternative
 
-# Or directly:
-$ scripts/run-uitests.sh
-$ xcodebuild test -project Aperture.xcodeproj -scheme Aperture \
-    -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17' \
-    -derivedDataPath build/DerivedData
+# Individual required legs:
+$ make test-policy
+$ make test-ios-ui
+$ make test-mac       # native build/entitlement/launch smoke check
+$ make test-mac-ui    # all native Mac XCUITests, including nullid
+
+# Compile Mac UI tests without claiming to run them:
+$ make build-mac-uitests
 ```
+
+Stage the normal local key at `~/.aperture-ios-authkey`. Both UI runners copy it
+to `/tmp/aperture-test-authkey` because sandboxed XCTest runners don't reliably
+inherit shell environment variables or the login user's home directory.
 
 The `libtailscale` submodule has its own separate tests:
 
@@ -186,9 +201,10 @@ $ make test        # macOS-side TailscaleKitXCTests
 ```
 
 Capturing libtailscale logs, letting a non-vision agent "see" the app via a
-vision sub-pi (`scripts/look.sh`), the run-destination matrix (simulator vs
-"My Mac (Designed for iPad)"), the optional Xcode MCP server, and a full scripts
-reference are all documented in **[README.ui-automation.md](README.ui-automation.md)**.
+vision sub-pi (`scripts/look.sh`), the iOS simulator / iOS-on-Mac / native-Mac
+run-destination matrix, native Mac permission setup, the optional Xcode MCP
+server, and a full scripts reference are all documented in
+**[README.ui-automation.md](README.ui-automation.md)**.
 
 ## Cleaning up
 

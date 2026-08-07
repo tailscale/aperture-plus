@@ -7,16 +7,24 @@ what needs a human in the loop.
 This file is the deep dive. `README.md` and `CLAUDE.md` keep only short pointers
 to it so the always-in-context docs stay small.
 
-## TL;DR — the autonomous loop (simulator)
+## TL;DR
 
-The top-level **Makefile** wraps the common flow. Everything below works
-headlessly over SSH with **zero permission grants**:
+The top-level **Makefile** wraps the common flow:
 
 ```bash
-make            # build everything (libtailscale xcframework + app for sim)
-make test       # build, then run UI tests on the sim (with log capture)
-make look Q="describe the UI"   # screenshot sim + vision-describe it
+make                         # build iOS simulator app
+make test                    # complete required iOS + native Mac suite
+make test AUTHKEY=tskey-...  # same, with an explicit ephemeral-compatible key
+make test-ios-ui             # required iOS UI leg only
+make test-mac                # native Mac entitlement + launch smoke check
+make test-mac-ui             # all required native Mac UI tests
+make look Q="describe the UI" # screenshot sim + vision-describe it
 ```
+
+The iOS simulator build/run/screenshot loop works headlessly with no permission
+grants. The complete `make test` suite does **not**: native Mac XCUITest requires
+a logged-in GUI session and macOS Automation/Accessibility approval, and the
+interactive login tests require external network services.
 
 Or the raw commands (what `make` runs under the hood):
 
@@ -57,9 +65,9 @@ The native `ApertureMac` scheme includes three macOS UI tests in `MacUITests/`:
 - `testInteractiveLoginLogoutRelogin` — drives native AuthenticationServices
   through Tailscale login, `testuser@nullid.fly.dev`, device authorization,
   Settings logout, and a second full interactive login.
-- `testAuthKeyLoginAndLogout` — uses `~/.aperture-ios-authkey` for deterministic
-  connected login, then drives Settings logout and verifies a fresh workspace
-  returns to NeedsLogin.
+- `testAuthKeyLoginAndLogout` — uses the staged auth key for deterministic
+  connected login, drives Settings logout, and verifies that the replacement
+  workspace reconnects with the inherited launch key.
 
 Run all of them with `make test-mac-ui` (or as part of the complete required
 `make test` suite). `make build-mac-uitests` only compiles them. macOS Automation
@@ -78,9 +86,25 @@ This means the required environment must provide:
 
 - `~/.aperture-ios-authkey` (or `AUTHKEY=...`), compatible with ephemeral nodes.
 - At least one working exit-node peer for the exit-node test.
-- Network access to Tailscale's control plane and `nullid.fly.dev`.
+- Network access to Tailscale's control plane, `login.tailscale.com`,
+  `nullid.fly.dev`, and the pages used by browser tests.
 - The simulator software keyboard configuration expected by keyboard tests.
-- macOS Automation/Accessibility permission for native Mac UI tests.
+- A logged-in macOS GUI session and Automation/Accessibility permission for
+  Xcode/test runners to control the native app.
+
+### One-time native Mac permission setup
+
+1. Select the **ApertureMac** scheme and **My Mac** destination in Xcode.
+2. Run one `ApertureMacUITests` test from Xcode's Test navigator.
+3. Approve any Automation/Accessibility prompt.
+4. In **System Settings → Privacy & Security**, ensure Xcode (and Terminal when
+   running `make test-mac-ui`) has the requested Accessibility/Automation access.
+5. Stop stale suspended `ApertureMacUITests-Runner` processes before retrying a
+   test aborted from the debugger.
+
+The Mac runner stages the key at `/tmp/aperture-test-authkey`, just like the iOS
+runner. `make test-mac-ui AUTHKEY=...` passes a key explicitly; otherwise it
+requires `~/.aperture-ios-authkey`.
 
 ## iOS UI test target (`ApertureUITests`)
 
@@ -174,6 +198,10 @@ reach to controlplane/login.tailscale.com + nullid.fly.dev):
 
 ### Automating login with an auth key (`AUTHKEY`)
 
+The auth key is required for the auth-key-connected tests, but it does **not**
+disable or replace either platform's required interactive nullid test. A full
+suite exercises both authentication mechanisms.
+
 `testHomePageLoadsWhenConnected` and the other connected tests can log a fresh
 simulator into a Tailnet non-interactively instead of showing the "Login"
 button, so the whole suite runs green on a sim with no prior interactive
@@ -188,9 +216,9 @@ make test                                # auto-stages ~/.aperture-ios-authkey i
 make test AUTHKEY=tskey-auth-...        # explicit key
 ```
 
-If **none** of those is available, connected tests **fail** (they no longer
-skip) after the connection timeout — by design, so a missing/broken key is
-loud rather than a silent green suite.
+If **none** of those is available, connected tests **fail** after the
+connection timeout—by design, so a missing/broken key is loud rather than a
+silent green suite.
 
 The app reads the key from the `APERTURE_AUTHKEY` env var (or `-AuthKey`
 launch arg) and authenticates on `up()`; `APERTURE_EPHEMERAL`/`-Ephemeral`
@@ -295,30 +323,35 @@ tailnet nodes.
 
 ## Run destinations — what works where
 
-The app has two runnable destinations. What an agent in a headless/SSH context can
-actually do differs sharply between them:
+There are now two products. Do not confuse the iOS scheme's compatibility
+run destination with the native Mac scheme:
 
-| | Simulator | My Mac (Designed for iPad) |
+| Scheme | Destination | Product |
 |---|---|---|
-| Build (CLI) | ✅ | ✅ with `CODE_SIGNING_ALLOWED=NO` (`-destination 'name=My Mac'`) |
-| Run | ✅ `simctl install` + `simctl launch` | ❌ headless — the product is an iOS-platform binary (`LC_BUILD_VERSION` platform 2) that `open` refuses even when ad-hoc signed; direct exec gets `Killed: 9`. Only Xcode's private iOS-on-macOS launcher (or a Finder double-click of a properly-signed build) can start it. Run it from the Xcode GUI. |
-| See (screenshot) | ✅ `simctl io booted screenshot` (no permission needed) | ❌ `screencapture` needs Screen Recording TCC — grant it in System Settings → Privacy & Security → Screen Recording. Note: over SSH, TCC sometimes won't attribute `screencapture` correctly; it's been observed to work only from a local Terminal, not an SSH session. |
-| Poke the UI | XCUITest (there is no `simctl tap`) | `osascript` System Events can click by AX identifier — but needs Accessibility granted to `osascript`, and only useful when the app is running + visible |
+| `Aperture` | iOS Simulator / iPhone / iPad | shipping iOS/iPadOS app |
+| `Aperture` | My Mac (Designed for iPad) | compatibility run of the iOS app; not the native Mac app |
+| `ApertureMac` | My Mac | native macOS app with the Virtualization entitlement |
 
-**For autonomous agent work, use the simulator** — it's the only path where
-build/run/see/poke all work without permission grants. The "My Mac (Designed for
-iPad)" target is user-driven in Xcode.
+| Capability | iOS Simulator | Native `ApertureMac` |
+|---|---|---|
+| Build from CLI | ✅ no signing required | ✅ `make mac-app` unsigned or `make mac-app-signed` |
+| Run | ✅ `simctl install` + `simctl launch` | ✅ Xcode/Finder/direct launch when signed; smoke script ad-hoc signs |
+| Screenshot | ✅ `simctl io` without TCC | `screencapture` requires Screen Recording permission |
+| UI automation | ✅ XCUITest | ✅ `ApertureMacUITests`, requires logged-in GUI + Automation/Accessibility approval |
 
-Build the Mac target from CLI (non-installable) with:
+**For autonomous visual work, prefer the simulator.** Native Mac builds and
+process smoke tests can run headlessly, but native Mac XCUITest and screenshots
+are GUI/TCC-dependent.
+
+Build the native Mac target explicitly:
 
 ```bash
-xcodebuild build -project Aperture.xcodeproj -scheme Aperture \
-  -configuration Debug -destination 'name=My Mac' \
-  -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO
+make mac-app
+# equivalent:
+xcodebuild build -project Aperture.xcodeproj -scheme ApertureMac \
+  -configuration Debug -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath build/DerivedDataMac CODE_SIGNING_ALLOWED=NO
 ```
-
-A future "normal Mac" (macOS/Catalyst) target would lift these headless limits,
-but that's not today.
 
 ---
 
@@ -371,12 +404,13 @@ the libtailscale `State: NeedsLogin` log line emitted at the same time.
 
 ## xcodebuild CLI vs Xcode MCP tools
 
-**Prefer CLI `xcodebuild` / `simctl` for build / test / see / poke.** It is
+**Prefer CLI `xcodebuild` / `simctl` for simulator build / test / see / poke.** It is
 destination-explicit and deterministic, and does not depend on Xcode's GUI
-run-destination. The MCP `BuildProject` / `RunAllTests` use **whatever destination
-Xcode's dropdown is set to** — when that's a device/Mac target, UI tests report
-`No result` / `TEST FAILED` because they have nowhere to run (seen in practice;
-the build itself succeeds but the test execution step has no destination).
+run-destination. The MCP `BuildProject` / `RunAllTests` use **whatever scheme and destination
+Xcode's dropdown is set to**. For Mac tests select `ApertureMac` + `My Mac`; for
+iOS tests select `Aperture` + an iOS simulator. `RunSomeTests` has successfully
+run native Mac tests after Automation Mode approval, but it is still tied to the
+open Xcode workspace's destination.
 
 Keep the MCP tools for the things they're good at and that don't need a
 destination:
@@ -439,6 +473,8 @@ Interpreting the probe:
 | Script | Purpose |
 |---|---|
 | `scripts/add_uitest_target.py` | One-shot: add the `ApertureUITests` target to `project.pbxproj` (idempotent). |
-| `scripts/run-uitests.sh` | Build + run UI tests on the simulator, capturing libtailscale logs to `build/uitest-logs/<ts>/`. |
+| `scripts/run-uitests.sh` | Build + run every required iOS UI test on the simulator, capturing logs to `build/uitest-logs/<ts>/`. |
+| `scripts/run-mac-uitests.sh` | Stage the required auth key and run every native Mac UI test. |
+| `scripts/test-mac-foundation.sh` | Build/ad-hoc-sign the native app, verify virtualization entitlement, and launch-smoke-test it. |
 | `scripts/look.sh` | Screenshot the booted simulator (or `--mac` display) + describe it with a vision sub-pi. |
 | `scripts/probe-xcode-mcp.py` | Minimal probe of the Xcode MCP server (`xcrun mcpbridge`); reports which JSON-RPC step stalls. |
