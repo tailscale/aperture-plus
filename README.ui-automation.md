@@ -61,10 +61,26 @@ The native `ApertureMac` scheme includes three macOS UI tests in `MacUITests/`:
   connected login, then drives Settings logout and verifies a fresh workspace
   returns to NeedsLogin.
 
-Build them with `make build-mac-uitests`. The tests execute from Xcode after
-macOS Automation Mode is approved. CLI execution in this environment can still
-abort in `IDELaunchServicesLauncher` (`childPID > 0`) and leave the runner
-suspended, so use Xcode's Test action for the interactive flow for now.
+Run all of them with `make test-mac-ui` (or as part of the complete required
+`make test` suite). `make build-mac-uitests` only compiles them. macOS Automation
+Mode must be approved for Xcode/the runner. Missing auth keys or failures in the
+external nullid/control-plane flow fail the suite; no Mac test skips.
+
+## Required-test policy
+
+Every test in both schemes is required. The suite has no `XCTSkip` paths and no
+"print SKIP then return" paths. Missing auth keys, exit-node peers, software
+keyboard setup, accessibility elements, or external login availability are
+failures. `make test` runs policy tests, all iOS UI tests, the native Mac smoke
+check, and all native Mac UI tests.
+
+This means the required environment must provide:
+
+- `~/.aperture-ios-authkey` (or `AUTHKEY=...`), compatible with ephemeral nodes.
+- At least one working exit-node peer for the exit-node test.
+- Network access to Tailscale's control plane and `nullid.fly.dev`.
+- The simulator software keyboard configuration expected by keyboard tests.
+- macOS Automation/Accessibility permission for native Mac UI tests.
 
 ## iOS UI test target (`ApertureUITests`)
 

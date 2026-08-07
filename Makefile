@@ -98,13 +98,21 @@ test-mac: mac-framework  ## Build, entitlement-check, and launch-smoke-test nati
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
 .PHONY: build-mac-uitests
-build-mac-uitests: mac-framework  ## Build native macOS UI tests (execution currently hits an Xcode 26.6 launcher bug)
+build-mac-uitests: mac-framework  ## Build all native macOS UI tests without running them
 	$(XCB) build-for-testing \
 		-project $(PROJECT) -scheme $(MAC_SCHEME) \
 		-configuration Debug \
 		-destination 'platform=macOS,arch=arm64' \
 		-derivedDataPath build/DerivedDataMacUITests \
 		-allowProvisioningUpdates | $(XCPRETTIFIER)
+
+.PHONY: test-mac-ui
+test-mac-ui: mac-framework  ## Run every required native macOS UI test, including nullid login
+	@if [ -n "$(AUTHKEY)" ]; then \
+	    APERTURE_TEST_AUTHKEY='$(AUTHKEY)' ./scripts/run-mac-uitests.sh; \
+	else \
+	    ./scripts/run-mac-uitests.sh; \
+	fi
 
 .PHONY: mac-app-signed
 mac-app-signed: mac-framework  ## Development-sign native Mac app and verify virtualization entitlement
@@ -276,15 +284,18 @@ test-policy:  ## Run split-tunnel and hostname-qualification unit tests (fast, h
 	@./scripts/test-proxy-policy.sh
 	@./scripts/test-hostname-qualifier.sh
 
-.PHONY: test
-test: test-policy all  ## Build, then run the UI tests on the simulator (with log capture)
+.PHONY: test-ios-ui
+test-ios-ui: framework app  ## Run every required iOS UI test on the simulator
 	@echo
-	@echo "::: Running UI tests on $(SIM_NAME) :::"
+	@echo "::: Running required iOS UI tests on $(SIM_NAME) :::"
 	@if [ -n "$(AUTHKEY)" ]; then \
 	    APERTURE_TEST_AUTHKEY='$(AUTHKEY)' ./scripts/run-uitests.sh "$(SIM_NAME)"; \
 	else \
 	    ./scripts/run-uitests.sh "$(SIM_NAME)"; \
 	fi
+
+.PHONY: test
+test: test-policy test-ios-ui test-mac test-mac-ui  ## Run the complete required iOS + macOS suite
 
 # ----- process-log crash recovery + symbolication test -----
 # A real Go panic is retained by the global filch, uploaded to the local fake

@@ -79,7 +79,8 @@ final class ApertureMacUITests: XCTestCase {
     /// driving a third-party identity provider.
     func testAuthKeyLoginAndLogout() throws {
         guard let authKey = Self.stagedAuthKey() else {
-            throw XCTSkip("Stage ~/.aperture-ios-authkey for connected Mac UI coverage")
+            XCTFail("Required auth key is missing. Stage ~/.aperture-ios-authkey or /tmp/aperture-test-authkey.")
+            return
         }
 
         let app = XCUIApplication()

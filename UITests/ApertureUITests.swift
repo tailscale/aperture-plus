@@ -246,7 +246,7 @@ final class ApertureUITests: XCTestCase {
         defer {
             // This setting changes routing for the entire app and persists
             // across launches. Restore the state we found even when the test
-            // returns early, fails, or throws XCTSkip for the upstream bug.
+            // returns early or fails.
             let exitNodeIsEnabled = toggle.value as? String == "1"
             if toggle.exists, exitNodeIsEnabled != exitNodeWasEnabled {
                 toggle.tap()
@@ -261,9 +261,9 @@ final class ApertureUITests: XCTestCase {
             if done.exists { done.tap() }
         }
 
-        // --- (a) Skip if no exit nodes available ---
-        // The test is meaningless without exit-node peers. This is a
-        // configuration issue, not a code bug — skip with a warning.
+        // --- (a) Require an exit node ---
+        // Test-environment prerequisites are required: absence is a failure,
+        // not a green/skip result.
         let countLabel = app.descendants(matching: .any)
             .matching(identifier: "exit-node-available-count").firstMatch
         let noneAvailable = app.descendants(matching: .any)
@@ -275,13 +275,8 @@ final class ApertureUITests: XCTestCase {
                       "Exit node diagnostic banner should show availability")
 
         if noneAvailable.exists {
-            attachScreenshot(app, named: "exit-node-none-available-skip")
-            // Skip, not fail: the test env has no exit nodes. This is a
-            // configuration issue — the test should be run against a tailnet
-            // that has exit-node peers. (XCTest has no native skip; we emit
-            // a warning via print and return without failing.)
-            print("⚠️ SKIP testExitNodeChangesEgressIP: no exit nodes in this " +
-                  "tailnet. Run against a tailnet with exit-node peers.")
+            attachScreenshot(app, named: "exit-node-none-available")
+            XCTFail("Required test environment has no exit-node peer. Configure one before running the required suite.")
             return
         }
 
@@ -331,16 +326,8 @@ final class ApertureUITests: XCTestCase {
         }
         attachScreenshot(app, named: "exit-node-on-ip")
 
-        // The functional assertion remains enabled whenever upstream supports
-        // this path. On the currently pinned libtailscale, an unchanged IP is
-        // the documented tsnet UserDial bug rather than an Aperture UI failure;
-        // report it as a skip so the default app suite is actionable instead of
-        // permanently red. See README.tsnet-exit-nodes-dont-work.md.
-        if ipOff == ipOn {
-            throw XCTSkip("Known upstream tsnet exit-node bug: egress IP did not " +
-                          "change (\(ipOff)). UserDial still bypasses WireGuard; " +
-                          "see README.tsnet-exit-nodes-dont-work.md.")
-        }
+        // A known upstream failure is still a required-test failure. Keeping
+        // this red is what prevents a broken dependency from looking shippable.
         XCTAssertNotEqual(ipOff, ipOn,
                           "Egress IP should change when toggling the exit node on")
     }
@@ -1044,15 +1031,10 @@ final class ApertureUITests: XCTestCase {
         let input = findChatInput(in: app)
         guard let input = input else {
             attachScreenshot(app, named: "repro-no-input-found")
-            // Soft-fail: the webview a11y bridge is inconsistently slow to
-            // surface the textarea (sometimes a textView, sometimes an
-            // otherElement, sometimes not bridged within the timeout). This is
-            // a *visual* repro, not a functional gate, so don't fail the suite
-            // on it — the screenshots + logs are still useful.
             let tf = app.webViews.textFields.count
             let tv = app.webViews.textViews.count
             let oe = app.webViews.otherElements.count
-            print("REPRO: chat input not found (textFields=\(tf), textViews=\(tv), otherElements=\(oe)) — a11y bridge lag; skipping keyboard repro.")
+            XCTFail("Required chat input was not exposed (textFields=\(tf), textViews=\(tv), otherElements=\(oe)).")
             return
         }
         print("REPRO: home input frame = \(input.frame) label=\(input.label)")
@@ -1096,7 +1078,7 @@ final class ApertureUITests: XCTestCase {
         // Re-find the (now bottom-anchored) input.
         guard let bottomInput = findChatInput(in: app, timeout: 20) else {
             attachScreenshot(app, named: "repro-no-bottom-input")
-            print("REPRO: chat input not found after starting a conversation — skipping measured focus.")
+            XCTFail("Required bottom chat input was not exposed after starting a conversation.")
             return
         }
         print("REPRO: bottom input frame = \(bottomInput.frame) label=\(bottomInput.label)")
@@ -1151,7 +1133,7 @@ final class ApertureUITests: XCTestCase {
         // scroll offset back (Safari-style restore). A desynced hardcoded
         // animation leaves the page scrolled up after dismiss.
         guard kbAppeared else {
-            print("REPRO: no software keyboard appeared; skipping dismiss measurement.")
+            XCTFail("Required software keyboard did not appear; disable the simulator hardware keyboard.")
             return
         }
         let inputFrameFocused = bottomInput.frame
@@ -1203,7 +1185,7 @@ final class ApertureUITests: XCTestCase {
 
         guard let input = retryFindChatInput(in: app, totalTimeout: 90) else {
             attachScreenshot(app, named: "home-overlap-no-input")
-            print("OVERLAP: home input not found — a11y bridge lag; skipping.")
+            XCTFail("Required home chat input was not exposed to accessibility.")
             return
         }
         let screen = app.frame
@@ -1225,7 +1207,7 @@ final class ApertureUITests: XCTestCase {
         print("OVERLAP: url-pill exists=\(pill.exists) hittable=\(pill.isHittable) frame=\(pill.frame)")
 
         guard kbUp else {
-            print("OVERLAP: no software keyboard; can't assert overlap.")
+            XCTFail("Required software keyboard did not appear; overlap cannot be verified.")
             return
         }
         // iPhone places the bar below the page; iPad uses the same controls at
@@ -1289,7 +1271,7 @@ final class ApertureUITests: XCTestCase {
             let tf = app.webViews.textFields.count
             let tv = app.webViews.textViews.count
             let oe = app.webViews.otherElements.count
-            print("CYCLE: chat input not found up front (textFields=\(tf), textViews=\(tv), otherElements=\(oe)) — a11y bridge lag; skipping.")
+            XCTFail("Required chat input was not exposed (textFields=\(tf), textViews=\(tv), otherElements=\(oe)).")
             return
         }
         print("CYCLE: web input found up front, frame = \(webInput.frame) label=\(webInput.label)")

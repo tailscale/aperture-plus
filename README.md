@@ -67,7 +67,7 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | Target | What it does |
 |---|---|
 | `make` (aka `make all`) | Build the xcframework (if missing) + the app for the simulator |
-| `make test` | `make test-policy` + `make all`, then run the UI tests on the simulator (with log capture) |
+| `make test` | Run the complete required suite: policy checks, all iOS UI tests, Mac smoke/entitlement check, and all native Mac UI tests |
 | `make test-policy` | Split-tunnel routing unit tests (~2s, host-only — no simulator or xcframework needed) |
 | `make look` | Screenshot the booted sim + describe it with a vision sub-pi (`make look Q="describe the UI"`) |
 | `make framework` | Build just the iOS `TailscaleKit.xcframework` |
@@ -76,7 +76,8 @@ build needs **Xcode 26.x**. Run `make help` to see all targets:
 | `make mac-app` | Build the native macOS app unsigned |
 | `make mac-app-signed` | Apple Development-sign the native Mac app and verify its virtualization entitlement |
 | `make test-mac` | Build, ad-hoc sign, verify the virtualization entitlement, and launch-smoke-test the native Mac app |
-| `make build-mac-uitests` | Build the native Mac window/auth UI tests (execution currently hits an Xcode 26.6 launcher assertion in this environment) |
+| `make build-mac-uitests` | Compile all native Mac UI tests without running them |
+| `make test-mac-ui` | Run every required native Mac UI test, including nullid login/logout/relogin |
 | `make ipa` | Archive + export a dev-signed `.ipa` for a real iOS device (needs an unlocked keychain; prompts or aborts — see [Installing on a real device](#installing-on-a-real-device)) |
 | `make clean` | Remove app build artifacts (keeps the xcframework) |
 | `make clean-all` | Also remove the libtailscale build artifacts |
