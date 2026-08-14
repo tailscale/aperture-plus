@@ -23,6 +23,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"syscall"
 	"time"
 
 	"tailscale.com/types/logger"
@@ -87,6 +88,15 @@ const (
 	bufferSize  = 8 * 1024
 	readTimeout = 5 * time.Second
 )
+
+// dialTimeout is the deadline for dialing a requested TCP destination out of
+// the SOCKS server. A cold dial to a tailnet peer can trigger a WireGuard
+// handshake plus DERP fallback path discovery on first contact; 5s (the
+// previous value) routinely cut that short and surfaced as a generic SOCKS
+// "general failure" that hid whether the peer was unreachable, refused, or
+// merely slow to handshake. 30s gives slow-to-establish paths room while
+// still bounding genuinely-dead destinations.
+const dialTimeout = 30 * time.Second
 
 // Server is a SOCKS5 proxy server.
 type Server struct {
@@ -206,15 +216,18 @@ func (c *Conn) handleRequest() error {
 }
 
 func (c *Conn) handleTCP() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
-	srv, err := c.srv.dial(
-		ctx,
-		"tcp",
-		c.request.destination.hostPort(),
-	)
+	target := c.request.destination.hostPort()
+	srv, err := c.srv.dial(ctx, "tcp", target)
 	if err != nil {
-		res := errorResponse(generalFailure)
+		// Log the real cause (with target) — the SOCKS5 reply code alone
+		// collapses every dial failure to "general failure", which is
+		// useless when chasing a flaky tailnet peer. The reply itself is
+		// classified below so the app's SOCKS relay can at least distinguish
+		// refused vs. unreachable vs. a generic timeout.
+		c.logf("dial tcp %s failed: %v", target, err)
+		res := errorResponse(replyCodeForDialError(err))
 		buf, _ := res.marshal()
 		c.clientConn.Write(buf)
 		return err
@@ -663,6 +676,24 @@ type response struct {
 
 func errorResponse(code replyCode) *response {
 	return &response{reply: code, bindAddr: zeroSocksAddr}
+}
+
+// replyCodeForDialError maps a dial error to the most specific SOCKS5 reply
+// code. socks5 previously returned generalFailure for every failure, which
+// collapsed "peer offline", "connection refused", and "timed out mid-
+// handshake" into one unhelpful code. Timeout/deadline-exceeded still maps
+// to generalFailure (SOCKS5 has no dedicated timeout code), but the real
+// error is logged at the dial site so it is diagnosable from tsnet logs.
+func replyCodeForDialError(err error) replyCode {
+	switch {
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return connectionRefused
+	case errors.Is(err, syscall.ENETUNREACH):
+		return networkUnreachable
+	case errors.Is(err, syscall.EHOSTUNREACH):
+		return hostUnreachable
+	}
+	return generalFailure
 }
 
 // marshal converts a SOCKS5Response struct into
