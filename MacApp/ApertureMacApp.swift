@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AppIntents
+import AppKit
 import TailscaleKit
 
 /// Native macOS entry point. Each persisted Tailscale workspace is represented
@@ -10,8 +11,52 @@ import TailscaleKit
 /// This target intentionally contains no Virtualization framework code or UI
 /// yet. Its signed product already carries the entitlement so distribution can
 /// be validated before VM implementation starts.
+
+/// Ensures a workspace window is open on launch even when the app is launched
+/// non-frontmost (XCUITest's `app.launch()`, `open -g`), where SwiftUI scenes
+/// never become `.active` and `.defaultLaunchBehavior(.presented)` therefore
+/// does not fire — leaving the app running with no window, so every Mac UI
+/// test timed out at its first `app.windows` wait. `applicationDidFinishLaunching`
+/// (which AppKit calls regardless of activation) drives this: it captures
+/// `openWindow` from `MacWorkspaceCommands` (the menu bar is always built at
+/// launch) into this shared holder, then calls it for the active workspace.
+/// `openWindow(id:value:)` is idempotent — opening an already-open value raises
+/// that window instead of duplicating — so it composes safely with the
+/// `.presented` frontmost-launch path.
+@MainActor
+private final class WindowOpener {
+    static let shared = WindowOpener()
+    var openWindow: OpenWindowAction?
+    var workspaceManager: WorkspaceManager?
+    private var attempts = 0
+    func openWorkspaceWindow() {
+        guard let action = openWindow, let wm = workspaceManager else {
+            // The Commands/menu that populate these may build just after launch.
+            attempts += 1
+            guard attempts < 40 else { return }  // ~2s of retries at 50ms
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                WindowOpener.shared.openWorkspaceWindow()
+            }
+            return
+        }
+        let id = wm.activeWorkspace?.id ?? wm.addWorkspace().id
+        action(id: "workspace", value: id)
+    }
+}
+
+private final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            WindowOpener.shared.openWorkspaceWindow()
+        }
+    }
+}
+
 @main
 struct ApertureMacApp: App {
+    @NSApplicationDelegateAdaptor private var appDelegate: MacAppDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var workspaceManager = WorkspaceManager()
 
@@ -127,6 +172,10 @@ private struct MacWorkspaceCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        let _ = {
+            WindowOpener.shared.openWindow = openWindow
+            WindowOpener.shared.workspaceManager = workspaceManager
+        }()
         CommandGroup(replacing: .newItem) {
             Button("New Workspace") {
                 let workspace = workspaceManager.addWorkspace()

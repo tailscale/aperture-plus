@@ -27,6 +27,11 @@ grants. The complete `make test` suite does **not**: native Mac XCUITest require
 a logged-in GUI session and macOS Automation/Accessibility approval, and the
 interactive login tests require external network services.
 
+**Build both schemes (iOS + macOS) from the Xcode GUI at least once first** — it
+resolves the one-time headless-signing (`errSecInternalComponent`) and
+Accessibility-prompt walls that otherwise block the CLI; see *One-time native
+Mac permission setup*.
+
 Or the raw commands (what `make` runs under the hood):
 
 ```bash
@@ -97,7 +102,7 @@ This means the required environment must provide:
 
 ### One-time native Mac permission setup
 
-The native Mac leg needs three things granted to the process that runs the
+The native Mac leg needs several things granted to the process that runs the
 automation (Xcode for interactive runs; the **SSH/Terminal responsible process**
 for headless/agent runs). A single self-test checks them all:
 
@@ -108,10 +113,42 @@ scripts/check-mac-automation.sh --fix    # also clear stale window-restoration s
 
 If anything fails, here is the full checklist:
 
+0. **Build both schemes from the Xcode GUI at least once before relying on the
+   CLI.** Open `Aperture.xcodeproj` in Xcode 26.x and Build (⌘B) — ideally also
+   run one UI test from the Test navigator — for **both** the `Aperture` scheme
+   (iOS Simulator) and the `ApertureMac` scheme (My Mac). Approve every prompt
+   that appears (keychain access, Accessibility, signing-identity requests).
+   This is the one-time escape hatch for the headless-signing wall: the first
+   CLI `xcodebuild build-for-testing`/`test` for `ApertureMac` fails at
+   `CodeSign …/TailscaleKit.framework` with `errSecInternalComponent`
+   ("User interaction is not allowed") because the keychain won't release the
+   "Mac Development" private key to a non-interactive `codesign`. A single GUI
+   build makes Xcode approve key access; afterward the CLI signs cleanly for
+   the session. The keychain re-locks on reboot, so re-do the GUI build (or run
+   `scripts/unlock-keychain.sh`) once per SSH session afterwards. The iOS build
+   doesn't strictly need this — the simulator signs ad-hoc — but building it
+   from the GUI first surfaces first-run Xcode/Simulator provisioning and the
+   Accessibility prompts in a context where you can click them.
+
 1. **Frameworks.** `make mac-framework` (macOS `TailscaleKit.framework`) and
    `make ios-fat` (iOS `TailscaleKit.xcframework`) must have run once. The
-   self-test checks both exist.
-2. **Auth key.** Stage `~/.aperture-ios-authkey` (or pass `AUTHKEY=…`).
+   self-test checks both exist. If they're missing, they're built from the
+   `libtailscale` git submodule, whose remote is `url = .` (the subtrac pattern
+   — see `CLAUDE.md`), so on a fresh machine you must first enable the local
+   file transport that `url = .` relies on: `git config --global
+   protocol.file.allow always` (the CVE-2022-39253 default blocks it), then
+   `git submodule update --init --recursive` (needs `m1/main.trac` to be
+   fetchable), then `make framework && make mac-framework`. Needs Go 1.26.x on
+   `PATH`; the first build is slow.
+2. **Auth key.** Stage `~/.aperture-ios-authkey` (or pass `AUTHKEY=…`). The file
+   must contain a **single-line `tskey-auth-…` key** (~40–60 chars) that is
+   **ephemeral-compatible** (the tests set `APERTURE_EPHEMERAL=1`; create the
+   key with the Ephemeral toggle on the admin keys page). Verify it's not
+   accidentally a PEM/SSH private key or other credential — a PEM blob staged
+   here fails *silently*: the node never reaches `State: Running` and the
+   auth-key tests time out with no obvious error. Quick check:
+   `head -c1 ~/.aperture-ios-authkey` should print `t` (for `tskey-…`), not
+   `-` (for `-----BEGIN …`).
 3. **Screen Recording** — System Settings → Privacy & Security → Screen
    Recording → `+` → press ⌘⇧G and enter the responsible-process path (for
    SSH: `/usr/libexec/sshd-keygen-wrapper`; for Terminal: add
@@ -129,13 +166,57 @@ If anything fails, here is the full checklist:
    window** and every test times out at its first `app.windows` wait.
    `scripts/check-mac-automation.sh --fix` clears it. (The app also sets
    `.restorationBehavior(.disabled)`, but a marker left by an older build or a
-   real crash still blocks until cleared.)
+   real crash still blocks until cleared.) `--fix` clears talagent's
+   `restorecount.plist` (in `~/Library/Daemon Containers`) and the app's
+   `Saved Application State`, but it does **not** clear AppKit's window-frame
+   auto-save in `defaults` — `defaults read io.tailscale.Aperture` may still
+   show `NSWindow Frame workspace-AppWindow-1`. That leftover can keep
+   `.defaultLaunchBehavior(.presented)` from auto-presenting (it only presents
+   "when there is no saved state to restore"); if a launch still shows no
+   window after `--fix`, also run
+   `defaults delete io.tailscale.Aperture 'NSWindow Frame workspace-AppWindow-1'`.
 6. **Stop stale suspended `ApertureMacUITests-Runner` processes** before
    retrying a test aborted from the debugger: `pkill -9 -f ApertureMacUITests-Runner`.
+   Stale `Aperture` app processes (same bundle id `io.tailscale.Aperture`) from
+   prior runs can also confuse `XCUIApplication().launch()` into attaching to
+   the orphan instead of launching fresh; clear them with
+   `pkill -9 -f 'Aperture.app/Aperture'` before retrying.
 
 The Mac runner stages the key at `/tmp/aperture-test-authkey`, just like the iOS
 runner. `make test-mac-ui AUTHKEY=...` passes a key explicitly; otherwise it
 requires `~/.aperture-ios-authkey`.
+
+### Troubleshooting: native Mac tests time out at the first `app.windows` wait
+
+When all three `ApertureMacUITests` fail at their first
+`app.windows.firstMatch.waitForExistence(timeout: 30)` (~30s in, with
+`windows=0`), the native Mac window is **drawn but not exposed to the
+Accessibility tree**. XCUITest's `app.windows` reads *only* the AX tree, so it
+sees no window and every test times out. This is a known app-level issue,
+**not** a permissions problem: Screen Recording and Accessibility are correctly
+granted (verify AX works for other apps — `osascript -e 'tell application
+"System Events" to get count of windows of (first process whose name is
+"Xcode")'` should return a positive number).
+
+Tell it apart from the stale-state issue (step 5) by comparing the window
+server against the AX tree of the running Aperture app:
+
+```bash
+# AX tree of Aperture — the key discriminator:
+osascript -e 'tell application "System Events" to get UI elements of (first process whose name is "Aperture")'
+#   AX-exposure bug → "menu bar 1 of application process Aperture"   (menu bar only; NO window)
+#   healthy app     → "window 1 of application process Aperture, menu bar 1 …"
+```
+
+If AX shows only the menu bar while the window *is* on screen (a `screencapture`
+shows it, or a `CGWindowList` call lists an `owner=Aperture` window), the window
+is AX-invisible and **no amount of permission/key work will fix the Mac tests**
+— it's an app bug in the `ApertureMac` window/scene setup (see
+`MacApp/ApertureMacApp.swift`, `WorkspaceWindowRoot`, and the value-based
+`WindowGroup` + `.defaultLaunchBehavior(.presented)` /
+`.restorationBehavior(.disabled)` modifiers). The iOS leg is unaffected (iOS
+SwiftUI windows expose AX fine and the sim signs ad-hoc), so `make test-ios-ui`
+runs independently of this.
 
 ## iOS UI test target (`ApertureUITests`)
 
