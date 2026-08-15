@@ -93,3 +93,4 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Minimum macOS version: 26.0.
 - [x] Apple silicon only for now.
 - [x] The first Mac TestFlight build contains no VM UI at all.
+- [ ] Please provide access/a checkout for the referenced tailvisor Ethernet/DHCP/gVisor bridge (or its exact repository/revision). It is not present in this repository or its submodules, the likely GitHub repository requires unavailable credentials in this environment, and reimplementing an unreviewed packet/NAT stack from scratch would be the wrong next step. Once available, move the Go bridge into the existing libtailscale archive, expose a lifecycle-safe TailscaleKit API tied to `Workspace.manager`'s node, and replace `VZNATNetworkDeviceAttachment` with `VZFileHandleNetworkDeviceAttachment`.
