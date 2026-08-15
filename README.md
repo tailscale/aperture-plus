@@ -246,3 +246,4 @@ scripts/
 ThirdParty/libtailscale/  git submodule -> github.com/tailscale/libtailscale
   swift/build/...         Generated TailscaleKit.xcframework (NOT in git; build it)
 ```
+
