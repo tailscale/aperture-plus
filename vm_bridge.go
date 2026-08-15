@@ -9,7 +9,10 @@ package main
 import "C"
 
 import (
+	"context"
 	"fmt"
+	"net/netip"
+	"strings"
 
 	"github.com/tailscale/libtailscale/vmnet"
 )
@@ -23,7 +26,40 @@ func TsnetVMBridgeStart(sd C.int, socketPath, magicDNSSuffix *C.char, bridgeOut 
 	if socketPath == nil || bridgeOut == nil {
 		return C.EINVAL
 	}
-	bridge, err := vmnet.Start(C.GoString(socketPath), C.GoString(magicDNSSuffix), s.s.Dial)
+	bridge, err := vmnet.Start(
+		C.GoString(socketPath),
+		C.GoString(magicDNSSuffix),
+		s.s.Dial,
+		func(ctx context.Context, name string) (netip.Addr, bool) {
+			lc, err := s.s.LocalClient()
+			if err != nil {
+				return netip.Addr{}, false
+			}
+			status, err := lc.Status(ctx)
+			if err != nil {
+				return netip.Addr{}, false
+			}
+			want := strings.TrimSuffix(strings.ToLower(name), ".")
+			fqdn := want
+			if !strings.Contains(want, ".") {
+				suffix := C.GoString(magicDNSSuffix)
+				if suffix != "" {
+					fqdn = want + "." + strings.TrimSuffix(strings.ToLower(suffix), ".")
+				}
+			}
+			for _, peer := range status.Peer {
+				if strings.TrimSuffix(strings.ToLower(peer.DNSName), ".") != fqdn {
+					continue
+				}
+				for _, ip := range peer.TailscaleIPs {
+					if ip.Is4() {
+						return ip, true
+					}
+				}
+			}
+			return netip.Addr{}, false
+		},
+	)
 	if err != nil {
 		return s.recErr(fmt.Errorf("start VM bridge: %w", err))
 	}

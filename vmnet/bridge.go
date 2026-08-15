@@ -10,16 +10,22 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 )
 
 type serverDialer struct {
-	DialFunc func(context.Context, string, string) (net.Conn, error)
+	DialFunc       func(context.Context, string, string) (net.Conn, error)
+	LookupPeerFunc func(context.Context, string) (netip.Addr, bool)
 }
 
 func (d serverDialer) Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	return d.DialFunc(ctx, network, address)
+}
+
+func (d serverDialer) LookupPeer(ctx context.Context, name string) (netip.Addr, bool) {
+	return d.LookupPeerFunc(ctx, name)
 }
 
 // Bridge is one disposable VM's layer-2 transport and proxy state.
@@ -36,12 +42,14 @@ type Bridge struct {
 
 // Start binds socketPath immediately and serves guest frames asynchronously.
 // dial is expected to use the owning workspace's already-running tsnet node.
-func Start(socketPath, magicDNSSuffix string, dial func(context.Context, string, string) (net.Conn, error)) (*Bridge, error) {
+func Start(socketPath, magicDNSSuffix string,
+	dial func(context.Context, string, string) (net.Conn, error),
+	lookupPeer func(context.Context, string) (netip.Addr, bool)) (*Bridge, error) {
 	if socketPath == "" {
 		return nil, fmt.Errorf("empty VM network socket path")
 	}
-	if dial == nil {
-		return nil, fmt.Errorf("nil VM network dialer")
+	if dial == nil || lookupPeer == nil {
+		return nil, fmt.Errorf("nil VM network transport")
 	}
 	link, err := openUnixDgramLink(socketPath)
 	if err != nil {
@@ -49,7 +57,10 @@ func Start(socketPath, magicDNSSuffix string, dial func(context.Context, string,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &Bridge{cancel: cancel, link: link, done: make(chan struct{})}
-	server := NewServer(link, serverDialer{DialFunc: dial}, magicDNSSuffix, ctx, false, 0)
+	server := NewServer(link, serverDialer{
+		DialFunc:       dial,
+		LookupPeerFunc: lookupPeer,
+	}, magicDNSSuffix, ctx, false, 0)
 	b.ready.Store(true)
 	go func() {
 		defer close(b.done)

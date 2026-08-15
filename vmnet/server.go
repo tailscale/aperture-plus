@@ -17,6 +17,7 @@ import (
 // alive. This is what prevents a second Go runtime or tsnet identity.
 type Dialer interface {
 	Dial(context.Context, string, string) (net.Conn, error)
+	LookupPeer(context.Context, string) (netip.Addr, bool)
 }
 
 // FrameLink is the transport that carries raw ethernet frames between the

@@ -51,12 +51,22 @@ func (s *Server) handleDNS(pkt gopacket.Packet) error {
 	queryType := parseDNSQueryType(dnsPayload)
 	log.Printf("[dns] query: %s (type %s)", queryName, dnsQTypeName(queryType))
 
-	resp, err := s.forwardDNSThroughTsnet(dnsPayload)
-	if err != nil {
-		log.Printf("[dns] upstream %s for %q: %v", upstreamDNS, queryName, err)
-		return nil
+	var resp []byte
+	if queryType == 1 {
+		if ip, ok := s.dialer.LookupPeer(s.ctx, queryName); ok {
+			resp = buildDNSResponse(dnsPayload, queryName, ip.As4())
+			log.Printf("[dns] resolved %s -> %s (workspace tailnet peer)", queryName, ip)
+		}
 	}
-	log.Printf("[dns] resolved %s via workspace tsnet (%d bytes)", queryName, len(resp))
+	if resp == nil {
+		var err error
+		resp, err = s.forwardDNSThroughTsnet(dnsPayload)
+		if err != nil {
+			log.Printf("[dns] upstream %s for %q: %v", upstreamDNS, queryName, err)
+			return nil
+		}
+		log.Printf("[dns] resolved %s via workspace tsnet (%d bytes)", queryName, len(resp))
+	}
 
 	eth := &layers.Ethernet{
 		SrcMAC:       s.routerMAC.HWAddr(),
