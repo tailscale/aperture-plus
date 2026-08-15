@@ -208,6 +208,15 @@ final class TailscaleKitTests: XCTestCase {
         XCTAssertNil(sparse.NetMap?.SelfNode.Hostinfo)
         XCTAssertNil(sparse.NetMap?.SelfNode.ComputedName)
         XCTAssertNil(sparse.NetMap?.SelfNode.ComputedNameWithHost)
+
+        // Current Go prefs JSON uses omitzero as well. In particular,
+        // AllowSingleHosts disappeared from successful login notifications;
+        // decoding the whole notification must keep its false default instead
+        // of discarding the prefs/netmap update.
+        let sparsePrefs = try JSONDecoder().decode(Ipn.Prefs.self, from: Data("{}".utf8))
+        XCTAssertFalse(sparsePrefs.AllowSingleHosts)
+        XCTAssertFalse(sparsePrefs.RouteAll)
+        XCTAssertEqual(sparsePrefs.ControlURL, "")
     }
 
     /// Regression for the resume crash caused by cancelling an IPN URLSession

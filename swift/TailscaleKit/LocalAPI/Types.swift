@@ -81,6 +81,29 @@ public struct Ipn: Sendable {
         public var ExitNodeAllowLANAccess: Bool = false
         public var ForceDaemon: Bool? = false
         public var Hostname: String = ""
+
+        private enum CodingKeys: String, CodingKey {
+            case ControlURL, RouteAll, AllowSingleHosts, CorpDNS, WantRunning
+            case LoggedOut, ShieldsUp, AdvertiseRoutes, AdvertiseTags
+            case ExitNodeID, ExitNodeAllowLANAccess, ForceDaemon, Hostname
+        }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            ControlURL = try values.decodeIfPresent(String.self, forKey: .ControlURL) ?? ""
+            RouteAll = try values.decodeIfPresent(Bool.self, forKey: .RouteAll) ?? false
+            AllowSingleHosts = try values.decodeIfPresent(Bool.self, forKey: .AllowSingleHosts) ?? false
+            CorpDNS = try values.decodeIfPresent(Bool.self, forKey: .CorpDNS) ?? false
+            WantRunning = try values.decodeIfPresent(Bool.self, forKey: .WantRunning) ?? false
+            LoggedOut = try values.decodeIfPresent(Bool.self, forKey: .LoggedOut) ?? false
+            ShieldsUp = try values.decodeIfPresent(Bool.self, forKey: .ShieldsUp) ?? false
+            AdvertiseRoutes = try values.decodeIfPresent([String].self, forKey: .AdvertiseRoutes)
+            AdvertiseTags = try values.decodeIfPresent([String].self, forKey: .AdvertiseTags)
+            ExitNodeID = try values.decodeIfPresent(Tailcfg.StableNodeID.self, forKey: .ExitNodeID) ?? ""
+            ExitNodeAllowLANAccess = try values.decodeIfPresent(Bool.self, forKey: .ExitNodeAllowLANAccess) ?? false
+            ForceDaemon = try values.decodeIfPresent(Bool.self, forKey: .ForceDaemon)
+            Hostname = try values.decodeIfPresent(String.self, forKey: .Hostname) ?? ""
+        }
     }
 
     public struct MaskedPrefs: Codable, Sendable {
