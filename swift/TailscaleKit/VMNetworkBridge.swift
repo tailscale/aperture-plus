@@ -21,10 +21,11 @@ public final class VMNetworkBridge: @unchecked Sendable {
     }
 
     public func close() async throws {
-        lock.lock()
-        let shouldStop = !stopped
-        stopped = true
-        lock.unlock()
+        let shouldStop = lock.withLock {
+            guard !stopped else { return false }
+            stopped = true
+            return true
+        }
         guard shouldStop else { return }
         try await node.stopVMNetworkBridge(handle: handle)
     }
