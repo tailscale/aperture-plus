@@ -108,6 +108,7 @@ final class ApertureMacUITests: XCTestCase {
     /// This covers both completion paths that previously trapped on macOS when
     /// AuthenticationServices called a MainActor closure on its XPC queue.
     func testInteractiveLoginLogoutRelogin() throws {
+        closeStaleSafariAuthenticationWindows()
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestResetWorkspaces", "-UITestResetLogin",
@@ -178,27 +179,53 @@ final class ApertureMacUITests: XCTestCase {
 
     private func completeNullIdLogin(_ app: XCUIApplication,
                                      emailFieldTimeout: TimeInterval) -> Bool {
-        let emailField = app.webViews.textFields.firstMatch
+        // On macOS, ASWebAuthenticationSession presents its private browsing
+        // window in Safari, not in Aperture's process. Query that application
+        // explicitly; `app.webViews` can only ever see Aperture's own page.
+        let authApp = XCUIApplication(bundleIdentifier: "com.apple.Safari")
+        let emailField = authApp.webViews.textFields.firstMatch
         guard emailField.waitForExistence(timeout: emailFieldTimeout) else { return false }
         emailField.click()
         emailField.typeText("testuser@nullid.fly.dev")
 
-        let signIn = app.webViews.buttons["Sign in"]
+        let signIn = authApp.webViews.buttons["Sign in"]
         if signIn.waitForExistence(timeout: 10) {
             signIn.click()
         } else {
             emailField.typeKey(.return, modifierFlags: [])
         }
 
-        let nullidConfirm = app.webViews.buttons["Log in"]
+        let nullidConfirm = authApp.webViews.buttons["Log in"]
         guard nullidConfirm.waitForExistence(timeout: 20) else { return false }
         nullidConfirm.click()
 
-        let connect = app.webViews.buttons.matching(
+        let connect = authApp.webViews.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "Connect")
         ).firstMatch
-        if connect.waitForExistence(timeout: 20) { connect.click() }
+        // The null-id confirmation submits the login. Depending on control-
+        // plane state, Tailscale either associates the waiting node directly
+        // or shows an additional device-authorization button. Never click an
+        // arbitrary first button from a transient page; only click the
+        // explicit Connect action when it appears.
+        if connect.waitForExistence(timeout: 5) { connect.click() }
+
+        // Give the authorization POST a moment to leave Safari before putting
+        // Aperture back in front. LoginFinished remains the authoritative
+        // success signal checked by waitForBrowserOrFail.
+        Thread.sleep(forTimeInterval: 1)
+        app.activate()
         return true
+    }
+
+    private func closeStaleSafariAuthenticationWindows() {
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.Safari")
+        guard safari.state != .notRunning else { return }
+        // ASWebAuthenticationSession's private windows are not reliably
+        // represented in `safari.windows` until they are key, so matching and
+        // closing by title can miss a stale welcome page. Terminating Safari
+        // is deterministic; AuthenticationServices launches a clean private
+        // window for the new session on demand.
+        safari.terminate()
     }
 
     /// Poll several mutually-exclusive states so a terminal error fails in a
