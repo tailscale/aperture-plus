@@ -5,6 +5,32 @@ import XCTest
 @testable import TailscaleKit
 
 final class TailscaleKitTests: XCTestCase {
+#if os(macOS)
+    func testVMNetworkBridgeLifecycleUsesExistingNode() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TailscaleKit-VMBridge-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let node = try TailscaleNode(
+            config: Configuration(
+                hostName: "vm-bridge-test",
+                path: root.appendingPathComponent("tsnet").path,
+                authKey: nil,
+                controlURL: kDefaultControlURL
+            ),
+            logger: nil
+        )
+        let socket = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ts-vm-\(UUID().uuidString.prefix(12))")
+        defer { try? FileManager.default.removeItem(at: socket) }
+        let bridge = try await node.startVMNetworkBridge(socketURL: socket)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socket.path))
+        try await bridge.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socket.path))
+        try await node.close()
+    }
+#endif
     var controlURL: String = ""
 
     override func setUp() async throws {
