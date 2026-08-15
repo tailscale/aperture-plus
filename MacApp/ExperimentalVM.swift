@@ -57,159 +57,159 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
     }
 
     func start() {
-            guard downloadTask == nil, virtualMachine == nil else { return }
-            downloadTask = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    let iso = try await Self.cachedISO { [weak self] progress in
-                        self?.phase = .downloading(progress)
-                    }
-                    guard !Task.isCancelled else { return }
-                    try FileManager.default.createDirectory(at: directory,
-                                                            withIntermediateDirectories: true)
-                    phase = .preparing
-                    let configuration = try makeConfiguration(iso: iso)
-                    let vm = VZVirtualMachine(configuration: configuration)
-                    vm.delegate = self
-                    virtualMachine = vm
-                    phase = .starting
-                    try await vm.start()
-                    phase = .running
-                } catch is CancellationError {
-                    cleanup()
-                } catch {
-                    phase = .failed(error.localizedDescription)
-                    cleanupFilesOnly()
+        guard downloadTask == nil, virtualMachine == nil else { return }
+        downloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let iso = try await Self.cachedISO { [weak self] progress in
+                    self?.phase = .downloading(progress)
                 }
-            }
-        }
-
-        func stop() {
-            downloadTask?.cancel()
-            downloadTask = nil
-            guard let vm = virtualMachine else {
+                guard !Task.isCancelled else { return }
+                try FileManager.default.createDirectory(at: directory,
+                                                        withIntermediateDirectories: true)
+                phase = .preparing
+                let configuration = try makeConfiguration(iso: iso)
+                let vm = VZVirtualMachine(configuration: configuration)
+                vm.delegate = self
+                virtualMachine = vm
+                phase = .starting
+                try await vm.start()
+                phase = .running
+            } catch is CancellationError {
                 cleanup()
-                return
-            }
-            virtualMachine = nil
-            phase = .stopped
-            Task {
-                if vm.state == .running || vm.state == .paused {
-                    try? await vm.stop()
-                }
-                cleanup()
+            } catch {
+                phase = .failed(error.localizedDescription)
+                cleanupFilesOnly()
             }
         }
+    }
 
-        private func makeConfiguration(iso: URL) throws -> VZVirtualMachineConfiguration {
-            let config = VZVirtualMachineConfiguration()
-            config.cpuCount = min(max(2, VZVirtualMachineConfiguration.minimumAllowedCPUCount),
-                                  VZVirtualMachineConfiguration.maximumAllowedCPUCount)
-            config.memorySize = min(max(1 * 1024 * 1024 * 1024,
-                                        VZVirtualMachineConfiguration.minimumAllowedMemorySize),
-                                    VZVirtualMachineConfiguration.maximumAllowedMemorySize)
+    func stop() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        guard let vm = virtualMachine else {
+            cleanup()
+            return
+        }
+        virtualMachine = nil
+        phase = .stopped
+        Task {
+            if vm.state == .running || vm.state == .paused {
+                try? await vm.stop()
+            }
+            cleanup()
+        }
+    }
 
-            let platform = VZGenericPlatformConfiguration()
-            config.platform = platform
+    private func makeConfiguration(iso: URL) throws -> VZVirtualMachineConfiguration {
+        let config = VZVirtualMachineConfiguration()
+        config.cpuCount = min(max(2, VZVirtualMachineConfiguration.minimumAllowedCPUCount),
+                              VZVirtualMachineConfiguration.maximumAllowedCPUCount)
+        config.memorySize = min(max(1 * 1024 * 1024 * 1024,
+                                    VZVirtualMachineConfiguration.minimumAllowedMemorySize),
+                                VZVirtualMachineConfiguration.maximumAllowedMemorySize)
 
-            let variables = directory.appending(path: "EFIVariableStore")
-            let variableStore = try VZEFIVariableStore(creatingVariableStoreAt: variables)
-            let bootLoader = VZEFIBootLoader()
-            bootLoader.variableStore = variableStore
-            config.bootLoader = bootLoader
+        let platform = VZGenericPlatformConfiguration()
+        config.platform = platform
 
-            let graphics = VZVirtioGraphicsDeviceConfiguration()
-            graphics.scanouts = [VZVirtioGraphicsScanoutConfiguration(
-                widthInPixels: 1280, heightInPixels: 800)]
-            config.graphicsDevices = [graphics]
-            config.keyboards = [VZUSBKeyboardConfiguration()]
-            config.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
-            config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
-            config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
+        let variables = directory.appending(path: "EFIVariableStore")
+        let variableStore = try VZEFIVariableStore(creatingVariableStoreAt: variables)
+        let bootLoader = VZEFIBootLoader()
+        bootLoader.variableStore = variableStore
+        config.bootLoader = bootLoader
 
-            let isoAttachment = try VZDiskImageStorageDeviceAttachment(url: iso, readOnly: true)
-            config.storageDevices = [VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment)]
+        let graphics = VZVirtioGraphicsDeviceConfiguration()
+        graphics.scanouts = [VZVirtioGraphicsScanoutConfiguration(
+            widthInPixels: 1280, heightInPixels: 800)]
+        config.graphicsDevices = [graphics]
+        config.keyboards = [VZUSBKeyboardConfiguration()]
+        config.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
+        config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
+        config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
 
-            // Tailvisor uses a VZFileHandleNetworkDeviceAttachment connected to
-            // its Go Ethernet/DHCP/gVisor bridge and gives that bridge a separate
-            // tsnet identity. Aperture already embeds a Go runtime in
-            // TailscaleKit, so linking tailvisor's second 59 MB Go c-archive into
-            // this process would duplicate the Go runtime and tsnet state. Keep
-            // this first bootable prototype on Apple's disposable NAT attachment;
-            // the follow-up integration should move the Ethernet bridge into
-            // libtailscale/TailscaleKit and share this workspace's node/dialer.
-            let network = VZVirtioNetworkDeviceConfiguration()
-            network.attachment = VZNATNetworkDeviceAttachment()
-            config.networkDevices = [network]
+        let isoAttachment = try VZDiskImageStorageDeviceAttachment(url: iso, readOnly: true)
+        config.storageDevices = [VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment)]
 
-            let output = Pipe()
-            consoleOutput = output
-            output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-                Task { @MainActor [weak self] in
-                    self?.consoleText.append(text)
-                    if let count = self?.consoleText.count, count > 40_000 {
-                        self?.consoleText.removeFirst(count - 40_000)
-                    }
+        // Tailvisor uses a VZFileHandleNetworkDeviceAttachment connected to
+        // its Go Ethernet/DHCP/gVisor bridge and gives that bridge a separate
+        // tsnet identity. Aperture already embeds a Go runtime in
+        // TailscaleKit, so linking tailvisor's second 59 MB Go c-archive into
+        // this process would duplicate the Go runtime and tsnet state. Keep
+        // this first bootable prototype on Apple's disposable NAT attachment;
+        // the follow-up integration should move the Ethernet bridge into
+        // libtailscale/TailscaleKit and share this workspace's node/dialer.
+        let network = VZVirtioNetworkDeviceConfiguration()
+        network.attachment = VZNATNetworkDeviceAttachment()
+        config.networkDevices = [network]
+
+        let output = Pipe()
+        consoleOutput = output
+        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor [weak self] in
+                self?.consoleText.append(text)
+                if let count = self?.consoleText.count, count > 40_000 {
+                    self?.consoleText.removeFirst(count - 40_000)
                 }
             }
-            let serialInput = Pipe()
-            let serial = VZVirtioConsoleDeviceSerialPortConfiguration()
-            serial.attachment = VZFileHandleSerialPortAttachment(
-                fileHandleForReading: serialInput.fileHandleForReading,
-                fileHandleForWriting: output.fileHandleForWriting)
-            config.serialPorts = [serial]
-
-            try config.validate()
-            return config
         }
+        let serialInput = Pipe()
+        let serial = VZVirtioConsoleDeviceSerialPortConfiguration()
+        serial.attachment = VZFileHandleSerialPortAttachment(
+            fileHandleForReading: serialInput.fileHandleForReading,
+            fileHandleForWriting: output.fileHandleForWriting)
+        config.serialPorts = [serial]
+
+        try config.validate()
+        return config
+    }
 
     nonisolated func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-            Task { @MainActor [weak self] in
-                self?.phase = .stopped
-                self?.virtualMachine = nil
-                self?.cleanup()
-            }
+        Task { @MainActor [weak self] in
+            self?.phase = .stopped
+            self?.virtualMachine = nil
+            self?.cleanup()
         }
+    }
 
     nonisolated func virtualMachine(_ virtualMachine: VZVirtualMachine,
-                                    didStopWithError error: any Error) {
-            Task { @MainActor [weak self] in
-                self?.phase = .failed(error.localizedDescription)
-                self?.virtualMachine = nil
-                self?.cleanupFilesOnly()
-            }
+                                didStopWithError error: any Error) {
+        Task { @MainActor [weak self] in
+            self?.phase = .failed(error.localizedDescription)
+            self?.virtualMachine = nil
+            self?.cleanupFilesOnly()
         }
+    }
 
     private func cleanup() {
-            virtualMachine = nil
-            consoleOutput?.fileHandleForReading.readabilityHandler = nil
-            consoleOutput = nil
-            cleanupFilesOnly()
-        }
+        virtualMachine = nil
+        consoleOutput?.fileHandleForReading.readabilityHandler = nil
+        consoleOutput = nil
+        cleanupFilesOnly()
+    }
 
     private func cleanupFilesOnly() {
-            try? FileManager.default.removeItem(at: directory)
-        }
+        try? FileManager.default.removeItem(at: directory)
+    }
 
     private static func cachedISO(progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
-            let cache = cacheDirectory
-            let destination = cache.appending(path: isoName)
-            if FileManager.default.fileExists(atPath: destination.path) {
-                return destination
-            }
-            try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-            progress(0)
-            let (temporary, response) = try await URLSession.shared.download(from: isoURL)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                throw URLError(.badServerResponse)
-            }
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.moveItem(at: temporary, to: destination)
-            progress(1)
+        let cache = cacheDirectory
+        let destination = cache.appending(path: isoName)
+        if FileManager.default.fileExists(atPath: destination.path) {
             return destination
         }
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        progress(0)
+        let (temporary, response) = try await URLSession.shared.download(from: isoURL)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: temporary, to: destination)
+        progress(1)
+        return destination
+    }
 }
 
 struct ExperimentalVMView: View {
