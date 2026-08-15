@@ -9,6 +9,12 @@ cd "$ROOT"
 DERIVED="${MAC_UITEST_DERIVED:-build/DerivedDataMacUITests}"
 AUTHKEY_FILE="${APERTURE_TEST_AUTHKEY_FILE:-/tmp/aperture-test-authkey}"
 
+if ioreg -n Root -d1 2>/dev/null | grep -q '"CGSessionScreenIsLocked"=Yes'; then
+    echo "error: console screen is locked; native Mac XCUITest cannot activate the app" >&2
+    echo "unlock the logged-in console session and retry" >&2
+    exit 1
+fi
+
 cleanup() {
     rm -f "$AUTHKEY_FILE" 2>/dev/null || true
 }

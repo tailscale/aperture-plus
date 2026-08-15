@@ -47,7 +47,8 @@ final class ApertureMacUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         settings.click()
         XCTAssertTrue(app.textFields["home-page-field"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["routing-not-connected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["routing-test-field"].waitForExistence(timeout: 5),
+                      "The shared routing diagnostic should be available before login")
         app.buttons["settings-done-button"].click()
 
         let tabs = app.buttons["tab-overview-button"]
@@ -81,7 +82,7 @@ final class ApertureMacUITests: XCTestCase {
         XCTAssertTrue(app.buttons["url-pill"].waitForExistence(timeout: 5))
 
         app.typeKey("t", modifierFlags: .command)
-        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "Close Tab"), atLeast: 2, timeout: 5),
+        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "tab-chip"), atLeast: 2, timeout: 5),
                       "Command-T should add a visible desktop tab")
 
         app.typeKey("l", modifierFlags: .command)
@@ -90,14 +91,11 @@ final class ApertureMacUITests: XCTestCase {
         app.typeKey(.escape, modifierFlags: [])
 
         app.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "Close Tab"), exactly: 1, timeout: 5),
+        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "tab-chip"), exactly: 1, timeout: 5),
                       "Command-W should close a tab, not its workspace window")
         XCTAssertEqual(app.windows.count, 1)
 
-        let more = app.buttons["more-menu-button"]
-        XCTAssertTrue(more.waitForExistence(timeout: 5))
-        more.click()
-        let addBookmark = app.menuItems["Add Bookmark"]
+        let addBookmark = app.buttons["add-bookmark-button"]
         XCTAssertTrue(addBookmark.waitForExistence(timeout: 5))
         addBookmark.click()
         XCTAssertTrue(app.textFields["bookmark-name-field"].waitForExistence(timeout: 5))

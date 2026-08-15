@@ -177,36 +177,16 @@ struct CompactBrowserToolbar: View {
             .accessibilityLabel("Tabs")
 
 #if os(macOS)
-            Menu {
-                Button {
-                    onAddBookmark()
-                } label: {
-                    Label("Add Bookmark", systemImage: "bookmark")
-                }
-                .accessibilityIdentifier("add-bookmark-button")
-                Button {
-                    onBookmarks()
-                } label: {
-                    Label("Bookmarks", systemImage: "book")
-                }
-                Divider()
-                Button {
-                    onLogs()
-                } label: {
-                    Label("Logs", systemImage: "doc.text.magnifyingglass")
-                }
-                Button {
-                    onSettings()
-                } label: {
-                    Label("Workspace Settings", systemImage: "gearshape")
-                }
+            Button {
+                onAddBookmark()
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 18))
+                Image(systemName: "bookmark")
+                    .font(.system(size: 16))
                     .frame(width: 28, height: 28)
             }
-            .accessibilityIdentifier("more-menu-button")
-            .accessibilityLabel("More")
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("add-bookmark-button")
+            .accessibilityLabel("Add Bookmark")
 
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
@@ -287,6 +267,11 @@ struct CompactBrowserToolbar: View {
         .background(Capsule().fill(Color.platformSecondarySystemBackground))
         .padding(.horizontal, 6)
         .padding(.vertical, 6)
+#if os(macOS)
+        .onExitCommand {
+            isEditing = false
+        }
+#endif
     }
 
     // MARK: - Editing helpers

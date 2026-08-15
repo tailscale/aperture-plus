@@ -85,6 +85,7 @@ private struct TabChip: View {
         )
         .onTapGesture { onSelect() }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("tab-chip")
         .accessibilityLabel("\(tab.displayTitle) tab")
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : [.isButton])
     }

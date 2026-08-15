@@ -16,7 +16,9 @@
 #   5. Accessibility tree is readable  →  Accessibility granted to the same
 #      responsible process (needed for System Events `click`/AXPress and for
 #      XCUITest to see the app)
-#   6. no stale talagent "Reopen windows?" restoration marker for Aperture
+#   6. console screen is unlocked (XCUITest cannot activate apps below the
+#      lock-screen shield, even when Accessibility permission is granted)
+#   7. no stale talagent "Reopen windows?" restoration marker for Aperture
 #      (a non-zero restorecount.plist in the daemon container makes the next
 #      native launch block on a Reopen/Don't-Reopen modal — under XCUITest the
 #      dialog is suppressed so the app comes up with NO window and every test
@@ -112,7 +114,19 @@ else
   info "     (SSH: /usr/libexec/sshd-keygen-wrapper ; Terminal: com.apple.Terminal)"
 fi
 
-# 6. Stale talagent window-restoration state --------------------------------
+# 6. Console lock state ------------------------------------------------------
++# Accessibility permission can be granted while the login session is locked,
++# but XCUITest still cannot bring an app above the lock-screen shield. Without
++# this explicit check every Mac test waits ~60s and reports Running Background.
++LOCK_STATE=$(ioreg -n Root -d1 2>/dev/null | grep -o '"CGSessionScreenIsLocked"=Yes' || true)
++if [[ -z "$LOCK_STATE" ]]; then
++  ok "Console screen is unlocked"
++else
++  bad "Console screen is locked; native Mac XCUITest cannot activate apps"
++  info "fix: unlock the logged-in console session before running make test-mac-ui"
++fi
++
++# 7. Stale talagent window-restoration state --------------------------------
 # talagent (com.apple.talagent) stores per-app window-restoration state in a
 # daemon container. A non-zero restorecount.plist makes the next launch show
 # the "Aperture unexpectedly quit while reopening windows" Reopen/Don't-Reopen
