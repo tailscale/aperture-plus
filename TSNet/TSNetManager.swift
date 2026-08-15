@@ -668,7 +668,18 @@ final class TSNetManager {
     }
 
     func setExitNodeEnabled(_ enabled: Bool) {
-        let id = enabled ? "auto:any" : ""
+        // Prefer a concrete advertised peer. `auto:any` is useful as a managed
+        // policy placeholder, but patching it directly into ordinary prefs can
+        // remain unresolved even when status already knows usable exit nodes,
+        // leaving public traffic on the local egress. Stable sorting keeps the
+        // choice deterministic across status dictionary iterations.
+        let availableExitNodes = model.localStatus?.Peer?.values
+            .filter { $0.ExitNodeOption }
+            .sorted {
+                if $0.Online != $1.Online { return $0.Online && !$1.Online }
+                return $0.ID < $1.ID
+            } ?? []
+        let id = enabled ? (availableExitNodes.first?.ID ?? "auto:any") : ""
         let mask = Ipn.MaskedPrefs().exitNodeID(id)
         let client = localAPIClient
         Task {

@@ -93,7 +93,8 @@ check, and all native Mac UI tests.
 This means the required environment must provide:
 
 - `~/.aperture-ios-authkey` (or `AUTHKEY=...`), compatible with ephemeral nodes.
-- At least one working exit-node peer for the exit-node test.
+- If the tailnet advertises an exit-node peer, it must provide working egress;
+  without one the test instead verifies that the unsafe toggle is disabled.
 - Network access to Tailscale's control plane, `login.tailscale.com`,
   `nullid.fly.dev`, and the pages used by browser tests.
 - The simulator software keyboard configuration expected by keyboard tests.

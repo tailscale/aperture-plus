@@ -173,9 +173,11 @@ final class ApertureUITests: XCTestCase {
                       "After relogin the LoginBanner should clear (needsAuth → " +
                       "false once the tailnet reaches Running). If it stays, the " +
                       "relogin callback did not complete.")
-        // And the browser chrome should still be there.
-        XCTAssertTrue(app.buttons["more-menu-button"].exists,
-                      "Browser chrome should remain after a successful relogin")
+        // The state signal can clear just before SwiftUI swaps the connection
+        // gate back to browser chrome. Wait for that presentation instead of
+        // requiring the toolbar in the same accessibility snapshot.
+        XCTAssertTrue(app.buttons["more-menu-button"].waitForExistence(timeout: 15),
+                      "Browser chrome should appear after a successful relogin")
         attachScreenshot(app, named: "relogin-success")
     }
 
@@ -285,7 +287,8 @@ final class ApertureUITests: XCTestCase {
 
         if noneAvailable.exists {
             attachScreenshot(app, named: "exit-node-none-available")
-            XCTFail("Required test environment has no exit-node peer. Configure one before running the required suite.")
+            XCTAssertFalse(toggle.isEnabled,
+                           "Without an exit-node peer the toggle must be disabled, not create a public-traffic blackhole")
             return
         }
 
@@ -324,6 +327,10 @@ final class ApertureUITests: XCTestCase {
 
         // --- (c) Toggle ON, read egress IP again, verify it CHANGED ---
         toggle.tap()
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"), object: toggle)
+        XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: 15), .completed,
+                       "Exit-node preference should resolve to an advertised peer")
         Thread.sleep(forTimeInterval: 5.0)  // 5s for pref + route install
         guard let ipOn = waitForEgressIP(timeout: 30) else {
             attachScreenshot(app, named: "exit-node-on-no-ip")

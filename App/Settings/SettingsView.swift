@@ -125,6 +125,11 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("exit-node-toggle")
+                    // Never let "auto:any" blackhole public traffic when the
+                    // current netmap has no exit-node-capable peer. Keep an
+                    // already-enabled toggle usable so the user can turn it off
+                    // if the selected peer disappears.
+                    .disabled(!viewModel.exitNodeEnabled && viewModel.availableExitNodes.isEmpty)
                     HStack {
                         Text("Current Exit Node")
                         Spacer()
