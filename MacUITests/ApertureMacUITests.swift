@@ -34,6 +34,31 @@ final class ApertureMacUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [oneWindow], timeout: 10), .completed)
     }
 
+    /// Shared Settings and tab-overview sheets remain useful before login,
+    /// while the native Mac tab overview deliberately has no iOS workspace
+    /// selector (workspace windows are listed in the Window menu instead).
+    func testNoLoginSettingsAndTabOverview() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetWorkspaces", "-UITestResetLogin"]
+        app.launch()
+
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 30))
+        let settings = app.buttons["settings-button"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.click()
+        XCTAssertTrue(app.textFields["home-page-field"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["routing-not-connected"].waitForExistence(timeout: 5))
+        app.buttons["settings-done-button"].click()
+
+        let tabs = app.buttons["tab-overview-button"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        tabs.click()
+        XCTAssertTrue(app.staticTexts["Tabs"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["session-selector-menu"].exists,
+                       "Native Mac tab overview must not duplicate the Window-menu workspace switcher")
+        app.buttons["Done"].click()
+    }
+
     /// Desktop browser chrome and application menu commands operate on the
     /// focused native workspace window. Uses auth-key login so this remains
     /// deterministic and independent of the external browser auth flow.
@@ -68,6 +93,16 @@ final class ApertureMacUITests: XCTestCase {
         XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "Close Tab"), exactly: 1, timeout: 5),
                       "Command-W should close a tab, not its workspace window")
         XCTAssertEqual(app.windows.count, 1)
+
+        let more = app.buttons["more-menu-button"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.click()
+        let addBookmark = app.menuItems["Add Bookmark"]
+        XCTAssertTrue(addBookmark.waitForExistence(timeout: 5))
+        addBookmark.click()
+        XCTAssertTrue(app.textFields["bookmark-name-field"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["bookmark-url-field"].exists)
+        app.buttons["bookmark-cancel-button"].click()
     }
 
     /// Native interactive Login → Logout → Relogin, driving the real

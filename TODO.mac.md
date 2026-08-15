@@ -66,7 +66,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Add a native macOS UI test target with window, auth-presentation, and auth-key login/logout cases.
 - [x] Execute native Mac UI tests from Xcode/MCP after Automation Mode approval; expose `make test-mac-ui` as the required CLI entry point.
 - [x] Add a hermetic no-login process launch smoke test for the shared browser app, including framework loading and entitlement verification.
-- [ ] Extend no-login smoke coverage to Settings and bookmark editor. Desktop tab creation/closing and Command-L now have connected native Mac UI coverage.
+- [x] Extend smoke/UI coverage to Settings, tabs, and bookmark editor (no-login Settings/tab overview plus connected desktop commands/bookmark editor).
 - [x] Add a connected macOS test using the existing staged auth-key convention.
 - [x] Add native interactive nullid login → logout → relogin coverage and make it required (no skip path).
 - [ ] Add tests for platform adapters and native WebKit navigation behavior.
