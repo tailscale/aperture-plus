@@ -43,11 +43,11 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Represent each workspace as a value-addressed native window; closing a window preserves the workspace.
 - [x] Make Command-N create a persisted workspace and open its native window.
 - [x] List every persisted workspace in the Window menu so closed windows can be reopened and open ones raised.
-- [ ] Remove the iPad-style workspace selector from the Mac tab overview (windows are the Mac workspace switcher).
-- [ ] Add a Mac toolbar/address field and desktop tab presentation.
-- [ ] Add application commands and menus: New Tab, Close Tab, Focus Location, Reload, Settings, and tab navigation.
+- [x] Remove the iPad-style workspace selector from the Mac tab overview (windows are the Mac workspace switcher); pin the overview to its native window's workspace.
+- [x] Add a Mac toolbar/address field and desktop tab presentation (persistent pointer-friendly tab strip plus shared address/navigation toolbar).
+- [x] Add application commands and menus: New Tab, Close Tab, Focus Location, Reload, Settings, Logs, and tab navigation.
 - [ ] Verify standard keyboard, pointer, context-menu, text-selection, and clipboard behavior.
-- [ ] Add Settings and Logs presentation appropriate for macOS.
+- [x] Add Settings and Logs presentation appropriate for macOS (native Settings scene plus in-window workspace Settings/Logs sheets and menu access).
 - [x] Use the shared iOS/macOS AppIcon asset catalog for the native Mac app.
 - [ ] Review Mac App Store screenshots/metadata.
 
@@ -58,8 +58,8 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Stop the VM and delete its temporary EFI state when its window closes; provide no persistent guest disk.
 - [x] Validate multiple independent VM windows can be created and that Alpine reaches `localhost login:`.
 - [ ] Replace the prototype `VZNATNetworkDeviceAttachment` with tailvisor's Ethernet/DHCP/gVisor bridge.
-- [ ] Put that bridge in `TailscaleKit` and use the owning workspace's existing tsnet node. Do not link tailvisor's standalone 59 MB Go c-archive beside TailscaleKit: that duplicates the Go runtime and creates a second tsnet identity instead of merging networking.
-- [ ] Decide whether each VM should share its workspace's tailnet identity or deliberately receive a distinct tailnet identity.
+- [ ] Put that bridge in `TailscaleKit` and use the owning workspace's existing tsnet node. Do not link tailvisor's standalone 59 MB Go c-archive beside TailscaleKit: that duplicates the Go runtime and creates a second tsnet identity instead of merging networking. (The VM window value now records and retains its owning workspace/node, ready for this handoff.)
+- [x] Decide whether each VM should share its workspace's tailnet identity or deliberately receive a distinct tailnet identity: share the owning workspace's existing node. The VM request/window is now explicitly bound to that workspace; only the packet bridge remains.
 
 ## Automated testing
 
@@ -75,17 +75,18 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 ## Distribution
 
-- [ ] Add macOS to the existing App Store Connect app record for `io.tailscale.Aperture`.
+- [x] Add macOS to the existing App Store Connect app record for `io.tailscale.Aperture` (native build successfully uploaded to TestFlight).
 - [x] Verify a development-signed Mac app carries the Virtualization entitlement. Xcode's direct Mac development signing succeeds without an embedded profile and preserves `com.apple.security.virtualization=true`.
-- [ ] Verify the Mac App Store distribution profile/archive authorizes the Virtualization entitlement; the currently cached provisioning profiles are iOS-only.
-- [ ] Archive and validate a native Mac build before implementing VM functionality.
-- [ ] Add TestFlight archive/export/upload commands and documentation for macOS.
+- [x] Verify the Mac App Store distribution profile/archive authorizes the Virtualization entitlement; the distribution archive/export uploaded successfully and `tf-mac-archive` verified the signed archived app retains it.
+- [x] Archive and validate a native Mac build before implementing VM functionality.
+- [x] Add TestFlight archive/export/upload commands and documentation for macOS (`make tf-mac*`, `README.testflight.md`).
 - [ ] Record any App Store Connect or App Review response about the entitlement.
 
-## Virtualization (explicitly deferred)
+## Virtualization
 
-- [ ] Do not implement until the native app foundation and entitlement distribution check are complete.
-- [ ] Later: design Linux boot artifacts, storage lifecycle, CPU architecture handling, userspace packet transport, VM state, and recovery.
+- [x] Do not implement until the native app foundation and entitlement distribution check are complete (the native TestFlight upload now proves distribution signing).
+- [x] Design the first prototype's Linux boot artifacts, storage lifecycle, and CPU architecture handling: cached ARM64 Alpine ISO; disposable EFI state; Apple silicon only; no persistent guest disk.
+- [ ] Design/implement the production userspace packet transport, persistent VM state (if desired), and recovery. The current experimental VM is intentionally disposable and uses `VZNATNetworkDeviceAttachment` until the TailscaleKit bridge exists.
 
 ## Questions to batch for the owner
 

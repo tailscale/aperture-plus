@@ -77,7 +77,10 @@ struct TabbedBrowserView: View {
             }
         }
         .sheet(isPresented: $showingTabOverview) {
-            TabOverview(workspaceManager: workspaceManager)
+            TabOverview(
+                workspaceManager: workspaceManager,
+                pinnedWorkspaceID: pinnedWorkspaceID
+            )
         }
         .sheet(isPresented: $showingSettings) {
             if let ws = presentedWorkspace {
@@ -203,6 +206,13 @@ private struct BrowserRootContent: View {
                     // sibling because the top bar never needs to follow the
                     // software keyboard.
                     VStack(spacing: 0) {
+#if os(macOS)
+                        // Native Mac windows are the workspace switcher, but
+                        // tabs remain browser-local and deserve persistent,
+                        // pointer-friendly desktop presentation.
+                        TabBar(tabManager: tabManager,
+                               onNewChat: { tabManager.openChatTab() })
+#endif
                         browserToolbar
                         browserContent
                             .simultaneousGesture(TapGesture().onEnded {
@@ -250,6 +260,10 @@ private struct BrowserRootContent: View {
         .sheet(isPresented: $showingLogs) {
             LogViewer(dismissAction: { showingLogs = false })
         }
+#if os(macOS)
+        .focusedSceneValue(\.focusAddressRequested, $addressFocusRequested)
+        .focusedSceneValue(\.showLogsRequested, $showingLogs)
+#endif
         .sheet(isPresented: $showingBookmarks) {
             BookmarksSheet(homePage: workspace.homePage) { bookmark in
                 if let url = URL(string: bookmark.url) {

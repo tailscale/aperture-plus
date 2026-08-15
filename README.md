@@ -27,13 +27,14 @@ See **Settings → Routing** in the app to view the live rules and test any host
 ## Supported platforms
 
 - **iPhone and iPad** (`TARGETED_DEVICE_FAMILY = 1,2`), deployment target iOS 26.0.
-- **Native macOS foundation**, deployment target macOS 26.0. The `ApertureMac`
+- **Native macOS app**, deployment target macOS 26.0. The `ApertureMac`
   target builds and launches the shared browser/workspace implementation using
-  native AppKit WebKit bridges. Desktop-specific UI polish is in progress; see
-  [`TODO.mac.md`](TODO.mac.md).
-- The native Mac app is sandboxed and already carries the
-  `com.apple.security.virtualization` entitlement for a future pure-Linux guest.
-  It contains **no virtualization implementation yet**.
+  native AppKit WebKit bridges, workspace windows, desktop tabs, and menus.
+  Remaining polish is tracked in [`TODO.mac.md`](TODO.mac.md).
+- The native Mac app is sandboxed and carries the
+  `com.apple.security.virtualization` entitlement. An explicitly experimental,
+  disposable ARM64 Alpine VM prototype is available from File → New VM; it
+  currently uses Apple NAT while workspace-owned tailnet bridging is developed.
 
 ## Requirements
 

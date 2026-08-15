@@ -177,6 +177,37 @@ struct CompactBrowserToolbar: View {
             .accessibilityLabel("Tabs")
 
 #if os(macOS)
+            Menu {
+                Button {
+                    onAddBookmark()
+                } label: {
+                    Label("Add Bookmark", systemImage: "bookmark")
+                }
+                .accessibilityIdentifier("add-bookmark-button")
+                Button {
+                    onBookmarks()
+                } label: {
+                    Label("Bookmarks", systemImage: "book")
+                }
+                Divider()
+                Button {
+                    onLogs()
+                } label: {
+                    Label("Logs", systemImage: "doc.text.magnifyingglass")
+                }
+                Button {
+                    onSettings()
+                } label: {
+                    Label("Workspace Settings", systemImage: "gearshape")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 18))
+                    .frame(width: 28, height: 28)
+            }
+            .accessibilityIdentifier("more-menu-button")
+            .accessibilityLabel("More")
+
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 16))

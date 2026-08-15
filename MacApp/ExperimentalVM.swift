@@ -4,6 +4,15 @@ import Foundation
 import SwiftUI
 import Virtualization
 
+/// Value carried by a VM window. Retaining the owning workspace ID now makes
+/// the ownership decision explicit and gives the future TailscaleKit Ethernet
+/// bridge the exact existing node it must use, rather than creating a second
+/// tsnet identity. The VM UUID keeps every disposable window independent.
+struct ExperimentalVMRequest: Codable, Hashable {
+    let id: UUID
+    let workspaceID: UUID
+}
+
 /// Disposable Linux VM prototype. Each window owns one controller and all of
 /// its files live under a unique temporary directory. Closing the window stops
 /// the VM and removes that directory; there is intentionally no saved state or
@@ -20,34 +29,34 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
     }
 
     @Published var phase: Phase = .preparing
-        @Published var virtualMachine: VZVirtualMachine?
-        @Published var consoleText = ""
+    @Published var virtualMachine: VZVirtualMachine?
+    @Published var consoleText = ""
 
-        fileprivate let id: UUID
-        private let directory: URL
-        private var downloadTask: Task<Void, Never>?
-        private var consoleOutput: Pipe?
+    fileprivate let id: UUID
+    private let directory: URL
+    private var downloadTask: Task<Void, Never>?
+    private var consoleOutput: Pipe?
 
-        // Small ARM64 EFI-bootable Linux image. It is cached once outside the
-        // disposable per-VM directory; VM state and disks are never retained.
-        private static let isoURL = URL(string: "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-virt-3.22.2-aarch64.iso")!
-        private static let isoName = "alpine-virt-3.22.2-aarch64.iso"
-        private static var cacheDirectory: URL {
-            // Use a stable, bundle-scoped cache location. `URLSession.download`
-            // writes to a temporary file, then this survives subsequent VMs.
-            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-                .appending(path: "io.tailscale.Aperture/ExperimentalVM",
-                           directoryHint: .isDirectory)
-        }
+    // Small ARM64 EFI-bootable Linux image. It is cached once outside the
+    // disposable per-VM directory; VM state and disks are never retained.
+    private static let isoURL = URL(string: "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-virt-3.22.2-aarch64.iso")!
+    private static let isoName = "alpine-virt-3.22.2-aarch64.iso"
+    private static var cacheDirectory: URL {
+        // Use a stable, bundle-scoped cache location. `URLSession.download`
+        // writes to a temporary file, then this survives subsequent VMs.
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: "io.tailscale.Aperture/ExperimentalVM",
+                       directoryHint: .isDirectory)
+    }
 
-        init(id: UUID) {
-            self.id = id
-            directory = FileManager.default.temporaryDirectory
-                .appending(path: "ApertureVM-\(id.uuidString)", directoryHint: .isDirectory)
-            super.init()
-        }
+    init(id: UUID) {
+        self.id = id
+        directory = FileManager.default.temporaryDirectory
+            .appending(path: "ApertureVM-\(id.uuidString)", directoryHint: .isDirectory)
+        super.init()
+    }
 
-        func start() {
+    func start() {
             guard downloadTask == nil, virtualMachine == nil else { return }
             downloadTask = Task { [weak self] in
                 guard let self else { return }
@@ -156,7 +165,7 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
             return config
         }
 
-        nonisolated func guestDidStop(_ virtualMachine: VZVirtualMachine) {
+    nonisolated func guestDidStop(_ virtualMachine: VZVirtualMachine) {
             Task { @MainActor [weak self] in
                 self?.phase = .stopped
                 self?.virtualMachine = nil
@@ -164,8 +173,8 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
             }
         }
 
-        nonisolated func virtualMachine(_ virtualMachine: VZVirtualMachine,
-                                        didStopWithError error: any Error) {
+    nonisolated func virtualMachine(_ virtualMachine: VZVirtualMachine,
+                                    didStopWithError error: any Error) {
             Task { @MainActor [weak self] in
                 self?.phase = .failed(error.localizedDescription)
                 self?.virtualMachine = nil
@@ -173,14 +182,14 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
             }
         }
 
-        private func cleanup() {
+    private func cleanup() {
             virtualMachine = nil
             consoleOutput?.fileHandleForReading.readabilityHandler = nil
             consoleOutput = nil
             cleanupFilesOnly()
         }
 
-        private func cleanupFilesOnly() {
+    private func cleanupFilesOnly() {
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -205,10 +214,15 @@ final class ExperimentalVMController: NSObject, ObservableObject, VZVirtualMachi
 
 struct ExperimentalVMView: View {
     let id: UUID
+    /// Retains the owning workspace (and therefore its existing tsnet node)
+    /// for the VM window's lifetime. The NAT prototype does not consume it yet;
+    /// the userspace bridge will be handed `workspace.manager`/its node.
+    let workspace: Workspace?
     @StateObject private var controller: ExperimentalVMController
 
-    init(id: UUID) {
+    init(id: UUID, workspace: Workspace?) {
         self.id = id
+        self.workspace = workspace
         _controller = StateObject(wrappedValue: ExperimentalVMController(id: id))
     }
 
@@ -221,10 +235,15 @@ struct ExperimentalVMView: View {
             statusOverlay
         }
         .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle("Linux VM (Experimental)")
+        .navigationTitle(vmTitle)
         .onAppear { controller.start() }
         .onDisappear { controller.stop() }
         .accessibilityIdentifier("experimental-vm-view")
+    }
+
+    private var vmTitle: String {
+        guard let workspace else { return "Linux VM (Experimental)" }
+        return "Linux VM — \(workspace.identifier) (Experimental)"
     }
 
     @ViewBuilder

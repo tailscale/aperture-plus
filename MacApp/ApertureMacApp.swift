@@ -7,10 +7,8 @@ import TailscaleKit
 /// Native macOS entry point. Each persisted Tailscale workspace is represented
 /// by one value-addressed native window. Closing a window releases only that
 /// window; the workspace/node/session remains available from the Window menu.
-///
-/// This target intentionally contains no Virtualization framework code or UI
-/// yet. Its signed product already carries the entitlement so distribution can
-/// be validated before VM implementation starts.
+/// Experimental disposable Linux VM windows are separate scenes and currently
+/// use Apple's NAT while the workspace-owned userspace bridge is developed.
 
 /// Ensures a workspace window is open on launch even when the app is launched
 /// non-frontmost (XCUITest's `app.launch()`, `open -g`), where SwiftUI scenes
@@ -116,10 +114,19 @@ struct ApertureMacApp: App {
             }
         }
 
-        WindowGroup("Linux VM (Experimental)", id: "experimental-vm", for: UUID.self) { vmID in
-            ExperimentalVMView(id: vmID.wrappedValue)
+        WindowGroup("Linux VM (Experimental)", id: "experimental-vm", for: ExperimentalVMRequest.self) { request in
+            ExperimentalVMView(
+                id: request.wrappedValue.id,
+                workspace: workspaceManager.workspace(
+                    id: request.wrappedValue.workspaceID
+                )
+            )
         } defaultValue: {
-            UUID()
+            ExperimentalVMRequest(
+                id: UUID(),
+                workspaceID: workspaceManager.activeWorkspace?.id
+                    ?? workspaceManager.addWorkspace().id
+            )
         }
         .defaultSize(width: 960, height: 640)
         .restorationBehavior(.disabled)
@@ -167,9 +174,31 @@ private struct WorkspaceWindowRoot: View {
     }
 }
 
+private struct FocusAddressRequestedKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+private struct ShowLogsRequestedKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+extension FocusedValues {
+    var focusAddressRequested: Binding<Bool>? {
+        get { self[FocusAddressRequestedKey.self] }
+        set { self[FocusAddressRequestedKey.self] = newValue }
+    }
+
+    var showLogsRequested: Binding<Bool>? {
+        get { self[ShowLogsRequestedKey.self] }
+        set { self[ShowLogsRequestedKey.self] = newValue }
+    }
+}
+
 private struct MacWorkspaceCommands: Commands {
     @ObservedObject var workspaceManager: WorkspaceManager
     @Environment(\.openWindow) private var openWindow
+    @FocusedBinding(\.focusAddressRequested) private var focusAddressRequested
+    @FocusedBinding(\.showLogsRequested) private var showLogsRequested
 
     var body: some Commands {
         let _ = {
@@ -184,9 +213,61 @@ private struct MacWorkspaceCommands: Commands {
             .keyboardShortcut("n", modifiers: .command)
 
             Button("New VM (experimental)") {
-                openWindow(id: "experimental-vm", value: UUID())
+                let workspaceID = workspaceManager.activeWorkspace?.id
+                    ?? workspaceManager.addWorkspace().id
+                openWindow(
+                    id: "experimental-vm",
+                    value: ExperimentalVMRequest(id: UUID(), workspaceID: workspaceID)
+                )
             }
             // Deliberately no keyboard shortcut while VM support is experimental.
+        }
+
+        // The standard Window menu lists only windows that are currently open.
+        // Add every persisted workspace so a closed window can be recreated;
+        // passing the same value raises an already-open window instead.
+        CommandGroup(after: .newItem) {
+            Button("New Tab") {
+                workspaceManager.activeWorkspace?.tabManager.openChatTab()
+            }
+            .keyboardShortcut("t", modifiers: .command)
+            .disabled(workspaceManager.activeWorkspace?.tabManager.canOpenNewTab != true)
+
+            Button("Close Tab") {
+                workspaceManager.activeWorkspace?.tabManager.closeCurrentTab()
+            }
+            .keyboardShortcut("w", modifiers: .command)
+
+            Divider()
+
+            Button("Focus Location") {
+                focusAddressRequested = true
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(focusAddressRequested == nil)
+
+            Button("Reload Page") {
+                workspaceManager.activeWorkspace?.tabManager.currentTab?.viewModel.reload()
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            Button("Show Logs") {
+                showLogsRequested = true
+            }
+            .keyboardShortcut("l", modifiers: [.command, .option])
+            .disabled(showLogsRequested == nil)
+
+            Divider()
+
+            Button("Show Previous Tab") {
+                workspaceManager.activeWorkspace?.tabManager.selectPreviousTab()
+            }
+            .keyboardShortcut("[", modifiers: [.command, .shift])
+
+            Button("Show Next Tab") {
+                workspaceManager.activeWorkspace?.tabManager.selectNextTab()
+            }
+            .keyboardShortcut("]", modifiers: [.command, .shift])
         }
 
         // The standard Window menu lists only windows that are currently open.

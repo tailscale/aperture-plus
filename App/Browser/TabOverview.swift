@@ -13,12 +13,22 @@ import SwiftUI
 
 struct TabOverview: View {
     @ObservedObject var workspaceManager: WorkspaceManager
+    /// Native Mac windows pin their tab overview to that window's workspace.
+    /// iOS passes nil and retains its workspace selector/active-workspace flow.
+    var pinnedWorkspaceID: UUID? = nil
     @Environment(\.dismiss) private var dismiss
+
+    private var presentedWorkspace: Workspace? {
+        if let pinnedWorkspaceID {
+            return workspaceManager.workspace(id: pinnedWorkspaceID)
+        }
+        return workspaceManager.activeWorkspace
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let workspace = workspaceManager.activeWorkspace {
+                if let workspace = presentedWorkspace {
                     WorkspaceTabGrid(tabManager: workspace.tabManager) { tab in
                         workspace.tabManager.select(tab)
                         dismiss()
@@ -36,17 +46,19 @@ struct TabOverview: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
+#if canImport(UIKit)
                 ToolbarItem(placement: .principal) {
                     sessionMenu
                 }
+#endif
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        workspaceManager.activeWorkspace?.tabManager.openChatTab()
+                        presentedWorkspace?.tabManager.openChatTab()
                         dismiss()
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .disabled(workspaceManager.activeWorkspace?.tabManager.canOpenNewTab != true)
+                    .disabled(presentedWorkspace?.tabManager.canOpenNewTab != true)
                     .accessibilityIdentifier("new-chat-tab-button")
                     .accessibilityLabel("New Chat Tab")
                 }

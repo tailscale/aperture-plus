@@ -101,6 +101,25 @@ final class TabManager: ObservableObject {
         persist()
     }
 
+    func closeCurrentTab() {
+        guard let currentTab else { return }
+        closeTab(currentTab)
+    }
+
+    func selectPreviousTab() {
+        guard !tabs.isEmpty else { return }
+        selectedIndex = (selectedIndex - 1 + tabs.count) % tabs.count
+        unloadHiddenTabs()
+        persist()
+    }
+
+    func selectNextTab() {
+        guard !tabs.isEmpty else { return }
+        selectedIndex = (selectedIndex + 1) % tabs.count
+        unloadHiddenTabs()
+        persist()
+    }
+
     /// Called when its workspace leaves the visible pane.
     func unloadAllWebViews() {
         for tab in tabs { tab.unloadWebView() }
