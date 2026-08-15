@@ -152,6 +152,10 @@ enum WorkspaceStore {
         try? data.write(to: tabsURL(workspaceID), options: .atomic)
     }
 
+    static func removeTabs(_ workspaceID: UUID) {
+        try? FileManager.default.removeItem(at: tabsURL(workspaceID))
+    }
+
     // MARK: - Load / save
 
     /// On-disk envelope for `workspaces.json`.

@@ -876,12 +876,11 @@ final class ApertureUITests: XCTestCase {
             app.launchEnvironment["APERTURE_AUTHKEY"] = key
             app.launchEnvironment["APERTURE_EPHEMERAL"] = Self.resolvedTestEphemeral()
         }
-        // Reset the home page to the known default so connected tests are
-        // hermetic — a prior test (e.g. the persistence test) may have left a
-        // non-default value in UserDefaults, and the first tab always loads
-        // HomePage.standard.url, so a stale value would load the wrong URL.
-        // (Now per-workspace; `-UITestResetHomePage` resets them all.)
-        app.launchArguments += ["-UITestResetHomePage"]
+        // Reset both the configured home page and restored tab session so
+        // connected tests are hermetic. The two are deliberately independent
+        // in production: resetting only HomePage does not rewrite a persisted
+        // current tab left by an earlier bad-URL test.
+        app.launchArguments += ["-UITestResetHomePage", "-UITestResetTabs"]
         app.launch()
     }
 
