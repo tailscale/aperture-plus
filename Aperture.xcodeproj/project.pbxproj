@@ -7,26 +7,26 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C20F248B2EF1A0D300F57D67 /* TailscaleKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; };
-		C20F248D2EF1A0DF00F57D67 /* TailscaleKit.xcframework in CopyFiles */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000010000000000000001 /* TailscaleKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000030000000000000003 /* TailscaleKit.framework */; };
 		A10000020000000000000002 /* TailscaleKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A10000030000000000000003 /* TailscaleKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C20F248B2EF1A0D300F57D67 /* TailscaleKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; };
+		C20F248D2EF1A0DF00F57D67 /* TailscaleKit.xcframework in CopyFiles */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		F10000070000000000000007 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = C20F24732EF19A5900F57D67;
-			remoteInfo = Aperture;
-		};
 		B10000010000000000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A10000080000000000000008;
 			remoteInfo = ApertureMac;
+		};
+		F10000070000000000000007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C213B9832EE8BF80002D0531 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C20F24732EF19A5900F57D67;
+			remoteInfo = Aperture;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -55,31 +55,31 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A10000030000000000000003 /* TailscaleKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TailscaleKit.framework; path = ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework; sourceTree = "<group>"; };
+		A10000050000000000000005 /* AperturePlus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AperturePlus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000020000000000000002 /* ApertureMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TailscaleKit.xcframework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework"; sourceTree = "<group>"; };
-		A10000030000000000000003 /* TailscaleKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TailscaleKit.framework; path = "ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework"; sourceTree = "<group>"; };
-		A10000050000000000000005 /* Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20F24742EF19A5900F57D67 /* Aperture.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aperture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C22045AD2EF45E7000242E27 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = Info.plist; path = Aperture/Info.plist; sourceTree = "<group>"; };
 		C25B4D752EF5F507000539A5 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		F10000020000000000000002 /* ApertureUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B10000020000000000000002 /* ApertureMacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ApertureMacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A10000100000000000000010 /* Exceptions for "MacApp" folder in "ApertureMac" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = A10000080000000000000008 /* ApertureMac */;
-		};
 		A100000F000000000000000F /* Exceptions for "App" folder in "ApertureMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ApertureApp.swift,
+				Browser/ProxyBounceTestHarness.swift,
 				LaunchScreen.storyboard,
 				TimingHarness.swift,
-				Browser/ProxyBounceTestHarness.swift,
+			);
+			target = A10000080000000000000008 /* ApertureMac */;
+		};
+		A10000100000000000000010 /* Exceptions for "MacApp" folder in "ApertureMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
 			);
 			target = A10000080000000000000008 /* ApertureMac */;
 		};
@@ -106,6 +106,11 @@
 			path = MacApp;
 			sourceTree = "<group>";
 		};
+		B10000030000000000000003 /* MacUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MacUITests;
+			sourceTree = "<group>";
+		};
 		C20F24752EF19A5900F57D67 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -127,11 +132,6 @@
 			path = UITests;
 			sourceTree = "<group>";
 		};
-		B10000030000000000000003 /* MacUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = MacUITests;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -140,6 +140,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000010000000000000001 /* TailscaleKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000040000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,12 +163,6 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B10000040000000000000004 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -193,7 +194,7 @@
 			isa = PBXGroup;
 			children = (
 				C20F24742EF19A5900F57D67 /* Aperture.app */,
-				A10000050000000000000005 /* Aperture.app */,
+				A10000050000000000000005 /* AperturePlus.app */,
 				F10000020000000000000002 /* ApertureUITests.xctest */,
 				B10000020000000000000002 /* ApertureMacUITests.xctest */,
 			);
@@ -205,6 +206,7 @@
 			children = (
 				F10000010000000000000001 /* UITests */,
 				B10000030000000000000003 /* MacUITests */,
+				A10000030000000000000003 /* TailscaleKit.framework */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -233,9 +235,32 @@
 			name = ApertureMac;
 			packageProductDependencies = (
 			);
-			productName = Aperture;
-			productReference = A10000050000000000000005 /* Aperture.app */;
+			productName = AperturePlus;
+			productReference = A10000050000000000000005 /* AperturePlus.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B10000050000000000000005 /* ApertureMacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */;
+			buildPhases = (
+				B10000060000000000000006 /* Sources */,
+				B10000040000000000000004 /* Frameworks */,
+				B10000070000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B10000080000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B10000030000000000000003 /* MacUITests */,
+			);
+			name = ApertureMacUITests;
+			packageProductDependencies = (
+			);
+			productName = ApertureMacUITests;
+			productReference = B10000020000000000000002 /* ApertureMacUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		C20F24732EF19A5900F57D67 /* Aperture */ = {
 			isa = PBXNativeTarget;
@@ -281,23 +306,6 @@
 			);
 			productName = ApertureUITests;
 			productReference = F10000020000000000000002 /* ApertureUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
-		B10000050000000000000005 /* ApertureMacUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */;
-			buildPhases = (
-				B10000060000000000000006 /* Sources */,
-				B10000040000000000000004 /* Frameworks */,
-				B10000070000000000000007 /* Resources */,
-			);
-			buildRules = ();
-			dependencies = (B10000080000000000000008 /* PBXTargetDependency */,);
-			fileSystemSynchronizedGroups = (B10000030000000000000003 /* MacUITests */,);
-			name = ApertureMacUITests;
-			packageProductDependencies = ();
-			productName = ApertureMacUITests;
-			productReference = B10000020000000000000002 /* ApertureMacUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -352,6 +360,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000070000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C20F24722EF19A5900F57D67 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -366,16 +381,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B10000070000000000000007 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A10000090000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000060000000000000006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -396,24 +412,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B10000060000000000000006 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ();
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		F10000080000000000000008 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C20F24732EF19A5900F57D67 /* Aperture */;
-			targetProxy = F10000070000000000000007 /* PBXContainerItemProxy */;
-		};
 		B10000080000000000000008 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A10000080000000000000008 /* ApertureMac */;
 			targetProxy = B10000010000000000000001 /* PBXContainerItemProxy */;
+		};
+		F10000080000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C20F24732EF19A5900F57D67 /* Aperture */;
+			targetProxy = F10000070000000000000007 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -439,7 +449,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aperture+";
+				INFOPLIST_KEY_CFBundleName = AperturePlus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -448,7 +459,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
-				PRODUCT_NAME = Aperture;
+				PRODUCT_NAME = AperturePlus;
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -480,7 +491,8 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Aperture;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aperture+";
+				INFOPLIST_KEY_CFBundleName = AperturePlus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -489,7 +501,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture;
-				PRODUCT_NAME = Aperture;
+				PRODUCT_NAME = AperturePlus;
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -497,6 +509,40 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		B10000090000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = ApertureMac;
+			};
+			name = Debug;
+		};
+		B100000B000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = W5364U7YZB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = ApertureMac;
 			};
 			name = Release;
 		};
@@ -735,40 +781,6 @@
 			};
 			name = Release;
 		};
-		B10000090000000000000009 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = W5364U7YZB;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = ApertureMac;
-			};
-			name = Debug;
-		};
-		B100000B000000000000000B /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = W5364U7YZB;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				PRODUCT_BUNDLE_IDENTIFIER = io.tailscale.Aperture.MacUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = ApertureMac;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -777,6 +789,15 @@
 			buildConfigurations = (
 				A100000B000000000000000B /* Debug */,
 				A100000C000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000090000000000000009 /* Debug */,
+				B100000B000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -804,15 +825,6 @@
 			buildConfigurations = (
 				F100000A000000000000000A /* Debug */,
 				F100000B000000000000000B /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		B100000A000000000000000A /* Build configuration list for PBXNativeTarget "ApertureMacUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B10000090000000000000009 /* Debug */,
-				B100000B000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

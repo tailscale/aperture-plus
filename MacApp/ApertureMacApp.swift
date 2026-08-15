@@ -62,7 +62,7 @@ struct ApertureMacApp: App {
 
     var body: some Scene {
         WindowGroup(
-            "Aperture",
+            "Aperture+",
             id: "workspace",
             for: UUID.self
         ) { workspaceID in

@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 DERIVED="${MAC_DERIVED:-build/DerivedDataMac}"
-APP="$DERIVED/Build/Products/Debug/Aperture.app"
+APP="$DERIVED/Build/Products/Debug/AperturePlus.app"
 FRAMEWORK="$APP/Contents/Frameworks/TailscaleKit.framework"
 ENTITLEMENTS="MacApp/ApertureMac.entitlements"
 LOG="build/mac-smoke.log"
@@ -21,7 +21,7 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO \
   PRODUCT_BUNDLE_IDENTIFIER=io.tailscale.Aperture.SmokeTest
 
-test -x "$APP/Contents/MacOS/Aperture"
+test -x "$APP/Contents/MacOS/AperturePlus"
 test -d "$FRAMEWORK"
 
 # Sign inside-out, matching Xcode's normal embed-and-sign behavior.
@@ -43,7 +43,7 @@ test "$actual" = true || {
 # any VM functionality.
 : > "$LOG"
 smoke_home="$(mktemp -d)"
-HOME="$smoke_home" "$APP/Contents/MacOS/Aperture" \
+HOME="$smoke_home" "$APP/Contents/MacOS/AperturePlus" \
   -UITestResetWorkspaces -UITestResetLogin >"$LOG" 2>&1 &
 pid=$!
 cleanup() {

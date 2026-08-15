@@ -20,6 +20,7 @@ DERIVED      := build/DerivedData
 MAC_SCHEME   := ApertureMac
 MAC_DERIVED  := build/DerivedDataMac
 MAC_SIGNED_DERIVED := build/DerivedDataMacSigned
+MAC_APP_NAME := AperturePlus.app
 
 XCFRAMEWORK  := ThirdParty/libtailscale/swift/build/Build/Products/Release-iphonefat/TailscaleKit.xcframework
 MAC_FRAMEWORK := ThirdParty/libtailscale/swift/build/Build/Products/Release/TailscaleKit.framework
@@ -126,7 +127,7 @@ mac-app-signed: mac-framework  ## Development-sign native Mac app and verify vir
 		-allowProvisioningUpdates | $(XCPRETTIFIER)
 	@entitlements="$$(mktemp)"; \
 	 trap 'rm -f "$$entitlements"' EXIT; \
-	 codesign -d --entitlements :- "$(MAC_SIGNED_DERIVED)/Build/Products/Debug/Aperture.app" >"$$entitlements" 2>/dev/null; \
+	 codesign -d --entitlements :- "$(MAC_SIGNED_DERIVED)/Build/Products/Debug/$(MAC_APP_NAME)" >"$$entitlements" 2>/dev/null; \
 	 test "$$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.virtualization' "$$entitlements")" = true || { \
 	   echo "error: development-signed Mac app lacks virtualization entitlement" >&2; exit 1; \
 	 }; \
@@ -347,7 +348,7 @@ tf-mac-archive: mac-framework  ## Archive a native macOS Release build for App S
 	@echo "::: Verifying virtualization entitlement survived archiving :::"
 	@entitlements="$$(mktemp)"; \
 	 trap 'rm -f "$$entitlements"' EXIT; \
-	 codesign -d --entitlements :- "$(MAC_ARCHIVE)/Products/Applications/Aperture.app" >"$$entitlements" 2>/dev/null; \
+	 codesign -d --entitlements :- "$(MAC_ARCHIVE)/Products/Applications/$(MAC_APP_NAME)" >"$$entitlements" 2>/dev/null; \
 	 test "$$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.virtualization' "$$entitlements" 2>/dev/null)" = true || { \
 	   echo "error: archived Mac app lacks the com.apple.security.virtualization entitlement" >&2; \
 	   echo "       (ApertureMac must keep it for Virtualization use; see CLAUDE.md)" >&2; exit 1; \

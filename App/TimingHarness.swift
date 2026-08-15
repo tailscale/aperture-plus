@@ -31,7 +31,6 @@
 //  ConnectionTypeResolver. See `runPeerMode` and timing/README.md.
 //    -TimingPeer ai [-TimingPeerWatch 30] [-TimingPeerTraffic 12] [-TimingPeerUseUp]
 //
-
 import Foundation
 import OSLog
 import SwiftUI

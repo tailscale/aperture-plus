@@ -14,7 +14,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 
 ## Project and dependency foundation
 
-- [x] Add a native macOS application target and shared scheme (`ApertureMac`; product name remains Aperture).
+- [x] Add a native macOS application target and shared scheme (`ApertureMac`; product name is `AperturePlus`, with the user-facing display name `Aperture+`).
 - [x] Add a macOS entitlements file containing the Virtualization entitlement.
 - [x] Verify the built macOS app's signed entitlements, not just the source plist (`make test-mac` ad-hoc signs and inspects it).
 - [x] Build/link the native macOS `TailscaleKit.framework` from the existing libtailscale macOS scheme.

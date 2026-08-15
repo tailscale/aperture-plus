@@ -2,10 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- CFBundleDisplayName must match the iOS app (Aperture+), not "Aperture".
+	     App Store Connect enforces display-name uniqueness across the whole
+	     store; "Aperture" is taken (Apple's photo app), so the iOS app ships as
+	     "Aperture+". The native Mac build must use the same name or its
+	     processing fails with ITMS-90129 ("bundle name or display name that is
+	     already taken") and never appears as an installable TestFlight build.
+	     The INFOPLIST_KEY_CFBundleDisplayName build setting in project.pbxproj
+	     mirrors this and wins at build time when GENERATE_INFOPLIST_FILE=YES. -->
 	<key>CFBundleDisplayName</key>
-	<string>Aperture</string>
+	<string>Aperture+</string>
 	<key>CFBundleName</key>
-	<string>Aperture</string>
+	<string>AperturePlus</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<!-- Aperture is a browser for tailnet services, which commonly use plain

@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A10000080000000000000008"
-               BuildableName = "Aperture.app"
+               BuildableName = "AperturePlus.app"
                BlueprintName = "ApertureMac"
                ReferencedContainer = "container:Aperture.xcodeproj">
             </BuildableReference>
@@ -56,7 +56,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000080000000000000008"
-            BuildableName = "Aperture.app"
+            BuildableName = "AperturePlus.app"
             BlueprintName = "ApertureMac"
             ReferencedContainer = "container:Aperture.xcodeproj">
          </BuildableReference>
@@ -73,7 +73,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A10000080000000000000008"
-            BuildableName = "Aperture.app"
+            BuildableName = "AperturePlus.app"
             BlueprintName = "ApertureMac"
             ReferencedContainer = "container:Aperture.xcodeproj">
          </BuildableReference>
