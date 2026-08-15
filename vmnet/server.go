@@ -52,6 +52,12 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.Mutex
+
+	// UDP sessions are bridge-local. Aperture can run several VM windows
+	// against one workspace concurrently; process-global sessions would collide
+	// when two guests chose the same ephemeral source port and destination.
+	udpSessions   sync.Map
+	udpCleanupRun sync.Once
 }
 
 // NewServer constructs a bridge around an already-running tsnet dialer.

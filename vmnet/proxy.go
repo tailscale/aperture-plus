@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/netip"
-	"sync"
 	"time"
 
 	"github.com/google/gopacket"
@@ -151,11 +150,6 @@ type udpSession struct {
 	lastUsed time.Time
 }
 
-var (
-	udpSessions   sync.Map // key: string "srcPort-dstAddr:dstPort" -> *udpSession
-	udpCleanupRun sync.Once
-)
-
 // handleUDP proxies a single UDP packet through tsnet.
 func (s *Server) handleUDP(srcPort, dstPort uint16, srcIP, dstIP netip.Addr, payload []byte) error {
 	if s.subnet.Contains(dstIP) {
@@ -167,18 +161,18 @@ func (s *Server) handleUDP(srcPort, dstPort uint16, srcIP, dstIP netip.Addr, pay
 	key := fmt.Sprintf("%d-%s", srcPort, dest)
 
 	// Start cleanup goroutine on first use.
-	udpCleanupRun.Do(func() {
+	s.udpCleanupRun.Do(func() {
 		go s.udpSessionCleaner()
 	})
 
 	// Reuse existing session if available.
-	if val, ok := udpSessions.Load(key); ok {
+	if val, ok := s.udpSessions.Load(key); ok {
 		sess := val.(*udpSession)
 		sess.lastUsed = time.Now()
 		if _, err := sess.conn.Write(payload); err != nil {
 			// Session stale, remove and re-dial.
 			sess.conn.Close()
-			if _, loaded := udpSessions.LoadAndDelete(key); loaded {
+			if _, loaded := s.udpSessions.LoadAndDelete(key); loaded {
 				metricUDPSessionsOpen.Add(-1)
 			}
 		} else {
@@ -198,7 +192,7 @@ func (s *Server) handleUDP(srcPort, dstPort uint16, srcIP, dstIP netip.Addr, pay
 	}
 
 	sess := &udpSession{conn: conn, lastUsed: time.Now()}
-	if _, loaded := udpSessions.LoadOrStore(key, sess); !loaded {
+	if _, loaded := s.udpSessions.LoadOrStore(key, sess); !loaded {
 		metricUDPSessionsOpen.Add(1)
 		metricUDPSessionsTotal.Add(1)
 	}
@@ -206,7 +200,7 @@ func (s *Server) handleUDP(srcPort, dstPort uint16, srcIP, dstIP netip.Addr, pay
 	if _, err := conn.Write(payload); err != nil {
 		log.Printf("udp-proxy: write %s: %v", dest, err)
 		conn.Close()
-		if _, loaded := udpSessions.LoadAndDelete(key); loaded {
+		if _, loaded := s.udpSessions.LoadAndDelete(key); loaded {
 			metricUDPSessionsOpen.Add(-1)
 		}
 		return nil
@@ -256,11 +250,11 @@ func (s *Server) udpSessionCleaner() {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			udpSessions.Range(func(key, val any) bool {
+			s.udpSessions.Range(func(key, val any) bool {
 				sess := val.(*udpSession)
 				if time.Since(sess.lastUsed) > 30*time.Second {
 					sess.conn.Close()
-					if _, loaded := udpSessions.LoadAndDelete(key); loaded {
+					if _, loaded := s.udpSessions.LoadAndDelete(key); loaded {
 						metricUDPSessionsOpen.Add(-1)
 						metricUDPSessionsEvicted.Add(1)
 					}
