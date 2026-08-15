@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- app-store-connect = distribution signing for the native macOS app
+	     (ApertureMac) -> App Store Connect / TestFlight. Use this with
+	     `make tf-mac-archive` / `make tf-mac-export` / `make tf-mac-upload`.
+
+	     The native Mac build is a SEPARATE platform track from the iOS build
+	     under the same app record (io.tailscale.Aperture). It is NOT the
+	     "Designed for iPad on Mac" availability of the iOS app — that is an
+	     App Store Connect availability switch, not a build setting. See
+	     README.testflight.md ("Native macOS track vs. the iOS app's
+	     Designed-for-iPad-on-Mac availability") for why the two must not
+	     share a build number and how availability interacts.
+
+	     macOS app-store export produces a .pkg (an Installer package), not
+	     an .ipa; `make tf-mac-upload` uploads that .pkg with
+	     `xcrun altool --upload-app -t macos`. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>W5364U7YZB</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>

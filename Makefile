@@ -268,6 +268,142 @@ tf:  ## Archive -> export -> upload to TestFlight (fails fast if no ASC creds)
 	@$(MAKE) --no-print-directory tf-archive
 	@$(MAKE) --no-print-directory tf-export
 	@$(MAKE) --no-print-directory tf-upload
+	@echo
+	@echo "::: iOS build uploaded. For the NATIVE macOS app (ApertureMac), run: make tf-mac :::"
+	@echo "::: (The iOS upload above does NOT include a native Mac build; it may still be :::"
+	@echo ":::  installable on Apple-silicon Macs via 'Designed for iPad' availability in :::"
+	@echo ":::  App Store Connect — a separate, availability-switch concern.) :::"
+
+# ----- native macOS TestFlight / App Store -----
+# `make tf` above uploads the iOS app (Aperture). The native macOS app
+# (ApertureMac) is a SEPARATE platform track under the same app record
+# (io.tailscale.Aperture) and needs its own archive -> export -> upload.
+#
+# This is NOT Mac Catalyst and NOT the iOS app's 'Designed for iPad on Mac'
+# availability: the native Mac build is SDKROOT=macosx with app-sandbox,
+# hardened runtime, and the com.apple.security.virtualization entitlement.
+# See README.testflight.md ('Native macOS track vs. the iOS app's
+# Designed-for-iPad-on-Mac availability') for why the two tracks must not share
+# a CFBundleVersion and how App Store Connect availability interacts.
+#
+# macOS app-store export produces a .pkg (not an .ipa); altool uploads it with
+# `-t macos` (vs `-t ios` for the iOS flow). Signing needs an Apple
+# Distribution cert for Mac + a Mac App Store provisioning profile (automatic
+# signing fetches both via -allowProvisioningUpdates if a Developer Portal
+# session is valid). The virtualization entitlement requires a profile that
+# permits it; tf-mac-archive asserts it survives archiving (mirrors the
+# mac-app-signed guard) so a Mac tester is guaranteed the
+# sandboxed+virtualization build, never an iOS-on-Mac one.
+MAC_ARCHIVE      := build/ApertureMac.xcarchive
+MAC_APPSTORE_DIR := build/mac-appstore
+MAC_EXPORT_OPTS  := ExportOptions.MacAppStore.plist
+
+# Native macOS build number. Distinct from the iOS build number (the bare git
+# commit count) so the two platform tracks never share a CFBundleVersion in
+# App Store Connect — a shared number makes the TestFlight build list ambiguous
+# (two builds with the same number, one per platform) and can confuse platform
+# availability state. Defaults to git commit count + a large offset so it can't
+# collide with the iOS track for the foreseeable life of this repo. Override
+# with MAC_BUILD_NUMBER=N (e.g. to re-upload the same commit).
+MAC_BUILD_OFFSET := 100000
+ifndef MAC_BUILD_NUMBER
+  MAC_GIT_COUNT := $(shell git rev-list --count HEAD 2>/dev/null)
+  ifneq ($(strip $(MAC_GIT_COUNT)),)
+    MAC_BUILD_NUMBER := $(shell echo $$(($(MAC_GIT_COUNT) + $(MAC_BUILD_OFFSET))))
+  endif
+endif
+MAC_BUILD_NUM_FLAG :=
+ifneq ($(strip $(MAC_BUILD_NUMBER)),)
+  MAC_BUILD_NUM_FLAG := CURRENT_PROJECT_VERSION=$(MAC_BUILD_NUMBER)
+endif
+
+.PHONY: tf-mac-archive
+tf-mac-archive: mac-framework  ## Archive a native macOS Release build for App Store / TestFlight
+	@./scripts/unlock-keychain.sh
+	@echo
+	@echo "::: Archiving ApertureMac for App Store distribution (Release, native macOS) :::"
+	# Pin to ARCHS=arm64. The native TailscaleKit.framework is arm64-only
+	# (libtailscale `make macos` builds for the host arch only — no universal
+	# target exists), so an x86_64 slice would have no framework to link/import
+	# and every TailscaleKit symbol becomes "cannot find ... in scope".
+	#
+	# Note: the destination's arch=arm64 alone is NOT enough for an archive —
+	# xcodebuild resolves ARCHS from the project for the archive action, and the
+	# Release config has no ONLY_ACTIVE_ARCH=YES (only Debug does, which is why
+	# `mac-app`/`mac-app-signed` build arm64-only). Without an explicit ARCHS
+	# override, a generic/platform=macOS archive builds universal arm64+x86_64
+	# and the x86_64 compile fails on the missing framework slice. Passing
+	# ARCHS=arm64 as a build setting is what actually collapses it to arm64.
+	# arm64-only Mac apps are accepted by the Mac App Store / TestFlight.
+	$(XCB) archive \
+		-project $(PROJECT) -scheme $(MAC_SCHEME) \
+		-configuration Release \
+		-destination 'generic/platform=macOS' \
+		-archivePath $(MAC_ARCHIVE) \
+		-derivedDataPath $(MAC_DERIVED) \
+		-allowProvisioningUpdates $(MAC_BUILD_NUM_FLAG) \
+		ARCHS=arm64 | $(XCPRETTIFIER)
+	@echo
+	@echo "::: Verifying virtualization entitlement survived archiving :::"
+	@entitlements="$$(mktemp)"; \
+	 trap 'rm -f "$$entitlements"' EXIT; \
+	 codesign -d --entitlements :- "$(MAC_ARCHIVE)/Products/Applications/Aperture.app" >"$$entitlements" 2>/dev/null; \
+	 test "$$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.virtualization' "$$entitlements" 2>/dev/null)" = true || { \
+	   echo "error: archived Mac app lacks the com.apple.security.virtualization entitlement" >&2; \
+	   echo "       (ApertureMac must keep it for Virtualization use; see CLAUDE.md)" >&2; exit 1; \
+	 }; \
+	 echo "::: archived Mac app retains virtualization entitlement :::"
+
+.PHONY: tf-mac-export
+tf-mac-export:  ## Export a native macOS App Store .pkg from build/ApertureMac.xcarchive -> build/mac-appstore/
+	@./scripts/unlock-keychain.sh
+	@echo
+	@echo "::: Exporting native macOS App Store PKG -> $(MAC_APPSTORE_DIR)/ :::"
+	rm -rf $(MAC_APPSTORE_DIR)
+	xcodebuild -exportArchive \
+		-archivePath $(MAC_ARCHIVE) \
+		-exportPath $(MAC_APPSTORE_DIR) \
+		-exportOptionsPlist $(MAC_EXPORT_OPTS) \
+		-allowProvisioningUpdates
+	@echo
+	@echo "✅ App Store PKG: $$(ls -1 $(MAC_APPSTORE_DIR)/*.pkg 2>/dev/null | head -1)"
+
+.PHONY: tf-mac-validate
+tf-mac-validate:  ## Validate the native macOS App Store .pkg with altool (needs ASC_* creds)
+	@PPATH=$$(ls -1 $(MAC_APPSTORE_DIR)/*.pkg 2>/dev/null | head -1); \
+	 [ -n "$$PPATH" ] || { echo "❌ No PKG in $(MAC_APPSTORE_DIR)/ — run 'make tf-mac-archive tf-mac-export' first."; exit 1; }; \
+	 [ -f "$(APERTURE_TF_ENV)" ] && { set -a; . "$(APERTURE_TF_ENV)"; set +a; }; \
+	 APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh; \
+	 if [ -n "$$ASC_KEY_ID" ] && [ -n "$$ASC_ISSUER_ID" ]; then \
+	   AUTH="--apiKey $$ASC_KEY_ID --apiIssuer $$ASC_ISSUER_ID"; \
+	   [ -n "$$ASC_KEY_PATH" ] && AUTH="$$AUTH --apiKey-key-path $$ASC_KEY_PATH"; \
+	 else \
+	   AUTH="--username $$ASC_USERNAME --password $$ASC_PASSWORD"; \
+	 fi; \
+	 echo "Validating $$PPATH ..."; \
+	 xcrun altool --validate-app -f "$$PPATH" -t macos $$AUTH
+
+.PHONY: tf-mac-upload
+tf-mac-upload:  ## Upload the native macOS App Store .pkg to App Store Connect (TestFlight)
+	@PPATH=$$(ls -1 $(MAC_APPSTORE_DIR)/*.pkg 2>/dev/null | head -1); \
+	 [ -n "$$PPATH" ] || { echo "❌ No PKG in $(MAC_APPSTORE_DIR)/ — run 'make tf-mac-archive tf-mac-export' first."; exit 1; }; \
+	 [ -f "$(APERTURE_TF_ENV)" ] && { set -a; . "$(APERTURE_TF_ENV)"; set +a; }; \
+	 APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh; \
+	 if [ -n "$$ASC_KEY_ID" ] && [ -n "$$ASC_ISSUER_ID" ]; then \
+	   AUTH="--apiKey $$ASC_KEY_ID --apiIssuer $$ASC_ISSUER_ID"; \
+	   [ -n "$$ASC_KEY_PATH" ] && AUTH="$$AUTH --apiKey-key-path $$ASC_KEY_PATH"; \
+	 else \
+	   AUTH="--username $$ASC_USERNAME --password $$ASC_PASSWORD"; \
+	 fi; \
+	 echo "Uploading $$PPATH to App Store Connect ..."; \
+	 xcrun altool --upload-app -f "$$PPATH" -t macos $$AUTH --output-format json
+
+.PHONY: tf-mac
+tf-mac:  ## Native macOS: archive -> export -> upload to TestFlight (fails fast if no ASC creds)
+	@APERTURE_TF_ENV="$(APERTURE_TF_ENV)" ./scripts/tf-check-creds.sh
+	@$(MAKE) --no-print-directory tf-mac-archive
+	@$(MAKE) --no-print-directory tf-mac-export
+	@$(MAKE) --no-print-directory tf-mac-upload
 
 # ----- test -----
 # An auth key automates login on a fresh sim so the connected tests run.
@@ -333,7 +469,8 @@ look:  ## Screenshot the booted sim + describe it with a vision sub-pi (ask Q=..
 .PHONY: clean
 clean:  ## Remove app build artifacts (keeps the libtailscale xcframework)
 	@echo "::: Cleaning app build artifacts :::"
-	rm -rf $(DERIVED) $(MAC_DERIVED) $(MAC_SIGNED_DERIVED) $(ARCHIVE) $(IPA_DIR)
+	rm -rf $(DERIVED) $(MAC_DERIVED) $(MAC_SIGNED_DERIVED) $(ARCHIVE) $(IPA_DIR) \
+		$(IPA_APPSTORE_DIR) $(MAC_ARCHIVE) $(MAC_APPSTORE_DIR)
 
 .PHONY: clean-all
 clean-all: clean  ## Also remove the libtailscale build artifacts (xcframework etc.)

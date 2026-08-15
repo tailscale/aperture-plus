@@ -14,15 +14,26 @@ is separate and documented in `README.md`.
 #   ~/private_keys/AuthKey_<KEYID>.p8
 # (App Store Connect → Users and Access → Integrations → App Store Connect API)
 
-# Build, sign, and upload to TestFlight in one shot:
+# Build, sign, and upload the iOS app to TestFlight in one shot:
 make tf ASC_KEY_ID=<KEYID> ASC_ISSUER_ID=<ISSUER_ID>
 
 # The build number (CFBundleVersion) defaults to the git commit count, so each
 # commit uploads as a fresh build with no bookkeeping. To force a number:
 make tf ASC_KEY_ID=<KEYID> ASC_ISSUER_ID=<ISSUER_ID> BUILD_NUMBER=30
+
+# Native macOS app (ApertureMac) — a SEPARATE platform track under the same
+# app record. Distinct build number (git count + 100000) so it never collides
+# with the iOS track. See the section below on the two tracks:
+make tf-mac ASC_KEY_ID=<KEYID> ASC_ISSUER_ID=<ISSUER_ID>
 ```
 
 ## Prerequisites (one-time, mostly in App Store Connect)
+
+> The iOS and native macOS flows share these prerequisites. The native macOS
+> flow additionally needs a **Mac App Store distribution profile** and a Mac
+> **Apple Distribution** signing identity (automatic signing fetches both via
+> `-allowProvisioningUpdates`); the `com.apple.security.virtualization`
+> entitlement must be permitted by that profile.
 
 1. **Paid Apple Developer membership** for team `W5364U7YZB` (Tailscale Inc.).
 2. **Sign the Paid Applications Agreement** — App Store Connect → Business →
@@ -62,6 +73,41 @@ make tf ASC_KEY_ID=<KEYID> ASC_ISSUER_ID=<ISSUER_ID> BUILD_NUMBER=30
    `make` command line or `export` them in your shell. The `.p8` key lives at
    `~/private_keys/AuthKey_<KEY_ID>.p8` (outside the repo, never committed).
 
+## Native macOS track vs. the iOS app's Designed-for-iPad-on-Mac availability
+
+`make tf` (iOS) and `make tf-mac` (native macOS) both upload under the same
+app record, `io.tailscale.Aperture`, but they land in **separate platform
+tracks** in App Store Connect: an iOS track (iPhone + iPad builds) and a macOS
+track (native Mac builds). The two do not overwrite each other.
+
+The subtlety is the iOS app's **"Designed for iPad on Mac"** availability — an
+App Store Connect availability *switch* (App → Pricing and Availability /
+App Availability → "Make this app available on macOS"), **not** a build
+setting. When that switch is ON:
+
+- If a **native macOS build** is present and processed, Mac TestFlight testers
+  get the native build (what you want).
+- If **no** native macOS build is available, Macs fall back to installing the
+  **iOS (Designed for iPad)** build — an iOS app running on macOS with **no
+  app sandbox and no `com.apple.security.virtualization` entitlement** (the
+  iOS target deliberately lacks these; see `CLAUDE.md`). A Mac tester in that
+  window is running an iOS-on-Mac build believing it's the native Mac app.
+
+This is why the two tracks must not share a `CFBundleVersion` (see below) and
+why `make tf-mac-archive` asserts the native build keeps the virtualization
+entitlement after archiving (mirrors the `mac-app-signed` guard) — so a Mac
+tester is guaranteed the sandboxed + virtualization-entitled build, never an
+iOS-on-Mac one masquerading as it.
+
+Recommended end state once you're shipping the native Mac app: keep Mac
+availability **ON** (so Macs can install at all) **and** keep a native macOS
+build present and processed (so App Store Connect serves the native build, not
+the Designed-for-iPad fallback). Do **not** set `SUPPORTS_MACCATALYST` /
+`SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD` on the iOS target to "fix" this — the
+Designed-for-iPad-on-Mac behavior is the availability switch, not a build
+setting, and per `CLAUDE.md` the iOS target must stay iOS-only (the native Mac
+experience lives in `ApertureMac`, never Catalyst).
+
 ## The make targets
 
 | Target | What it does |
@@ -71,15 +117,30 @@ make tf ASC_KEY_ID=<KEYID> ASC_ISSUER_ID=<ISSUER_ID> BUILD_NUMBER=30
 | `make tf-validate` | Validate the `.ipa` with `altool` (catches signing/entitlement issues pre-upload) |
 | `make tf-upload` | Upload the `.ipa` to App Store Connect (TestFlight) |
 | `make tf-check-creds` | Verify ASC upload creds are set; fail fast with instructions if not |
-| `make tf` | `tf-archive` → `tf-export` → `tf-upload` (checks creds first, fails fast) |
+| `make tf` | iOS: `tf-archive` → `tf-export` → `tf-upload` (checks creds first, fails fast) |
+| `make tf-mac-archive` | Archive a native macOS Release build (`build/ApertureMac.xcarchive`) |
+| `make tf-mac-export` | Export a native macOS App Store `.pkg` → `build/mac-appstore/Aperture.pkg` |
+| `make tf-mac-validate` | Validate the native macOS `.pkg` with `altool -t macos` (needs ASC_* creds) |
+| `make tf-mac-upload` | Upload the native macOS `.pkg` to App Store Connect (TestFlight) |
+| `make tf-mac` | Native macOS: `tf-mac-archive` → `tf-mac-export` → `tf-mac-upload` |
 
 All signing/export targets run `scripts/unlock-keychain.sh` first (the embedded
 `TailscaleKit.framework` is re-signed on copy, which needs an unlocked keychain —
 see `README.md`'s "Installing on a real device" for the SSH/unlock notes).
 
-`ExportOptions.AppStore.plist` (method `app-store`) is used for the TestFlight
+`make tf` uploads the **iOS** app (scheme `Aperture`, `generic/platform=iOS`,
+`altool -t ios`, `.ipa`). `make tf-mac` uploads the **native macOS** app
+(scheme `ApertureMac`, `generic/platform=macOS`, `altool -t macos`, `.pkg`).
+The two are independent pipelines that share ASC credentials (`tf-check-creds`
+is platform-agnostic).
+
+`ExportOptions.AppStore.plist` (method `app-store`) is used for the iOS TestFlight
 flow; the existing `ExportOptions.plist` (method `debugging`) stays for
-`make ipa` dev-signed device installs.
+`make ipa` dev-signed device installs. `ExportOptions.MacAppStore.plist`
+(method `app-store-connect`) is used for the native macOS TestFlight flow.
+macOS app-store export produces a **`.pkg`** (an Installer package), not an
+`.ipa`; `make tf-mac-upload` uploads that `.pkg` with `xcrun altool -t macos`
+(vs `-t ios` for the iOS flow).
 
 ### Credential variables
 
@@ -115,6 +176,13 @@ make tf ASC_KEY_ID=FG54QN43A3 ASC_ISSUER_ID=9ff1ebe7-73a7-4102-9451-3472e4e629a7
 
 # Reuse an already-exported IPA (skip re-archive) — just upload:
 make tf-upload ASC_KEY_ID=FG54QN43A3 ASC_ISSUER_ID=9ff1ebe7-73a7-4102-9451-3472e4e629a7
+
+# Native macOS app (ApertureMac) — separate platform track, distinct build #:
+make tf-mac ASC_KEY_ID=FG54QN43A3 ASC_ISSUER_ID=9ff1ebe7-73a7-4102-9451-3472e4e629a7
+# Validate the native Mac .pkg before uploading (no upload; signing feedback):
+make tf-mac-validate ASC_KEY_ID=FG54QN43A3 ASC_ISSUER_ID=9ff1ebe7-73a7-4102-9451-3472e4e629a7
+# Reuse an already-exported Mac .pkg (skip re-archive) — just upload:
+make tf-mac-upload ASC_KEY_ID=FG54QN43A3 ASC_ISSUER_ID=9ff1ebe7-73a7-4102-9451-3472e4e629a7
 ```
 
 `altool` is invoked via `xcrun`, so it uses the Xcode-bundled
@@ -135,14 +203,24 @@ Apple has two independent version fields per build:
 
 ### Build number strategy: derived from git, not stored
 
-`make tf-archive` defaults `CFBundleVersion` to the **total git commit count**
-(`git rev-list --count HEAD`):
+`make tf-archive` (iOS) defaults `CFBundleVersion` to the **total git commit
+count** (`git rev-list --count HEAD`):
 
 - Monotonically increasing, identical across fresh clones, and unique per
   commit, so every commit produces a fresh upload-able build number with **zero
   state to maintain** in the repo.
 - Override with `BUILD_NUMBER=N` if you ever need to (e.g. re-upload the same
   commit, or adopt a different scheme).
+
+`make tf-mac-archive` (native macOS) defaults to the **git commit count +
+100000** (`MAC_BUILD_OFFSET`), so the macOS track never shares a
+`CFBundleVersion` with the iOS track. App Store Connect enforces build-number
+uniqueness **per platform**, so a shared number is technically allowed, but it
+makes the TestFlight build list ambiguous (two builds with the same number, one
+per platform) and can confuse platform availability state. The offset keeps the
+tracks distinct for the foreseeable life of this repo. Override with
+`MAC_BUILD_NUMBER=N` (e.g. to re-upload the same commit) or
+`MAC_BUILD_OFFSET=N` to change the spacing.
 
 This mirrors how the **main Tailscale app** handles it: its build number is
 computed from git by `tailscale.com/cmd/mkversion` (the `changeCount` = commits
