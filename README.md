@@ -33,8 +33,10 @@ See **Settings → Routing** in the app to view the live rules and test any host
   Remaining polish is tracked in [`TODO.mac.md`](TODO.mac.md).
 - The native Mac app is sandboxed and carries the
   `com.apple.security.virtualization` entitlement. An explicitly experimental,
-  disposable ARM64 Alpine VM prototype is available from File → New VM; it
-  currently uses Apple NAT while workspace-owned tailnet bridging is developed.
+  disposable ARM64 Alpine VM is available from File → New VM. Its virtual
+  Ethernet device uses an embedded DHCP/DNS/gVisor bridge inside TailscaleKit
+  and shares the owning workspace's existing tsnet identity—there is no second
+  Go runtime or Tailscale node.
 
 ## Requirements
 

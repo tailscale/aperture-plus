@@ -103,6 +103,18 @@ final class TSNetManager {
         return model
     }
 
+#if os(macOS)
+    /// Creates a disposable VM packet bridge inside this workspace's existing
+    /// TailscaleNode. No second node, identity, or Go archive is created.
+    func startVMNetworkBridge(socketURL: URL) async throws -> TailscaleKit.VMNetworkBridge {
+        guard let node else { throw TSNetError.noNode }
+        return try await node.startVMNetworkBridge(
+            socketURL: socketURL,
+            magicDNSSuffix: model.tailnetName ?? ""
+        )
+    }
+#endif
+
     /// A fresh default tailnet hostname: `aperture-` + a random 6-digit number
     /// (100000–999999, always exactly six digits with no leading zeros).
     nonisolated static func generateDefaultHostName() -> String {
