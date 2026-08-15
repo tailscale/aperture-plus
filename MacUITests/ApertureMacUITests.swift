@@ -34,6 +34,42 @@ final class ApertureMacUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [oneWindow], timeout: 10), .completed)
     }
 
+    /// Desktop browser chrome and application menu commands operate on the
+    /// focused native workspace window. Uses auth-key login so this remains
+    /// deterministic and independent of the external browser auth flow.
+    func testDesktopTabsAndBrowserCommands() throws {
+        guard let authKey = Self.stagedAuthKey() else {
+            XCTFail("Required auth key is missing. Stage ~/.aperture-ios-authkey or /tmp/aperture-test-authkey.")
+            return
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-UITestResetWorkspaces",
+            "-UITestHomePage", "https://example.com/",
+        ]
+        app.launchEnvironment["APERTURE_AUTHKEY"] = authKey
+        app.launchEnvironment["APERTURE_EPHEMERAL"] = "1"
+        app.launch()
+
+        XCTAssertTrue(waitForBrowserOrFail(app, timeout: 20))
+        XCTAssertTrue(app.buttons["url-pill"].waitForExistence(timeout: 5))
+
+        app.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "Close Tab"), atLeast: 2, timeout: 5),
+                      "Command-T should add a visible desktop tab")
+
+        app.typeKey("l", modifierFlags: .command)
+        XCTAssertTrue(app.textFields["url-field"].waitForExistence(timeout: 5),
+                      "Command-L should focus the shared address field")
+        app.typeKey(.escape, modifierFlags: [])
+
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitForCount(app.buttons.matching(identifier: "Close Tab"), exactly: 1, timeout: 5),
+                      "Command-W should close a tab, not its workspace window")
+        XCTAssertEqual(app.windows.count, 1)
+    }
+
     /// Native interactive Login → Logout → Relogin, driving the real
     /// AuthenticationServices web flow against Tailscale + nullid.fly.dev.
     /// This covers both completion paths that previously trapped on macOS when
@@ -176,6 +212,20 @@ final class ApertureMacUITests: XCTestCase {
               + "newtab=\(app.buttons["new-chat-tab-button"].exists) "
               + "url-pill=\(app.buttons["url-pill"].exists) "
               + "settings=\(app.buttons["settings-button"].exists)")
+        return false
+    }
+
+    private func waitForCount(_ query: XCUIElementQuery,
+                              atLeast minimum: Int? = nil,
+                              exactly expected: Int? = nil,
+                              timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let count = query.count
+            if let expected, count == expected { return true }
+            if let minimum, count >= minimum { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
         return false
     }
 
