@@ -109,6 +109,14 @@ extern int tailscale_debug_shutdown_tcp_connections(tailscale sd);
 // retaining its stale endpoint, reproducing an immediate loopback -1004.
 extern int tailscale_debug_defunct_loopback(tailscale sd);
 
+// Starts one disposable VM Ethernet/DHCP/DNS/gVisor bridge borrowing this
+// server's existing tsnet identity. The bridge binds socket_path as a Unix
+// datagram endpoint for VZFileHandleNetworkDeviceAttachment. It never creates
+// or closes a tsnet server. tailscale_close stops any remaining bridges.
+extern int tailscale_vm_bridge_start(tailscale sd, const char* socket_path, const char* magic_dns_suffix, int* bridge_out);
+extern int tailscale_vm_bridge_ready(tailscale sd, int bridge);
+extern int tailscale_vm_bridge_stop(tailscale sd, int bridge);
+
 // tailscale_restart_loopback replaces the tsnet LocalAPI/SOCKS loopback
 // listener and returns its new address and credentials. Existing tailnet state
 // and netstack sessions are retained. Output buffer rules match tailscale_loopback.

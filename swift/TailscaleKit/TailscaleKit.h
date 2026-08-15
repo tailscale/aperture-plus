@@ -106,6 +106,13 @@ extern int tailscale_debug_reset_connections(tailscale sd);
 extern int tailscale_debug_shutdown_tcp_connections(tailscale sd);
 extern int tailscale_debug_defunct_loopback(tailscale sd);
 
+// Starts one disposable VM Ethernet/DHCP/DNS/gVisor bridge borrowing this
+// server's existing tsnet identity. macOS-only at runtime; declared here so
+// TailscaleNode can expose the API without a second Go archive/runtime.
+extern int tailscale_vm_bridge_start(tailscale sd, const char* socket_path, const char* magic_dns_suffix, int* bridge_out);
+extern int tailscale_vm_bridge_ready(tailscale sd, int bridge);
+extern int tailscale_vm_bridge_stop(tailscale sd, int bridge);
+
 // Replace the LocalAPI/SOCKS loopback listener while retaining the tsnet node.
 extern int tailscale_restart_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out);
 

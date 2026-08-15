@@ -25,6 +25,9 @@ extern int TsnetCrashTest(int sd, int mode);
 extern int TsnetDebugResetConnections(int sd);
 extern int TsnetDebugShutdownTCPConnections(int sd);
 extern int TsnetDebugDefunctLoopback(int sd);
+extern int TsnetVMBridgeStart(int sd, char* socketPath, char* magicDNSSuffix, int* bridgeOut);
+extern int TsnetVMBridgeReady(int sd, int bridgeHandle);
+extern int TsnetVMBridgeStop(int sd, int bridgeHandle);
 extern int TsnetRestartLoopback(int sd, char* addrOut, size_t addrLen, char* proxyOut, char* localOut);
 extern int TsnetGetIps(int sd, char *buf, size_t buflen);
 extern int TsnetGetRemoteAddr(int listener, int conn, char *buf, size_t buflen);
@@ -118,6 +121,18 @@ int tailscale_debug_shutdown_tcp_connections(tailscale sd) {
 
 int tailscale_debug_defunct_loopback(tailscale sd) {
 	return TsnetDebugDefunctLoopback(sd);
+}
+
+int tailscale_vm_bridge_start(tailscale sd, const char* socket_path, const char* magic_dns_suffix, int* bridge_out) {
+	return TsnetVMBridgeStart(sd, (char*)socket_path, (char*)magic_dns_suffix, bridge_out);
+}
+
+int tailscale_vm_bridge_ready(tailscale sd, int bridge) {
+	return TsnetVMBridgeReady(sd, bridge);
+}
+
+int tailscale_vm_bridge_stop(tailscale sd, int bridge) {
+	return TsnetVMBridgeStop(sd, bridge);
 }
 
 int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out) {

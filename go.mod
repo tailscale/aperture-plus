@@ -8,7 +8,11 @@ go 1.26.5
 // cache-network-maps node capability. See setupNetmapCacheEnv in tailscale.go.
 require tailscale.com v1.103.0-pre.0.20260728173411-71e90b2a2fe4
 
-require golang.org/x/sys v0.47.0
+require (
+	github.com/google/gopacket v1.1.19
+	golang.org/x/sys v0.47.0
+	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8
+)
 
 require (
 	9fans.net/go v0.0.8-0.20250307142834-96bdba94b63f // indirect
@@ -102,7 +106,6 @@ require (
 	golang.org/x/tools v0.47.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
-	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 )
 
