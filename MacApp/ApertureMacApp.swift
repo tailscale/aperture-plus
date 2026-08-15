@@ -182,6 +182,10 @@ private struct ShowLogsRequestedKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+struct BrowserTabManagerKey: FocusedValueKey {
+    typealias Value = TabManager
+}
+
 extension FocusedValues {
     var focusAddressRequested: Binding<Bool>? {
         get { self[FocusAddressRequestedKey.self] }
@@ -192,6 +196,11 @@ extension FocusedValues {
         get { self[ShowLogsRequestedKey.self] }
         set { self[ShowLogsRequestedKey.self] = newValue }
     }
+
+    var browserTabManager: TabManager? {
+        get { self[BrowserTabManagerKey.self] }
+        set { self[BrowserTabManagerKey.self] = newValue }
+    }
 }
 
 private struct MacWorkspaceCommands: Commands {
@@ -199,6 +208,11 @@ private struct MacWorkspaceCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedBinding(\.focusAddressRequested) private var focusAddressRequested
     @FocusedBinding(\.showLogsRequested) private var showLogsRequested
+    @FocusedValue(\.browserTabManager) private var focusedTabManager
+
+    private var targetTabManager: TabManager? {
+        focusedTabManager ?? workspaceManager.activeWorkspace?.tabManager
+    }
 
     var body: some Commands {
         let _ = {
@@ -228,13 +242,13 @@ private struct MacWorkspaceCommands: Commands {
         // passing the same value raises an already-open window instead.
         CommandGroup(after: .newItem) {
             Button("New Tab") {
-                workspaceManager.activeWorkspace?.tabManager.openChatTab()
+                targetTabManager?.openChatTab()
             }
             .keyboardShortcut("t", modifiers: .command)
-            .disabled(workspaceManager.activeWorkspace?.tabManager.canOpenNewTab != true)
+            .disabled(targetTabManager?.canOpenNewTab != true)
 
             Button("Close Tab") {
-                workspaceManager.activeWorkspace?.tabManager.closeCurrentTab()
+                targetTabManager?.closeCurrentTab()
             }
             .keyboardShortcut("w", modifiers: .command)
 
@@ -247,7 +261,7 @@ private struct MacWorkspaceCommands: Commands {
             .disabled(focusAddressRequested == nil)
 
             Button("Reload Page") {
-                workspaceManager.activeWorkspace?.tabManager.currentTab?.viewModel.reload()
+                targetTabManager?.currentTab?.viewModel.reload()
             }
             .keyboardShortcut("r", modifiers: .command)
 
@@ -260,12 +274,12 @@ private struct MacWorkspaceCommands: Commands {
             Divider()
 
             Button("Show Previous Tab") {
-                workspaceManager.activeWorkspace?.tabManager.selectPreviousTab()
+                targetTabManager?.selectPreviousTab()
             }
             .keyboardShortcut("[", modifiers: [.command, .shift])
 
             Button("Show Next Tab") {
-                workspaceManager.activeWorkspace?.tabManager.selectNextTab()
+                targetTabManager?.selectNextTab()
             }
             .keyboardShortcut("]", modifiers: [.command, .shift])
         }

@@ -263,6 +263,7 @@ private struct BrowserRootContent: View {
 #if os(macOS)
         .focusedSceneValue(\.focusAddressRequested, $addressFocusRequested)
         .focusedSceneValue(\.showLogsRequested, $showingLogs)
+        .focusedSceneValue(\.browserTabManager, tabManager)
 #endif
         .sheet(isPresented: $showingBookmarks) {
             BookmarksSheet(homePage: workspace.homePage) { bookmark in
