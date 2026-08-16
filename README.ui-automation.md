@@ -160,7 +160,21 @@ If anything fails, here is the full checklist:
    XCUITest to see the app. (For interactive Xcode runs, Xcode itself is the
    responsible process — run one `ApertureMacUITests` test from Xcode's Test
    navigator and approve the prompt.)
-5. **Clear stale window-restoration state.** A prior crash or an abrupt
+5. **Make Automation Mode authorization persistent on a dedicated test Mac.**
+   By default, macOS may repeatedly ask an administrator to authorize XCTest UI
+   automation, and unattended runs can fail with `Timed out while enabling
+   automation mode`. Apple's built-in tool can remove that recurring prompt:
+   ```bash
+   sudo /usr/bin/automationmodetool enable-automationmode-without-authentication
+   /usr/bin/automationmodetool   # verify enabled + authentication not required
+   ```
+   Log out and back in, or reboot, after changing it. This deliberately lowers
+   a macOS UI-automation security barrier, so use it on a dedicated development,
+   CI, or lab Mac rather than a general-purpose machine. To restore the default:
+   ```bash
+   sudo /usr/bin/automationmodetool disable-automationmode-without-authentication
+   ```
+6. **Clear stale window-restoration state.** A prior crash or an abrupt
    UI-test terminate can leave talagent's per-app `restorecount.plist` non-zero,
    which makes the next native launch block on a "Reopen windows?" modal — and
    under XCUITest that modal is suppressed, so the app comes up with **no
@@ -176,7 +190,7 @@ If anything fails, here is the full checklist:
    "when there is no saved state to restore"); if a launch still shows no
    window after `--fix`, also run
    `defaults delete io.tailscale.Aperture 'NSWindow Frame workspace-AppWindow-1'`.
-6. **Stop stale suspended `ApertureMacUITests-Runner` processes** before
+7. **Stop stale suspended `ApertureMacUITests-Runner` processes** before
    retrying a test aborted from the debugger: `pkill -9 -f ApertureMacUITests-Runner`.
    Stale `Aperture` app processes (same bundle id `io.tailscale.Aperture`) from
    prior runs can also confuse `XCUIApplication().launch()` into attaching to
