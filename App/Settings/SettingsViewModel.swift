@@ -20,6 +20,7 @@ final class SettingsViewModel: ObservableObject {
 
     @Published var tailnetHostName: String = ""
     @Published var homePage: String = ""
+    @Published private(set) var availableExitNodeCount: Int = 0
 
     /// Live exit-node diagnostic, shown in the Exit Node section banner.
     /// Updated by `runExitNodeDiagnostic()` (called on appear and after each
@@ -112,6 +113,18 @@ final class SettingsViewModel: ObservableObject {
                 self.exitNodeDisplayName = id.isEmpty ? "None" : id
             }
             .store(in: &observers)
+
+        // `availableExitNodes` is computed from localStatus, but SettingsView
+        // observes this view model rather than TSNetModel directly. Mirror the
+        // count as published state so a status poll that discovers exit nodes
+        // re-enables the toggle while Settings is already open.
+        workspace.model.$localStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.availableExitNodeCount = status?.Peer?.values
+                    .filter { $0.ExitNodeOption && $0.Online }.count ?? 0
+            }
+            .store(in: &observers)
     }
 
     /// Keep the hostname/home-page fields in sync if they change elsewhere
@@ -138,15 +151,27 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Exit node
 
-    func setExitNodeEnabled(_ enabled: Bool) {
-        workspace.setExitNodeEnabled(enabled)
-        // Re-run the diagnostic shortly after the pref write so the banner
-        // reflects the new routing state. (The pref apply + route install is
-        // async on the tsnet side; 1s is enough for the localAPI editPrefs to
-        // land and the netmap/routes to update.)
+    func applyExitNodeEnabled(_ enabled: Bool) {
+        // Ignore a programmatic write of the value we already display, but
+        // otherwise hold the user's selection optimistically until the LocalAPI
+        // response (or later prefs notification) confirms it.
+        guard exitNodeEnabled != enabled else { return }
+        exitNodeEnabled = enabled
+        if !enabled { exitNodeDisplayName = "None" }
         Task { [weak self] in
+            guard let self else { return }
+            do {
+                let prefs = try await workspace.setExitNodeEnabled(enabled)
+                let id = prefs.ExitNodeID
+                exitNodeEnabled = !id.isEmpty
+                exitNodeDisplayName = id.isEmpty ? "None" : id
+            } catch {
+                // Revert the optimistic toggle if the local preference write
+                // failed, rather than leaving UI and routing inconsistent.
+                exitNodeEnabled = !enabled
+            }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            self?.runExitNodeDiagnostic()
+            runExitNodeDiagnostic()
         }
     }
 
@@ -159,7 +184,7 @@ final class SettingsViewModel: ObservableObject {
     /// libtailscale).
     var availableExitNodes: [IpnState.PeerStatus] {
         guard let peers = workspace.model.localStatus?.Peer?.values else { return [] }
-        return peers.filter { $0.ExitNodeOption }
+        return peers.filter { $0.ExitNodeOption && $0.Online }
     }
 
     /// Runs the exit-node diagnostic: fetches `https://api.ipify.org` through
@@ -167,20 +192,22 @@ final class SettingsViewModel: ObservableObject {
     /// records how many exit-node-capable peers are in the tailnet. The result
     /// drives the banner in the Exit Node section. Safe to call repeatedly.
     func runExitNodeDiagnostic() {
-        let available = availableExitNodes
-        // Build the diagnostic skeleton (availability is known now; IP fetch
-        // is async).
-        let prefID = workspace.model.prefs?.ExitNodeID ?? ""
-        let d = ExitNodeDiagnostic(
-            availableExitNodeCount: available.count,
-            exitNodeID: prefID,
-            fetchedIP: nil,
-            fetchError: nil,
-            fetching: true
-        )
-        exitNodeDiagnostic = d
         Task { [weak self] in
-            await self?.fetchEgressIP(into: d)
+            guard let self else { return }
+            // Settings can open between periodic polls. Refresh first so the
+            // availability banner and toggle use the same current peer set.
+            await workspace.manager.refreshStatusNow()
+            let available = availableExitNodes
+            let prefID = workspace.model.prefs?.ExitNodeID ?? ""
+            let d = ExitNodeDiagnostic(
+                availableExitNodeCount: available.count,
+                exitNodeID: prefID,
+                fetchedIP: nil,
+                fetchError: nil,
+                fetching: true
+            )
+            exitNodeDiagnostic = d
+            await fetchEgressIP(into: d)
         }
     }
 

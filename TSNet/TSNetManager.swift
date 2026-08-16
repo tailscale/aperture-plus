@@ -667,25 +667,41 @@ final class TSNetManager {
         if node == nil { startTailscaleIfNeeded() }
     }
 
-    func setExitNodeEnabled(_ enabled: Bool) {
+    func refreshStatusNow() async {
+        guard let client = localAPIClient else { return }
+        do {
+            let status = try await client.backendStatus()
+            model.localStatus = status
+            refreshProxyPolicyIfNeeded()
+        } catch {
+            logger.log("Immediate status refresh failed: \(error)")
+        }
+    }
+
+    func setExitNodeEnabled(_ enabled: Bool) async throws -> Ipn.Prefs {
         // Prefer a concrete advertised peer. `auto:any` is useful as a managed
         // policy placeholder, but patching it directly into ordinary prefs can
         // remain unresolved even when status already knows usable exit nodes,
         // leaving public traffic on the local egress. Stable sorting keeps the
         // choice deterministic across status dictionary iterations.
         let availableExitNodes = model.localStatus?.Peer?.values
-            .filter { $0.ExitNodeOption }
+            .filter { $0.ExitNodeOption && $0.Online }
             .sorted {
                 if $0.Online != $1.Online { return $0.Online && !$1.Online }
                 return $0.ID < $1.ID
             } ?? []
         let id = enabled ? (availableExitNodes.first?.ID ?? "auto:any") : ""
         let mask = Ipn.MaskedPrefs().exitNodeID(id)
-        let client = localAPIClient
-        Task {
-            try await client?.editPrefs(mask: mask)
-            logger.log("Set exit node Id to \(id)")
+        guard let client = localAPIClient else {
+            throw LocalAPIError.localAPIURLRequestError
         }
+        let prefs = try await client.editPrefs(mask: mask)
+        // PATCH returns the authoritative prefs. Publish them directly: the
+        // IPN watcher is allowed to coalesce prefs notifications.
+        model.prefs = prefs
+        refreshProxyPolicyIfNeeded()
+        logger.log("Set exit node Id to \(id)")
+        return prefs
     }
 
     func setHostName(_ newHostName: String) {

@@ -148,8 +148,8 @@ final class Workspace: ObservableObject, Identifiable {
         homePage.url = url   // observer persists into the definition
     }
 
-    func setExitNodeEnabled(_ enabled: Bool) {
-        manager.setExitNodeEnabled(enabled)
+    func setExitNodeEnabled(_ enabled: Bool) async throws -> Ipn.Prefs {
+        try await manager.setExitNodeEnabled(enabled)
     }
 
     /// Stops this workspace and removes all session-owned data. The manager

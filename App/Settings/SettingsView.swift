@@ -108,13 +108,7 @@ struct SettingsView: View {
                 Section(header: Text("Exit Node")) {
                     Toggle(isOn: Binding(
                         get: { viewModel.exitNodeEnabled },
-                        set: { newValue in
-                            togglingExitNode = true
-                            viewModel.setExitNodeEnabled(newValue)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                togglingExitNode = false
-                            }
-                        }
+                        set: { viewModel.applyExitNodeEnabled($0) }
                     )) {
                         HStack {
                             Text("Enable Auto Exit Node")
@@ -129,7 +123,7 @@ struct SettingsView: View {
                     // current netmap has no exit-node-capable peer. Keep an
                     // already-enabled toggle usable so the user can turn it off
                     // if the selected peer disappears.
-                    .disabled(!viewModel.exitNodeEnabled && viewModel.availableExitNodes.isEmpty)
+                    .disabled(!viewModel.exitNodeEnabled && viewModel.availableExitNodeCount == 0)
                     HStack {
                         Text("Current Exit Node")
                         Spacer()

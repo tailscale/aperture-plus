@@ -115,18 +115,18 @@ else
 fi
 
 # 6. Console lock state ------------------------------------------------------
-+# Accessibility permission can be granted while the login session is locked,
-+# but XCUITest still cannot bring an app above the lock-screen shield. Without
-+# this explicit check every Mac test waits ~60s and reports Running Background.
-+LOCK_STATE=$(ioreg -n Root -d1 2>/dev/null | grep -o '"CGSessionScreenIsLocked"=Yes' || true)
-+if [[ -z "$LOCK_STATE" ]]; then
-+  ok "Console screen is unlocked"
-+else
-+  bad "Console screen is locked; native Mac XCUITest cannot activate apps"
-+  info "fix: unlock the logged-in console session before running make test-mac-ui"
-+fi
-+
-+# 7. Stale talagent window-restoration state --------------------------------
+# Accessibility permission can be granted while the login session is locked,
+# but XCUITest still cannot bring an app above the lock-screen shield. Without
+# this explicit check every Mac test waits ~60s and reports Running Background.
+LOCK_STATE=$(ioreg -n Root -d1 2>/dev/null | grep -o '"CGSessionScreenIsLocked"=Yes' || true)
+if [[ -z "$LOCK_STATE" ]]; then
+  ok "Console screen is unlocked"
+else
+  bad "Console screen is locked; native Mac XCUITest cannot activate apps"
+  info "fix: unlock the logged-in console session before running make test-mac-ui"
+fi
+
+# 7. Stale talagent window-restoration state --------------------------------
 # talagent (com.apple.talagent) stores per-app window-restoration state in a
 # daemon container. A non-zero restorecount.plist makes the next launch show
 # the "Aperture unexpectedly quit while reopening windows" Reopen/Don't-Reopen
