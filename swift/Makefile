@@ -92,6 +92,7 @@ test: ## Run tests (macOS)
 	for test in \
 	 testMessageReaderStartStopRaceDoesNotCrash \
 	 testNotifyDecodesNodeWithOmittedZeroFields \
+	 testVMNetworkBridgeLifecycleUsesExistingNode \
 	 testProxy testStatus testV4 testV6; do \
 	  echo "::: Running TailscaleKitTests/$$test in a fresh process :::"; \
 	  xcodebuild test-without-building -scheme TailscaleKitXCTests \
