@@ -10,6 +10,17 @@
 
 import Foundation
 
+struct WorkspaceVMCommand: Codable, Equatable, Sendable {
+    static let supportedVersion = 1
+    let version: Int
+    let command: String
+
+    init(command: String, version: Int = Self.supportedVersion) {
+        self.version = version
+        self.command = command
+    }
+}
+
 struct WorkspaceVMEvent: Codable, Equatable, Sendable {
     static let supportedVersion = 1
 
@@ -56,6 +67,10 @@ enum WorkspaceVMProtocolError: LocalizedError, Equatable {
         case .missingEvent: return "The appliance control message has no event."
         }
     }
+}
+
+enum WorkspaceVMProtocol {
+    static let controlPort: UInt32 = 5230
 }
 
 struct WorkspaceVMProtocolParser: Sendable {

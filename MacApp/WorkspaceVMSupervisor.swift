@@ -176,6 +176,10 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
     private var consoleOutput: Pipe?
     private var consoleInput: FileHandle?
     private var consoleWindow: NSWindow?
+    private var controlListener: VZVirtioSocketListener?
+    private var controlDelegate: WorkspaceVMVsockDelegate?
+    private var controlConnection: VZVirtioSocketConnection?
+    private var controlParser = WorkspaceVMProtocolParser()
 
     init(workspace: Workspace, changed: @escaping () -> Void) {
         self.workspace = workspace
@@ -205,6 +209,7 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
                 let configuration = try makeConfiguration(artifacts: artifacts)
                 let vm = VZVirtualMachine(configuration: configuration)
                 vm.delegate = self
+                installControlListener(on: vm)
                 virtualMachine = vm
                 status = WorkspaceVMStatus(phase: .starting,
                                            desiredState: metadata?.desiredState,
@@ -261,6 +266,7 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
 
     func restart() {
         if virtualMachine != nil {
+            sendControlCommand("shutdown")
             stop()
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -417,7 +423,78 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
         }
     }
 
+    private func installControlListener(on vm: VZVirtualMachine) {
+        guard let socketDevice = vm.socketDevices.first as? VZVirtioSocketDevice else { return }
+        let listener = VZVirtioSocketListener()
+        let delegate = WorkspaceVMVsockDelegate { [weak self] box in
+            Task { @MainActor [weak self] in
+                self?.acceptControlConnection(box.value)
+            }
+        }
+        listener.delegate = delegate
+        socketDevice.setSocketListener(listener, forPort: WorkspaceVMProtocol.controlPort)
+        controlListener = listener
+        controlDelegate = delegate
+    }
+
+    private func acceptControlConnection(_ connection: VZVirtioSocketConnection) {
+        controlConnection?.close()
+        controlConnection = connection
+        controlParser = WorkspaceVMProtocolParser()
+        let handle = FileHandle(fileDescriptor: connection.fileDescriptor, closeOnDealloc: false)
+        handle.readabilityHandler = { [weak self, weak handle] _ in
+            guard let data = try? handle?.read(upToCount: 64 * 1024),
+                  !data.isEmpty else { return }
+            Task { @MainActor [weak self] in self?.handleControlData(data) }
+        }
+    }
+
+    private func handleControlData(_ data: Data) {
+        switch controlParser.append(data) {
+        case .failure(let error):
+            logger.log("VM control protocol error for \(workspaceID): \(error.localizedDescription)")
+        case .success(let events):
+            for event in events { apply(event) }
+        }
+    }
+
+    private func apply(_ event: WorkspaceVMEvent) {
+        switch event.event {
+        case "needs-login":
+            guard let url = event.authURL else { return }
+            status = WorkspaceVMStatus(phase: .waitingForLogin(authURL: url),
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+        case "running":
+            status = WorkspaceVMStatus(phase: .running(hostname: event.hostname,
+                                                       addresses: event.ips ?? []),
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+        case "failed":
+            status = WorkspaceVMStatus(phase: .failed(stage: event.stage ?? "guest",
+                                                      message: event.message ?? "Guest reported failure"),
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+        case "booting", "storage-ready", "installing-appliance":
+            status = WorkspaceVMStatus(phase: .starting,
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+        default:
+            logger.log("VM control: ignored unknown event \(event.event)")
+        }
+        changed()
+    }
+
+    private func sendControlCommand(_ command: String) {
+        guard let connection = controlConnection else { return }
+        let message = try? JSONEncoder().encode(WorkspaceVMCommand(command: command))
+        guard var message else { return }
+        message.append(0x0a)
+        let handle = FileHandle(fileDescriptor: connection.fileDescriptor, closeOnDealloc: false)
+        try? handle.write(contentsOf: message)
+    }
+
     private func cleanupTransport() {
+        controlConnection?.close()
+        controlConnection = nil
+        controlListener = nil
+        controlDelegate = nil
         consoleOutput?.fileHandleForReading.readabilityHandler = nil
         consoleOutput = nil
         consoleInput = nil
