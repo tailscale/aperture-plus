@@ -433,12 +433,12 @@ early storage and installation. It should remain PID 1, reap child processes,
 start/supervise `thundersnapd`, and forward structured status to the host.
 
 - [DONE] Define protocol framing, versioning, event schema, and error semantics.
-- [DONE] Implement guest reconnect behavior and host reconnection tolerance.
+- [ ] Implement guest reconnect behavior and host reconnection tolerance.
 - [ ] Report storage setup/install progress before switch-root.
 - [ ] Report the same waiting-for-auth state and URL that Thundersnap currently
   writes to its status file.
 - [ ] Report authenticated hostname, addresses, daemon health, and fatal errors.
-- [DONE] Implement graceful shutdown and acknowledge completion where possible.
+- [ ] Implement graceful shutdown and acknowledge completion where possible.
 - [ ] Avoid including auth URLs or future secrets in ordinary persistent logs.
 - [ ] Treat malformed/unknown messages as protocol errors without crashing the
   app or guest supervisor.
@@ -490,7 +490,7 @@ Closing that window never stops the VM.
 
 - [DONE] Add workspace-specific VM settings/status section.
 - [DONE] Route actions to the app-level VM supervisor.
-- [DONE] Remove the disposable per-window request/lifetime model.
+- [ ] Remove the disposable per-window request/lifetime model.
 - [ ] Keep accessibility identifiers and deterministic status text for UI tests.
 - [ ] Ensure controls clearly distinguish stop (retain disk) from delete
   (irreversible data loss).
