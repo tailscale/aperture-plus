@@ -205,6 +205,7 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
                                            hasPersistentDisk: true)
                 changed()
                 let artifacts = try ApplianceArtifacts.locateAndValidate()
+                try await waitForWorkspaceNode()
                 try await startNetworkBridge()
                 let configuration = try makeConfiguration(artifacts: artifacts)
                 let vm = VZVirtualMachine(configuration: configuration)
@@ -405,6 +406,14 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
         try config.validate()
         return config
+    }
+
+    private func waitForWorkspaceNode() async throws {
+        for _ in 0..<120 {
+            if workspace.manager.node != nil { return }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        throw VMControllerError.networkUnavailable
     }
 
     private func startNetworkBridge() async throws {
