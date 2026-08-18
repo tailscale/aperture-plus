@@ -602,6 +602,9 @@ private struct ApplianceArtifacts {
             if let bundled = Bundle.main.url(forResource: "Thunderboot", withExtension: nil) {
                 result.append(bundled)
             }
+            let localBuild = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appending(path: "build/Thunderboot", directoryHint: .isDirectory)
+            result.append(localBuild)
             result.append(URL(fileURLWithPath: "../thundersnap/thunderboot-out",
                               relativeTo: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)))
             return result

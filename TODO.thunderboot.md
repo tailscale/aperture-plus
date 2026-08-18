@@ -220,7 +220,7 @@ specific Thundersnap revision.
   manifest and `.tar.zst` archive.
 - [DONE] Verify every initramfs ELF is ARM64, require all expected tools, reject
   nested-VM payloads, and verify archive membership, sizes, and hashes.
-- [ ] Add a repeatable artifact publication/import step for Aperture+.
+- [DONE] Add a repeatable artifact publication/import step for Aperture+.
 - [ ] Decide whether release artifacts are checked into this repository,
   attached to a Thundersnap release, or imported by a release-only build step.
   Regardless of storage, normal application runtime must be download-free.
@@ -313,8 +313,8 @@ Persist desired state separately from transient runtime state:
 
 Lifecycle checklist:
 
-- [ ] Define versioned per-workspace VM metadata.
-- [ ] Add an app-level supervisor independent of workspace/console windows.
+- [DONE] Define versioned per-workspace VM metadata.
+- [DONE] Add an app-level supervisor independent of workspace/console windows.
 - [ ] Discover existing VM records when workspaces load.
 - [ ] Start desired-running VMs once their owning workspace tsnet node is ready.
 - [ ] Keep the owning workspace and its TSNet manager alive while its VM runs.
@@ -322,8 +322,8 @@ Lifecycle checklist:
   actions.
 - [ ] Stop all VM and bridge resources cleanly during app termination when time
   permits; recover safely from abrupt termination on the next launch.
-- [ ] Confirm deletion before removing persistent data.
-- [ ] Integrate workspace deletion with VM shutdown and deletion.
+- [DONE] Confirm deletion before removing persistent data.
+- [DONE] Integrate workspace deletion with VM shutdown and deletion.
 - [ ] Add appliance/data schema migration and downgrade checks.
 - [ ] Preserve `/var/lib/thundersnap` and its tsnet state across appliance
   upgrades.
@@ -353,13 +353,13 @@ The storage proof established `console=hvc0` and `/dev/vda` for the first
 virtio block disk. Network-device naming and DHCP still need validation with the
 real Aperture bridge.
 
-- [ ] Add bundle resource lookup and manifest validation.
-- [ ] Create sparse persistent disks atomically and clean up partial creation.
-- [ ] Implement direct Linux boot configuration.
-- [ ] Validate the VM configuration before start and surface actionable errors.
-- [ ] Ensure all file handles, sockets, bridges, serial handlers, and VM objects
+- [DONE] Add bundle resource lookup and manifest validation.
+- [DONE] Create sparse persistent disks atomically and clean up partial creation.
+- [DONE] Implement direct Linux boot configuration.
+- [DONE] Validate the VM configuration before start and surface actionable errors.
+- [DONE] Ensure all file handles, sockets, bridges, serial handlers, and VM objects
   are torn down in deterministic order.
-- [ ] Keep serial output in a bounded in-memory buffer and optionally in a
+- [DONE] Keep serial output in a bounded in-memory buffer and optionally in a
   bounded diagnostic log.
 
 ## Networking
@@ -432,13 +432,13 @@ substantially.
 early storage and installation. It should remain PID 1, reap child processes,
 start/supervise `thundersnapd`, and forward structured status to the host.
 
-- [ ] Define protocol framing, versioning, event schema, and error semantics.
-- [ ] Implement guest reconnect behavior and host reconnection tolerance.
+- [DONE] Define protocol framing, versioning, event schema, and error semantics.
+- [DONE] Implement guest reconnect behavior and host reconnection tolerance.
 - [ ] Report storage setup/install progress before switch-root.
 - [ ] Report the same waiting-for-auth state and URL that Thundersnap currently
   writes to its status file.
 - [ ] Report authenticated hostname, addresses, daemon health, and fatal errors.
-- [ ] Implement graceful shutdown and acknowledge completion where possible.
+- [DONE] Implement graceful shutdown and acknowledge completion where possible.
 - [ ] Avoid including auth URLs or future secrets in ordinary persistent logs.
 - [ ] Treat malformed/unknown messages as protocol errors without crashing the
   app or guest supervisor.
@@ -488,9 +488,9 @@ Suggested controls:
 Creation/start may automatically open the console during the development phase.
 Closing that window never stops the VM.
 
-- [ ] Add workspace-specific VM settings/status section.
-- [ ] Route actions to the app-level VM supervisor.
-- [ ] Remove the disposable per-window request/lifetime model.
+- [DONE] Add workspace-specific VM settings/status section.
+- [DONE] Route actions to the app-level VM supervisor.
+- [DONE] Remove the disposable per-window request/lifetime model.
 - [ ] Keep accessibility identifiers and deterministic status text for UI tests.
 - [ ] Ensure controls clearly distinguish stop (retain disk) from delete
   (irreversible data loss).
@@ -510,10 +510,10 @@ with a development-only build setting or kernel parameter such as:
 thunderboot.debug-console=1
 ```
 
-- [ ] Build a native text console/log view with input support.
-- [ ] Make console window lifetime independent from VM lifetime.
-- [ ] Make console reconnect to an already-running VM controller.
-- [ ] Add an explicit **Open Console** diagnostic action.
+- [DONE] Build a native text console/log view with input support.
+- [DONE] Make console window lifetime independent from VM lifetime.
+- [DONE] Make console reconnect to an already-running VM controller.
+- [DONE] Add an explicit **Open Console** diagnostic action.
 - [ ] Disable the root debug shell in distribution builds once normal
   diagnostics are sufficient.
 - [ ] Retain structured vsock diagnostics when the debug shell is disabled.

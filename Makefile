@@ -83,6 +83,11 @@ app: framework  ## Build the Aperture app for the simulator
 		-destination 'platform=iOS Simulator,name=$(SIM_NAME)' \
 		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
 
+.PHONY: import-thunderboot-appliance
+import-thunderboot-appliance:  ## Import and verify a release Thunderboot artifact unit
+	@test -n "$(THUNDERBOOT_SOURCE)" || (echo 'usage: make import-thunderboot-appliance THUNDERBOOT_SOURCE=../thundersnap/thunderboot-out [THUNDERBOOT_DEST=...]' >&2; exit 2)
+	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(or $(THUNDERBOOT_DEST),build/Thunderboot)"
+
 .PHONY: mac-app
 mac-app: mac-framework  ## Build native Aperture for macOS (unsigned)
 	@echo
