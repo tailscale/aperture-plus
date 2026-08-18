@@ -132,6 +132,8 @@ private struct WorkspaceRoot: View {
             if hasConnected, let tab = tabManager.currentTab {
                 BrowserRootContent(
                     workspace: workspace,
+                    homePage: workspace.homePage,
+                    model: workspace.model,
                     tabManager: tabManager,
                     tab: tab,
                     statusViewModel: statusViewModel,
@@ -169,6 +171,8 @@ private struct WorkspaceRoot: View {
 /// `BrowserTab` directly so the nav title tracks live page-title changes.
 private struct BrowserRootContent: View {
     let workspace: Workspace
+    @ObservedObject var homePage: HomePage
+    @ObservedObject var model: TSNetModel
     @ObservedObject var tabManager: TabManager
     @ObservedObject var tab: BrowserTab
     @ObservedObject var statusViewModel: StatusViewModel
@@ -185,12 +189,16 @@ private struct BrowserRootContent: View {
     @State private var addressFocusRequested = false
     @State private var isEditingAddress = false
     init(workspace: Workspace,
+         homePage: HomePage,
+         model: TSNetModel,
          tabManager: TabManager,
          tab: BrowserTab,
          statusViewModel: StatusViewModel,
          onTabOverview: @escaping () -> Void,
          onSettings: @escaping () -> Void) {
         self.workspace = workspace
+        self.homePage = homePage
+        self.model = model
         self.tabManager = tabManager
         self.tab = tab
         self.statusViewModel = statusViewModel
@@ -296,17 +304,28 @@ private struct BrowserRootContent: View {
     }
 
     private var browserContent: some View {
-        BrowserView(model: tab.viewModel)
-            .frame(minHeight: 0, maxHeight: .infinity)
-            .layoutPriority(-1)
-            .overlay(alignment: .top) {
-                if statusViewModel.needsAuth {
-                    LoginBanner(
-                        authSessionEndedGeneration: statusViewModel.authSessionEndedGeneration,
-                        onLogin: { statusViewModel.showAuth() }
-                    )
-                }
+        VStack(spacing: 0) {
+            if homePageAvailability == .unavailable {
+                HomePageWarningBanner()
             }
+            BrowserView(model: tab.viewModel)
+                .frame(minHeight: 0, maxHeight: .infinity)
+                .layoutPriority(-1)
+        }
+        .overlay(alignment: .top) {
+            if statusViewModel.needsAuth {
+                LoginBanner(
+                    authSessionEndedGeneration: statusViewModel.authSessionEndedGeneration,
+                    onLogin: { statusViewModel.showAuth() }
+                )
+            }
+        }
+    }
+
+    private var homePageAvailability: HomePageAvailability {
+        HomePageAvailabilityChecker.check(
+            urlString: homePage.url,
+            status: model.localStatus)
     }
 
     private var browserToolbar: some View {
@@ -324,6 +343,27 @@ private struct BrowserRootContent: View {
         )
         .fixedSize(horizontal: false, vertical: true)
         .id(tab.id)
+    }
+}
+
+/// Shown above the page when the configured Aperture host is not present in
+/// this tailnet. The initial tab is sent to the Aperture signup site instead
+/// of allowing WebKit to produce a generic connection error.
+private struct HomePageWarningBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text("No Aperture instance was found. Sign up for Aperture or change the home page in Settings.")
+                .font(.subheadline.weight(.medium))
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+        .accessibilityIdentifier("home-page-warning-banner")
     }
 }
 

@@ -201,6 +201,36 @@ The Mac runner stages the key at `/tmp/aperture-test-authkey`, just like the iOS
 runner. `make test-mac-ui AUTHKEY=...` passes a key explicitly; otherwise it
 requires `~/.aperture-ios-authkey`.
 
+### Test credentials and normal app isolation
+
+UI tests use a separate persistent state namespace from the normal app. The
+same `io.tailscale.Aperture` bundle is used for the native Mac UI tests, so
+bundle ID separation alone is not enough: macOS would otherwise let the test
+process open and delete the real app's Tailscale state. On iOS, the simulator
+app and its UI-test launches likewise share the app container.
+
+`WorkspaceStore` selects these roots when a test launch argument or XCTest
+launch environment is present:
+
+- normal iOS: `Application Support/Aperture`
+- iOS UI tests: `Application Support/Aperture-UI-Test-iOS`
+- normal macOS: `Application Support/Aperture`
+- macOS UI tests: `Application Support/Aperture-UI-Test-macOS`
+
+The test roots contain the workspace definitions, Tailscale state files,
+bookmarks, tabs, and WebKit data-store identifiers. The reset/logout tests can
+therefore delete credentials in the test namespace without logging out the
+normal running instance. The namespaces are also platform-specific, so an iOS
+simulator test cannot touch native Mac test state.
+
+The embedded tsnet build used here stores its node credentials in the supplied
+workspace state directory; Aperture does not currently create a separate
+application Keychain item for them. Thus the important isolation boundary is
+the state-directory namespace (rather than a Keychain service-name change).
+Existing normal state is not migrated or modified. If a test run was already
+started before this change, stop it and relaunch once; subsequent `-UITest...`
+launches use the test root automatically.
+
 ### Troubleshooting: native Mac tests time out at the first `app.windows` wait
 
 When all three `ApertureMacUITests` fail at their first

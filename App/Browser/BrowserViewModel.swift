@@ -40,6 +40,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
     private var webViewObservations: [NSKeyValueObservation] = []
     private var tsnetModel: TSNetModel
     private let initialURL: URL
+    private let isHomePage: Bool
     private let dataStore: WKWebsiteDataStore
     private let configureWebView: ((WKWebViewConfiguration) -> Void)?
     private let openNewTab: (URL) -> Void
@@ -54,10 +55,12 @@ final class BrowserViewModel: NSObject, ObservableObject {
     private var startupRetryTask: Task<Void, Never>?
 
     init(model: TSNetModel, initialURL: URL, dataStore: WKWebsiteDataStore,
+         isHomePage: Bool = false,
          configureWebView: ((WKWebViewConfiguration) -> Void)? = nil,
          openNewTab: @escaping (URL) -> Void = { _ in }) {
         self.tsnetModel = model
         self.initialURL = initialURL
+        self.isHomePage = isHomePage
         self.dataStore = dataStore
         self.configureWebView = configureWebView
         self.openNewTab = openNewTab
@@ -70,6 +73,18 @@ final class BrowserViewModel: NSObject, ObservableObject {
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] proxy in self?.applyProxy(proxy) }
+            .store(in: &observers)
+
+        // Running can arrive just before the first complete status response,
+        // and vice versa. Re-evaluate on both publications so the initial
+        // request is made only after the hostname check has an answer.
+        model.$localStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.loadInitial() }
+            .store(in: &observers)
+        model.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.loadInitial() }
             .store(in: &observers)
     }
 
@@ -174,12 +189,29 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     func loadInitial() {
         guard !didLoadInitial, tsnetModel.state == .Running else { return }
-        if needsPeerDataToRoute(initialURL), tsnetModel.proxyPolicy?.hasPeerData != true {
-            logger.log("loadInitial: holding \(initialURL) until tailnet peer data arrives")
+
+        var target = initialURL
+        if isHomePage {
+            switch HomePageAvailabilityChecker.initialLoadDecision(
+                urlString: initialURL.absoluteString,
+                status: tsnetModel.localStatus) {
+            case .wait:
+                logger.log("loadInitial: holding \(initialURL) until home-page availability is known")
+                return
+            case .load(let decidedURL):
+                if decidedURL != initialURL {
+                    logger.log("Home page host is not in this tailnet; opening \(decidedURL)")
+                }
+                target = decidedURL
+            }
+        }
+
+        if needsPeerDataToRoute(target), tsnetModel.proxyPolicy?.hasPeerData != true {
+            logger.log("loadInitial: holding \(target) until tailnet peer data arrives")
             return
         }
         didLoadInitial = true
-        load(url: initialURL, isAutomaticStartupLoad: true)
+        load(url: target, isAutomaticStartupLoad: true)
     }
 
     func load(url: URL) {

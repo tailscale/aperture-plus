@@ -28,6 +28,7 @@ final class BrowserTab: Identifiable, ObservableObject {
 
     init(id: UUID = UUID(), model: TSNetModel, initialURL: URL,
          restoredTitle: String? = nil, dataStore: WKWebsiteDataStore,
+         isHomePage: Bool = false,
          openNewTab: @escaping (URL) -> Void = { _ in },
          onMetadataChange: @escaping () -> Void = {}) {
         self.id = id
@@ -38,7 +39,9 @@ final class BrowserTab: Identifiable, ObservableObject {
         self.displayURL = initialURL.absoluteString
         self.displayHost = initialURL.host ?? initialURL.absoluteString
         self.viewModel = BrowserViewModel(model: model, initialURL: initialURL,
-                                          dataStore: dataStore, openNewTab: openNewTab)
+                                          dataStore: dataStore,
+                                          isHomePage: isHomePage,
+                                          openNewTab: openNewTab)
 
         viewModel.$title
             .combineLatest(viewModel.$url)

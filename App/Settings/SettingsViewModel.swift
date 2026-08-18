@@ -91,6 +91,7 @@ final class SettingsViewModel: ObservableObject {
     private let workspace: Workspace
     private let deleteSession: () -> Void
     private var observers: Set<AnyCancellable> = []
+    private var homePageNormalizationTask: Task<Void, Never>?
 
     init(workspace: Workspace, deleteSession: @escaping () -> Void) {
         self.workspace = workspace
@@ -258,6 +259,45 @@ final class SettingsViewModel: ObservableObject {
 
     func setHomePage(_ url: String) {
         workspace.setHomePage(url)
+
+        // Settings' TextField publishes each keystroke, and relying only on
+        // focus/submit callbacks is inconsistent across SwiftUI Form on iOS
+        // and macOS. Debounce the same URL-bar normalization so the completed
+        // value is qualified automatically after the user pauses typing.
+        homePageNormalizationTask?.cancel()
+        guard !url.isEmpty else { return }
+        homePageNormalizationTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self,
+                      self.homePage == url else { return }
+                self.qualifyHomePage()
+            } catch {
+                // A subsequent keystroke cancels this task.
+            }
+        }
+    }
+
+    /// Commits the Home Page field using the same normalization as the
+    /// browser's URL bar. In particular, `google.com` becomes
+    /// `https://google.com`, while a bare tailnet name such as `ai` becomes
+    /// `http://ai` and is subsequently qualified using the live tailnet data.
+    /// This is intentionally called when editing ends/submission occurs,
+    /// rather than on every keystroke, so typing is not disrupted by adding a
+    /// scheme after the first character.
+    func qualifyHomePage() {
+        let trimmed = BrowserNavigator.trimmedURLInput(homePage)
+        guard !trimmed.isEmpty else { return }
+        homePageNormalizationTask?.cancel()
+        let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
+        logger.log("Settings: normalized home page \(trimmed) -> \(normalized)")
+        if homePage != normalized {
+            homePage = normalized
+        }
+        // Persist directly as well as through the TextField's onChange. This
+        // makes normalization reliable even when SwiftUI coalesces the
+        // Published update while the Settings sheet is being dismissed.
+        workspace.setHomePage(normalized)
     }
 
     func setTailnetHostName(_ hostName: String) {

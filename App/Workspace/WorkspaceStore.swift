@@ -22,6 +22,9 @@
 //
 //  Auth keys are NEVER stored here — they come from launch args/env (tests) or
 //  persist implicitly inside each workspace's tsnet state dir (real logins).
+//  UI tests use a separate top-level Application Support namespace, so their
+//  state can never reset or delete a normal app session (even though the app
+//  and UI-test target intentionally share a bundle identifier).
 //
 
 import Foundation
@@ -88,12 +91,40 @@ struct WorkspaceDefinition: Codable, Identifiable {
 /// `@MainActor` (the module is MainActor-isolated by default).
 @MainActor
 enum WorkspaceStore {
-    /// Root for all Aperture data: `<Application Support>/Aperture/`.
+    /// UI tests must not share the persistent credential/state directory with
+    /// the normal app. This matters especially on native macOS, where the UI
+    /// test launches the same bundle identifier as the user's running app.
+    ///
+    /// The explicit `-UITest...` check covers the launch hooks used by the
+    /// suite. The XCTest environment check also protects newly-added tests
+    /// that forget to add a reset hook. Neither signal exists during a normal
+    /// app launch.
+    private static let isUITestProcess: Bool = {
+        let process = ProcessInfo.processInfo
+        if process.arguments.contains(where: { $0.hasPrefix("-UITest") }) {
+            return true
+        }
+        let environment = process.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCInjectBundleInto"] != nil
+    }()
+
+    /// Root for all Aperture data. Normal launches use
+    /// `<Application Support>/Aperture/`; UI tests use a platform-specific
+    /// sibling so iOS and macOS test credentials are isolated from normal
+    /// credentials and from each other.
     static var appSupportDir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                             in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let dir = base.appending(path: "Aperture", directoryHint: .isDirectory)
+#if os(iOS)
+        let name = isUITestProcess ? "Aperture-UI-Test-iOS" : "Aperture"
+#elseif os(macOS)
+        let name = isUITestProcess ? "Aperture-UI-Test-macOS" : "Aperture"
+#else
+        let name = isUITestProcess ? "Aperture-UI-Test" : "Aperture"
+#endif
+        let dir = base.appending(path: name, directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir,
                                                  withIntermediateDirectories: true)
         return dir

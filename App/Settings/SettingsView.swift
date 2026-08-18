@@ -103,6 +103,9 @@ struct SettingsView: View {
                         .onChange(of: viewModel.homePage) { _, newValue in
                             viewModel.setHomePage(newValue)
                         }
+                        .onSubmit {
+                            viewModel.qualifyHomePage()
+                        }
                 }
 
                 Section(header: Text("Exit Node")) {
