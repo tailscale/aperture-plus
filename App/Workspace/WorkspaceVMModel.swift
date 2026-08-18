@@ -7,6 +7,7 @@
 //  supervisor; these types are deliberately safe to compile into iOS too.
 //
 
+import Combine
 import Foundation
 
 /// The desired state is persisted separately from the VM's transient state.
@@ -99,12 +100,14 @@ struct WorkspaceVMStatus: Equatable, Sendable {
 /// importing Virtualization.framework.
 @MainActor
 protocol WorkspaceVMManaging: AnyObject {
+    var changes: AnyPublisher<Void, Never> { get }
     func vmStatus(for workspaceID: UUID) -> WorkspaceVMStatus
     func createAndStartVM(for workspace: Workspace)
     func startVM(for workspace: Workspace)
     func stopVM(for workspace: Workspace)
     func restartVM(for workspace: Workspace)
     func deleteVM(for workspace: Workspace)
+    func deleteVMAndWait(for workspace: Workspace) async
     func openVMConsole(for workspace: Workspace)
     func signInToVM(for workspace: Workspace)
 }

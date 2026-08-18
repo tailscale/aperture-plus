@@ -56,7 +56,17 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate {
 struct ApertureMacApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: MacAppDelegate
     @Environment(\.scenePhase) private var scenePhase
-    @State private var workspaceManager = WorkspaceManager()
+    @State private var workspaceManager: WorkspaceManager
+    @State private var vmSupervisor: WorkspaceVMSupervisor
+
+    init() {
+        let manager = WorkspaceManager()
+        let supervisor = WorkspaceVMSupervisor(workspaceManager: manager)
+        manager.vmManager = supervisor
+        _workspaceManager = State(initialValue: manager)
+        _vmSupervisor = State(initialValue: supervisor)
+        supervisor.startDesiredVMs()
+    }
 
     var body: some Scene {
         WindowGroup(
@@ -226,15 +236,8 @@ private struct MacWorkspaceCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: .command)
 
-            Button("New VM (experimental)") {
-                let workspaceID = workspaceManager.activeWorkspace?.id
-                    ?? workspaceManager.addWorkspace().id
-                openWindow(
-                    id: "experimental-vm",
-                    value: ExperimentalVMRequest(id: UUID(), workspaceID: workspaceID)
-                )
-            }
-            // Deliberately no keyboard shortcut while VM support is experimental.
+            // Thundersnap is managed from workspace Settings. Its lifecycle is
+            // intentionally not tied to a disposable console window.
         }
 
         // The standard Window menu lists only windows that are currently open.
@@ -311,9 +314,11 @@ private struct MacSettingsHost: View {
     var body: some View {
         if let ws = workspaceManager.activeWorkspace {
             SettingsView(
-                viewModel: SettingsViewModel(workspace: ws) {
-                    workspaceManager.deleteWorkspace(id: ws.id)
-                },
+                viewModel: SettingsViewModel(
+                    workspace: ws,
+                    deleteSession: { workspaceManager.deleteWorkspace(id: ws.id) },
+                    vmManager: workspaceManager.vmManager
+                ),
                 dismissAction: { dismissWindow() }
             )
         } else {

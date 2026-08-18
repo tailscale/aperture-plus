@@ -85,11 +85,15 @@ struct TabbedBrowserView: View {
         .sheet(isPresented: $showingSettings) {
             if let ws = presentedWorkspace {
                 SettingsView(
-                    viewModel: SettingsViewModel(workspace: ws) {
-                        // Logout explicitly deletes the session. Merely closing
-                        // a native Mac window never calls this path.
-                        workspaceManager.deleteWorkspace(id: ws.id)
-                    },
+                    viewModel: SettingsViewModel(
+                        workspace: ws,
+                        deleteSession: {
+                            // Logout explicitly deletes the session. Merely closing
+                            // a native Mac window never calls this path.
+                            workspaceManager.deleteWorkspace(id: ws.id)
+                        },
+                        vmManager: workspaceManager.vmManager
+                    ),
                     dismissAction: { showingSettings = false }
                 )
             }
