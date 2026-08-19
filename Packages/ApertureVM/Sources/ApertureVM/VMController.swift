@@ -213,6 +213,7 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         if lower.contains("tsnet server is up") || lower.contains("waiting for ssh connections") || lower.contains("tsnet hostname:") {
             let hostname = value(after: "tsnet hostname:", in: line)
             let addresses = addresses(after: "tailscale ip:", in: line)
+            let ips = addresses.isEmpty ? extractIPs(from: line) : addresses
             let previousHostname: String?
             let previousAddresses: [String]
             if case .running(let current, let addresses) = status.phase {
@@ -223,11 +224,18 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
                 previousAddresses = []
             }
             update(.running(hostname: hostname ?? previousHostname,
-                            addresses: addresses.isEmpty ? previousAddresses : addresses))
+                            addresses: ips.isEmpty ? previousAddresses : ips))
         } else if lower.contains("boot failed") || lower.contains("failed to start tsnet") {
             status.phase = .failed(stage: "guest", message: line)
             eventContinuation?.yield(.phase(status.phase))
         }
+    }
+
+    private func extractIPs(from line: String) -> [String] {
+        line.replacingOccurrences(of: "[", with: " ").replacingOccurrences(of: "]", with: " ")
+            .split(whereSeparator: { $0 == " " || $0 == "," })
+            .map(String.init)
+            .filter { $0.contains(".") || $0.contains(":") }
     }
 
     private func addresses(after prefix: String, in line: String) -> [String] {
