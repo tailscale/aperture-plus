@@ -105,6 +105,10 @@ mac-app: mac-framework mac-artifacts  ## Build native Aperture for macOS (unsign
 		-derivedDataPath $(MAC_DERIVED) \
 		CODE_SIGNING_ALLOWED=NO | $(XCPRETTIFIER)
 
+.PHONY: aperture-vm-cli
+aperture-vm-cli:  ## Build the signed standalone VM diagnostic CLI
+	./scripts/build-aperture-vm-cli.sh
+
 .PHONY: test-mac
 test-mac: mac-framework mac-artifacts  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
