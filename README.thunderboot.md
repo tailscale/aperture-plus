@@ -282,52 +282,52 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 
 ### Immediate
 
-1. Make the full CLI test pass consistently, including the guest HTTP metrics
+1. [ ] Make the full CLI test pass consistently, including the guest HTTP metrics
    request through the parent Tailscale node.
-2. Add a dedicated Makefile target, for example `make test-aperture-vm`, that:
+2. [DONE] Add a dedicated Makefile target, `make test-aperture-vm`, that:
    - requires/stages the auth key;
    - uses a fresh UUID and sandbox state;
    - builds the signed CLI;
    - runs a bounded full boot/enrollment/network test;
    - prints the guest and bridge logs on failure.
-3. Make that target a required pre-commit milestone for VM changes.
-4. Add a clean two-boot persistence test: first boot initializes btrfs and guest
+3. [DONE] Make that target a required pre-commit milestone for VM changes.
+4. [ ] Add a clean two-boot persistence test: first boot initializes btrfs and guest
    Tailscale state; second boot reuses the same disk without reauthentication.
 
 ### Refactor
 
-1. Adapt the GUI workspace supervisor to use `ApertureVM.VMController`.
-2. Implement the GUI's `VMNetworkAttachment` using the owning workspace's
+1. [ ] Adapt the GUI workspace supervisor to use `ApertureVM.VMController`.
+2. [ ] Implement the GUI's `VMNetworkAttachment` using the owning workspace's
    `TSNetManager.startVMNetworkBridge`.
-3. Move the shared workspace VM metadata/path persistence into the package or a
+3. [ ] Move the shared workspace VM metadata/path persistence into the package or a
    small shared persistence layer without importing SwiftUI into the package.
-4. Remove the duplicate controller and artifact-validation implementations.
-5. Keep all GUI lifecycle operations idempotent and test them independently of
+4. [ ] Remove the duplicate controller and artifact-validation implementations.
+5. [ ] Keep all GUI lifecycle operations idempotent and test them independently of
    real enrollment where possible.
 
 ### Networking and enrollment
 
-1. Finish the guest HTTP/MCP/SSH reachability check from the CLI.
-2. Verify TCP, UDP, DNS, MTU/large packets, and bridge reconnect behavior.
-3. Verify the parent workspace can lose/recover tsnet while the VM reports a
+1. [ ] Finish the guest HTTP/MCP/SSH reachability check from the CLI.
+2. [ ] Verify TCP, UDP, DNS, MTU/large packets, and bridge reconnect behavior.
+3. [ ] Verify the parent workspace can lose/recover tsnet while the VM reports a
    useful state.
-4. Add interactive enrollment UI using the auth URL detected from guest logs.
-5. Show the guest hostname and addresses distinctly from the parent workspace
+4. [ ] Add interactive enrollment UI using the auth URL detected from guest logs.
+5. [ ] Show the guest hostname and addresses distinctly from the parent workspace
    identity.
-6. Confirm restart reuses the guest disk and guest Tailscale identity.
+6. [ ] Confirm restart reuses the guest disk and guest Tailscale identity.
 
 ### Product hardening
 
-1. Add installed-appliance version markers and migration/downgrade checks.
-2. Preserve `/var/lib/thundersnap` and guest Tailscale state across appliance
+1. [ ] Add installed-appliance version markers and migration/downgrade checks.
+2. [ ] Preserve `/var/lib/thundersnap` and guest Tailscale state across appliance
    upgrades.
-3. Disable the development root/debug console in distribution builds once
+3. [ ] Disable the development root/debug console in distribution builds once
    structured diagnostics are sufficient.
-4. Add bounded diagnostic log persistence and avoid retaining auth URLs in
+4. [ ] Add bounded diagnostic log persistence and avoid retaining auth URLs in
    ordinary persistent logs.
-5. Decide whether release artifacts remain checked into this repository, are
+5. [ ] Decide whether release artifacts remain checked into this repository, are
    attached to a Thundersnap release, or are imported only by a release build.
-6. Add storage-only, two-boot, CLI network, and Mac UI coverage to the required
+6. [ ] Add storage-only, two-boot, CLI network, and Mac UI coverage to the required
    test suite.
 
 ## Useful commands
