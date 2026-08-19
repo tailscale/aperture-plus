@@ -65,6 +65,7 @@ public enum VMEvent: Sendable, Equatable {
 
 public protocol VMNetworkAttachment: AnyObject, Sendable {
     func open() async throws -> (FileHandle, AnyObject)
+    func close() async
 }
 
 public struct VMConfiguration: Sendable {

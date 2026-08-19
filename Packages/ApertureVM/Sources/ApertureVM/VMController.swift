@@ -17,6 +17,7 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
     private var logDelegate: LogSocketDelegate?
     private var logParser = LogParser()
     private var networkAttachmentObject: AnyObject?
+    private var networkAttachment: VMNetworkAttachment?
     private var eventContinuation: AsyncStream<VMEvent>.Continuation?
 
     public init(configuration: VMConfiguration) {
@@ -136,6 +137,7 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         config.storageDevices = [VZVirtioBlockDeviceConfiguration(attachment: attachment)]
         if let networkAttachment = configuration.networkAttachment {
             let (fileHandle, owner) = try await networkAttachment.open()
+            self.networkAttachment = networkAttachment
             networkAttachmentObject = owner
             let network = VZVirtioNetworkDeviceConfiguration()
             network.attachment = VZFileHandleNetworkDeviceAttachment(fileHandle: fileHandle)
@@ -231,6 +233,8 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         logHandle?.readabilityHandler = nil; logHandle = nil; logConnection?.close(); logConnection = nil
         logListener = nil; logDelegate = nil
         consoleOutput?.fileHandleForReading.readabilityHandler = nil; consoleOutput = nil; consoleInput = nil
+        if let networkAttachment { Task { await networkAttachment.close() } }
+        networkAttachment = nil; networkAttachmentObject = nil
     }
 
     nonisolated public func guestDidStop(_ virtualMachine: VZVirtualMachine) {
