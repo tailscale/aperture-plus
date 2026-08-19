@@ -61,6 +61,7 @@ public struct VMStatus: Sendable, Equatable {
 public enum VMEvent: Sendable, Equatable {
     case log(String)
     case phase(VMPhase)
+    case parentStatus(String)
 }
 
 @MainActor

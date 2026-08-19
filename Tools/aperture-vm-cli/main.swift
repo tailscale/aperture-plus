@@ -27,6 +27,15 @@ struct ApertureVMCLI {
             // TailscaleNode.init starts the node and intentionally does not
             // call up(): up() blocks at NeedsLogin and would prevent the
             // diagnostic from observing the same lifecycle as the GUI.
+            let localAPI = LocalAPIClient(localNode: parent, logger: nil)
+            var parentRunning = false
+            for _ in 0..<60 {
+                let state = try? await localAPI.backendStatus().BackendState
+                print("parent state: \(state ?? "unknown")")
+                if state == "Running" { parentRunning = true; break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+            guard parentRunning else { throw CLIError.parentNotRunning }
             let attachment = try await CLIWorkspaceNetworkAttachment(node: parent, id: workspaceID).opened()
             let storageOnly = arguments.contains("--storage-only")
             let timeout = TimeInterval(try value(for: "--timeout", in: arguments) ?? "120") ?? 120
@@ -51,6 +60,7 @@ struct ApertureVMCLI {
             var serial = ""
             for await event in controller.events {
                 switch event {
+                case .parentStatus(let status): print("parent status: \(status)")
                 case .log(let line):
                     serial.append(line)
                     if serial.count > 128_000 { serial.removeFirst(serial.count - 128_000) }
@@ -162,10 +172,12 @@ private final class CLIWorkspaceNetworkAttachment: VMNetworkAttachment {
 private enum CLIError: LocalizedError {
     case missingValue(String)
     case socket(String)
+    case parentNotRunning
     var errorDescription: String? {
         switch self {
         case .missingValue(let name): return "missing value for \(name)"
         case .socket(let message): return "network socket: \(message)"
+        case .parentNotRunning: return "parent Tailscale node did not reach Running"
         }
     }
 }
