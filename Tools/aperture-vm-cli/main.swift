@@ -15,6 +15,7 @@ struct ApertureVMCLI {
             let state = workspace.appending(path: "ParentState", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
 
+            try TailscaleLogging.setup(directory: state.appending(path: "logs", directoryHint: .isDirectory).path)
             let parent = try TailscaleNode(config: Configuration(
                 hostName: "aperture-vm-cli-\(workspaceID.uuidString.prefix(8))",
                 path: state.path,
@@ -44,6 +45,7 @@ struct ApertureVMCLI {
                 workspaceDirectory: workspace,
                 artifactRoots: ApplianceArtifacts.defaultRoots(bundle: Bundle.main),
                 storageOnly: storageOnly,
+                guestAuthKey: authKey,
                 networkAttachment: attachment
             ))
             print("workspace container: \(workspace.path)")
@@ -72,6 +74,15 @@ struct ApertureVMCLI {
                     }
                 case .phase(let phase):
                     print("phase: \(phase.description)")
+                    if case .running(let hostname, let addresses) = phase,
+                       !storageOnly {
+                        let target = addresses.first ?? hostname
+                        guard let target, !target.isEmpty else { continue }
+                        try await verifyGuestNetwork(host: target, parent: parent)
+                        print("guest tailnet HTTP check passed: \(target):7575/metrics")
+                        controller.stop()
+                        exit(0)
+                    }
                     if case .failed(let stage, let message) = phase {
                         fputs("VM failed at \(stage): \(message)\n", stderr)
                         controller.stop()
@@ -82,6 +93,23 @@ struct ApertureVMCLI {
         } catch {
             fputs("aperture-vm: \(error.localizedDescription)\n", stderr)
             exit(1)
+        }
+    }
+
+    private static func verifyGuestNetwork(host: String, parent: TailscaleNode) async throws {
+        let (configuration, _) = try await URLSessionConfiguration.tailscaleSession(parent)
+        let session = URLSession(configuration: configuration)
+        guard let url = URL(string: "http://\(host):7575/metrics") else {
+            throw CLIError.guestNetwork("invalid guest hostname")
+        }
+        let request = URLRequest(url: url, timeoutInterval: 15)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw CLIError.guestNetwork("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        }
+        let body = String(data: data, encoding: .utf8) ?? ""
+        guard body.contains("thundersnap") else {
+            throw CLIError.guestNetwork("metrics response did not contain thundersnap")
         }
     }
 
@@ -173,11 +201,13 @@ private enum CLIError: LocalizedError {
     case missingValue(String)
     case socket(String)
     case parentNotRunning
+    case guestNetwork(String)
     var errorDescription: String? {
         switch self {
         case .missingValue(let name): return "missing value for \(name)"
         case .socket(let message): return "network socket: \(message)"
         case .parentNotRunning: return "parent Tailscale node did not reach Running"
+        case .guestNetwork(let message): return "guest network check failed: \(message)"
         }
     }
 }

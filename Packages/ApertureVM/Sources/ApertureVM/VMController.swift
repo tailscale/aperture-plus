@@ -127,9 +127,12 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         config.platform = VZGenericPlatformConfiguration()
         let loader = VZLinuxBootLoader(kernelURL: artifacts.kernel)
         loader.initialRamdiskURL = artifacts.initramfs
+        let guestAuth = configuration.guestAuthKey.map {
+            " thunderboot.authkey=\(quoteKernelArgument($0))"
+        } ?? ""
         loader.commandLine = configuration.storageOnly
-            ? "console=hvc0 panic=-1 reboot=t thunderboot.disk=/dev/vda thundersnap.testonly=storage"
-            : "console=hvc0 panic=-1 reboot=t thunderboot.disk=/dev/vda thunderboot.debug-console=1 ip=dhcp"
+            ? "console=hvc0 panic=-1 reboot=t thunderboot.disk=/dev/vda thundersnap.testonly=storage\(guestAuth)"
+            : "console=hvc0 panic=-1 reboot=t thunderboot.disk=/dev/vda thunderboot.debug-console=1 ip=dhcp\(guestAuth)"
         config.bootLoader = loader
         config.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
@@ -153,6 +156,7 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
                 status.console.append(text)
                 if status.console.count > 60_000 { status.console.removeFirst(status.console.count - 60_000) }
                 eventContinuation?.yield(.log(text))
+                applyGuestLog(text)
             }
         }
         let serial = VZVirtioConsoleDeviceSerialPortConfiguration()
@@ -162,6 +166,11 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         config.socketDevices = [VZVirtioSocketDeviceConfiguration()]
         try config.validate()
         return config
+    }
+
+    private func quoteKernelArgument(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: " ", with: "\\\\ ")
     }
 
     private func installLogListener(on vm: VZVirtualMachine) {
@@ -201,13 +210,32 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
                 return
             }
         }
-        if lower.contains("tsnet server is up") || lower.contains("waiting for ssh connections") {
+        if lower.contains("tsnet server is up") || lower.contains("waiting for ssh connections") || lower.contains("tsnet hostname:") {
             let hostname = value(after: "tsnet hostname:", in: line)
-            update(.running(hostname: hostname, addresses: []))
+            let addresses = addresses(after: "tailscale ip:", in: line)
+            let previousHostname: String?
+            let previousAddresses: [String]
+            if case .running(let current, let addresses) = status.phase {
+                previousHostname = current
+                previousAddresses = addresses
+            } else {
+                previousHostname = nil
+                previousAddresses = []
+            }
+            update(.running(hostname: hostname ?? previousHostname,
+                            addresses: addresses.isEmpty ? previousAddresses : addresses))
         } else if lower.contains("boot failed") || lower.contains("failed to start tsnet") {
             status.phase = .failed(stage: "guest", message: line)
             eventContinuation?.yield(.phase(status.phase))
         }
+    }
+
+    private func addresses(after prefix: String, in line: String) -> [String] {
+        guard let value = value(after: prefix, in: line) else { return [] }
+        return value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func value(after prefix: String, in line: String) -> String? {

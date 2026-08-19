@@ -78,12 +78,14 @@ public struct VMConfiguration: @unchecked Sendable {
     public var cpus: Int
     public var memory: UInt64
     public var storageOnly: Bool
+    public var guestAuthKey: String?
     public var networkAttachment: VMNetworkAttachment?
 
     public init(workspaceID: UUID, workspaceDirectory: URL,
                 artifactRoots: [URL], diskSize: UInt64 = VMMetadata.defaultDiskSize,
                 cpus: Int = 2, memory: UInt64 = 2 * 1024 * 1024 * 1024,
                 storageOnly: Bool = false,
+                guestAuthKey: String? = nil,
                 networkAttachment: VMNetworkAttachment? = nil) {
         self.workspaceID = workspaceID
         self.workspaceDirectory = workspaceDirectory
@@ -92,6 +94,7 @@ public struct VMConfiguration: @unchecked Sendable {
         self.cpus = cpus
         self.memory = memory
         self.storageOnly = storageOnly
+        self.guestAuthKey = guestAuthKey
         self.networkAttachment = networkAttachment
     }
 }
