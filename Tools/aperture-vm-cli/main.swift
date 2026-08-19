@@ -69,7 +69,7 @@ struct ApertureVMCLI {
                     print("guest: \(line)")
                     if storageOnly && serial.contains("THUNDERBOOT STORAGE OK:") {
                         print("storage check passed")
-                        controller.stop()
+                        await controller.stopAndWait()
                         exit(0)
                     }
                 case .phase(let phase):
@@ -80,12 +80,12 @@ struct ApertureVMCLI {
                         guard let target, !target.isEmpty else { continue }
                         try await verifyGuestNetwork(host: target, parent: parent)
                         print("guest tailnet HTTP check passed: \(target):7575/metrics")
-                        controller.stop()
+                        await controller.stopAndWait()
                         exit(0)
                     }
                     if case .failed(let stage, let message) = phase {
                         fputs("VM failed at \(stage): \(message)\n", stderr)
-                        controller.stop()
+                        await controller.stopAndWait()
                         exit(1)
                     }
                 }

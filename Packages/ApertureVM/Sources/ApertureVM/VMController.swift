@@ -89,6 +89,13 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         }
     }
 
+    public func stopAndWait() async {
+        stop()
+        while virtualMachine != nil {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     public func sendConsoleInput(_ text: String) {
         guard let consoleInput, let data = text.data(using: .utf8) else { return }
         try? consoleInput.write(contentsOf: data)
