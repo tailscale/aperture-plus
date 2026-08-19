@@ -10,55 +10,19 @@
 
 import Foundation
 
-struct WorkspaceVMEvent: Codable, Equatable, Sendable {
-    static let supportedVersion = 1
-
-    let version: Int
-    let event: String
-    let device: String?
-    let authURL: String?
-    let hostname: String?
-    let ips: [String]?
-    let stage: String?
-    let message: String?
-
-    var isSupported: Bool { version == Self.supportedVersion }
-
-    init(version: Int = Self.supportedVersion,
-         event: String,
-         device: String? = nil,
-         authURL: String? = nil,
-         hostname: String? = nil,
-         ips: [String]? = nil,
-         stage: String? = nil,
-         message: String? = nil) {
-        self.version = version
-        self.event = event
-        self.device = device
-        self.authURL = authURL
-        self.hostname = hostname
-        self.ips = ips
-        self.stage = stage
-        self.message = message
-    }
-}
-
 enum WorkspaceVMProtocolError: LocalizedError, Equatable {
-    case malformedJSON
-    case unsupportedVersion(Int)
-    case missingEvent
+    case malformedLogData
 
     var errorDescription: String? {
         switch self {
-        case .malformedJSON: return "The appliance sent malformed control data."
-        case .unsupportedVersion(let version):
-            return "The appliance uses unsupported control protocol version \(version)."
-        case .missingEvent: return "The appliance control message has no event."
+        case .malformedLogData: return "The appliance sent malformed log data."
         }
     }
 }
 
 enum WorkspaceVMProtocol {
+    /// Guest log stream port. The guest sends ordinary newline-delimited
+    /// stdout/stderr; there is deliberately no second guest protocol.
     static let logPort: UInt32 = 5230
 }
 
@@ -71,13 +35,14 @@ struct WorkspaceVMLogParser: Sendable {
 
     mutating func append(_ data: Data) -> Result<[String], WorkspaceVMProtocolError> {
         partial.append(data)
-        guard partial.count <= maxLineBytes * 2 else { return .failure(.malformedJSON) }
+        guard partial.count <= maxLineBytes * 2 else { return .failure(.malformedLogData) }
         var lines: [String] = []
         while let newline = partial.firstIndex(of: 0x0a) {
             let line = partial[..<newline]
             partial.removeSubrange(...newline)
-            guard let text = String(data: line, encoding: .utf8) else {
-                return .failure(.malformedJSON)
+            guard line.count <= maxLineBytes,
+                  let text = String(data: line, encoding: .utf8) else {
+                return .failure(.malformedLogData)
             }
             if !text.isEmpty { lines.append(text) }
         }
