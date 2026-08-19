@@ -40,6 +40,7 @@ struct SettingsView: View {
                 Spacer()
                 Button("Done") { dismissAction() }
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityLabel("Close Settings")
                     .accessibilityIdentifier("settings-done-button")
             }
             .padding(.horizontal, 20)

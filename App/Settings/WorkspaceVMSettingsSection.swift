@@ -67,30 +67,44 @@ struct WorkspaceVMSettingsSection: View {
             Button("Create & Start Thundersnap VM") {
                 manager?.createAndStartVM(for: workspace)
             }
+            .accessibilityLabel("Create and start Thundersnap VM")
+            .accessibilityHint("Creates a persistent workspace appliance and starts it")
             .accessibilityIdentifier("thundersnap-vm-create")
         case .stopped:
             Button("Start") { manager?.startVM(for: workspace) }
                 .accessibilityIdentifier("thundersnap-vm-start")
             Button("Delete VM", role: .destructive) { showingDeleteConfirmation = true }
                 .accessibilityIdentifier("thundersnap-vm-delete")
+                .accessibilityIdentifier("thundersnap-vm-delete")
         case .creating, .starting, .stopping:
             ProgressView()
             Button("Open Console") { manager?.openVMConsole(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-console")
             Button("Stop", role: .destructive) { manager?.stopVM(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-stop")
         case .waitingForLogin(let url):
             Button("Sign in to Tailscale") { manager?.signInToVM(for: workspace) }
+                .accessibilityHint("Opens the guest Tailscale enrollment page")
                 .disabled(URL(string: url) == nil)
                 .accessibilityIdentifier("thundersnap-vm-sign-in")
             Button("Open Console") { manager?.openVMConsole(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-console")
             Button("Stop", role: .destructive) { manager?.stopVM(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-stop")
         case .running:
             Button("Open Console") { manager?.openVMConsole(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-console")
             Button("Restart") { manager?.restartVM(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-restart")
             Button("Stop", role: .destructive) { manager?.stopVM(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-stop")
         case .failed:
             Button("Open Console") { manager?.openVMConsole(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-console")
             Button("Restart") { manager?.restartVM(for: workspace) }
+                .accessibilityIdentifier("thundersnap-vm-restart")
             Button("Delete VM", role: .destructive) { showingDeleteConfirmation = true }
+                .accessibilityIdentifier("thundersnap-vm-delete")
         }
     }
 
