@@ -247,10 +247,7 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
 
     private func addresses(after prefix: String, in line: String) -> [String] {
         guard let value = value(after: prefix, in: line) else { return [] }
-        return value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        return extractIPs(from: value)
     }
 
     private func value(after prefix: String, in line: String) -> String? {
