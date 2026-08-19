@@ -63,12 +63,13 @@ public enum VMEvent: Sendable, Equatable {
     case phase(VMPhase)
 }
 
+@MainActor
 public protocol VMNetworkAttachment: AnyObject, Sendable {
     func open() async throws -> (FileHandle, AnyObject)
     func close() async
 }
 
-public struct VMConfiguration: Sendable {
+public struct VMConfiguration: @unchecked Sendable {
     public var workspaceID: UUID
     public var workspaceDirectory: URL
     public var artifactRoots: [URL]

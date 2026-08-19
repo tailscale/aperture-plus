@@ -6,16 +6,10 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "ApertureVM", targets: ["ApertureVM"]),
-        .executable(name: "aperture-vm", targets: ["ApertureVMCLI"]),
     ],
     targets: [
         .target(
             name: "ApertureVM",
-            linkerSettings: [.linkedFramework("Virtualization")]
-        ),
-        .executableTarget(
-            name: "ApertureVMCLI",
-            dependencies: ["ApertureVM"],
             linkerSettings: [.linkedFramework("Virtualization")]
         ),
     ]
