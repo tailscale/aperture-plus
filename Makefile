@@ -109,6 +109,15 @@ mac-app: mac-framework mac-artifacts  ## Build native Aperture for macOS (unsign
 aperture-vm-cli:  ## Build the signed standalone VM diagnostic CLI
 	./scripts/build-aperture-vm-cli.sh
 
+.PHONY: test-aperture-vm
+test-aperture-vm: aperture-vm-cli  ## Run the full sandboxed guest enrollment/network test
+	@test -s "$(HOME)/.aperture-ios-authkey" || { echo 'error: stage ~/.aperture-ios-authkey first' >&2; exit 1; }
+	@id="$$(uuidgen)"; \
+	  echo "::: Running sandboxed Aperture VM integration test ($$id) :::"; \
+	  build/aperture-vm-cli.app/Contents/MacOS/aperture-vm \
+	    --auth-key "$$(cat "$(HOME)/.aperture-ios-authkey")" \
+	    --workspace-id "$$id" --timeout "$${VM_TIMEOUT:-90}"
+
 .PHONY: test-mac
 test-mac: mac-framework mac-artifacts  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
