@@ -98,6 +98,9 @@ struct ApertureVMCLI {
 
     private static func verifyGuestNetwork(host: String, parent: TailscaleNode) async throws {
         let (configuration, _) = try await URLSessionConfiguration.tailscaleSession(parent)
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = 5
+        configuration.timeoutIntervalForResource = 10
         let session = URLSession(configuration: configuration)
         guard let url = URL(string: "http://\(host):7575/metrics") else {
             throw CLIError.guestNetwork("invalid guest hostname")

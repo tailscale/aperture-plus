@@ -22,5 +22,12 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsArbitraryLoadsInWebContent</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
