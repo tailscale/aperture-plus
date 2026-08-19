@@ -102,15 +102,30 @@ struct ApertureVMCLI {
         guard let url = URL(string: "http://\(host):7575/metrics") else {
             throw CLIError.guestNetwork("invalid guest hostname")
         }
-        let request = URLRequest(url: url, timeoutInterval: 15)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw CLIError.guestNetwork("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        var lastError = "no response"
+        for attempt in 1...12 {
+            do {
+                let request = URLRequest(url: url, timeoutInterval: 5)
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    lastError = "non-HTTP response"
+                    continue
+                }
+                if http.statusCode == 200 {
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    guard body.contains("thundersnap") else {
+                        throw CLIError.guestNetwork("metrics response did not contain thundersnap")
+                    }
+                    return
+                }
+                lastError = "HTTP \(http.statusCode)"
+            } catch {
+                lastError = error.localizedDescription
+            }
+            print("guest HTTP attempt \(attempt)/12: \(lastError)")
+            try await Task.sleep(for: .seconds(1))
         }
-        let body = String(data: data, encoding: .utf8) ?? ""
-        guard body.contains("thundersnap") else {
-            throw CLIError.guestNetwork("metrics response did not contain thundersnap")
-        }
+        throw CLIError.guestNetwork(lastError)
     }
 
     private static func value(for name: String, in arguments: [String]) throws -> String? {
