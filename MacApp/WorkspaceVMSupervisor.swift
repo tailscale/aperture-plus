@@ -630,8 +630,8 @@ private struct ApplianceArtifacts {
             if let path = ProcessInfo.processInfo.environment["APERTURE_THUNDERBOOT_ARTIFACTS"] {
                 result.append(URL(fileURLWithPath: path))
             }
-            if let bundled = Bundle.main.url(forResource: "Thunderboot", withExtension: nil) {
-                result.append(bundled)
+            if let manifest = Bundle.main.url(forResource: "manifest", withExtension: "json") {
+                result.append(manifest.deletingLastPathComponent())
             }
             let localBuild = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
                 .appending(path: "build/Thunderboot", directoryHint: .isDirectory)
