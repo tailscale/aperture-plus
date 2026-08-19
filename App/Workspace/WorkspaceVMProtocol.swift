@@ -10,17 +10,6 @@
 
 import Foundation
 
-struct WorkspaceVMCommand: Codable, Equatable, Sendable {
-    static let supportedVersion = 1
-    let version: Int
-    let command: String
-
-    init(command: String, version: Int = Self.supportedVersion) {
-        self.version = version
-        self.command = command
-    }
-}
-
 struct WorkspaceVMEvent: Codable, Equatable, Sendable {
     static let supportedVersion = 1
 
@@ -70,28 +59,28 @@ enum WorkspaceVMProtocolError: LocalizedError, Equatable {
 }
 
 enum WorkspaceVMProtocol {
-    static let controlPort: UInt32 = 5230
+    static let logPort: UInt32 = 5230
 }
 
-struct WorkspaceVMProtocolParser: Sendable {
+/// The current guest integration deliberately transports ordinary log lines,
+/// not a new guest protocol. The parser is still bounded and line-oriented so
+/// a noisy or malicious guest cannot grow host memory without limit.
+struct WorkspaceVMLogParser: Sendable {
     private var partial = Data()
     private let maxLineBytes = 64 * 1024
 
-    mutating func append(_ data: Data) -> Result<[WorkspaceVMEvent], WorkspaceVMProtocolError> {
+    mutating func append(_ data: Data) -> Result<[String], WorkspaceVMProtocolError> {
         partial.append(data)
         guard partial.count <= maxLineBytes * 2 else { return .failure(.malformedJSON) }
-        var events: [WorkspaceVMEvent] = []
+        var lines: [String] = []
         while let newline = partial.firstIndex(of: 0x0a) {
             let line = partial[..<newline]
             partial.removeSubrange(...newline)
-            guard !line.isEmpty else { continue }
-            guard let event = try? JSONDecoder().decode(WorkspaceVMEvent.self, from: line) else {
+            guard let text = String(data: line, encoding: .utf8) else {
                 return .failure(.malformedJSON)
             }
-            guard !event.event.isEmpty else { return .failure(.missingEvent) }
-            guard event.isSupported else { return .failure(.unsupportedVersion(event.version)) }
-            events.append(event)
+            if !text.isEmpty { lines.append(text) }
         }
-        return .success(events)
+        return .success(lines)
     }
 }

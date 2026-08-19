@@ -88,8 +88,14 @@ import-thunderboot-appliance:  ## Import and verify a release Thunderboot artifa
 	@test -n "$(THUNDERBOOT_SOURCE)" || (echo 'usage: make import-thunderboot-appliance THUNDERBOOT_SOURCE=../thundersnap/thunderboot-out [THUNDERBOOT_DEST=...]' >&2; exit 2)
 	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(or $(THUNDERBOOT_DEST),build/Thunderboot)"
 
+THUNDERBOOT_SOURCE ?= ../thundersnap/thunderboot-out
+THUNDERBOOT_BUNDLE_DIR := MacApp/Thunderboot
+.PHONY: mac-artifacts
+mac-artifacts:  ## Verify and stage the immutable ARM64 appliance into the Mac app bundle
+	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(THUNDERBOOT_BUNDLE_DIR)"
+
 .PHONY: mac-app
-mac-app: mac-framework  ## Build native Aperture for macOS (unsigned)
+mac-app: mac-framework mac-artifacts  ## Build native Aperture for macOS (unsigned)
 	@echo
 	@echo "::: Building native Aperture for macOS :::"
 	$(XCB) build \

@@ -45,7 +45,7 @@ final class WorkspaceVMSupervisor: NSObject, ObservableObject, WorkspaceVMManagi
             // The workspace node must be alive before the VM bridge is created.
             // Controllers themselves wait for that node and report a useful
             // failure if the workspace has not reached a usable state.
-                    for workspace in workspaceManager?.workspaces ?? [] {
+            for workspace in workspaceManager?.workspaces ?? [] {
                 guard let metadata = WorkspaceStore.loadVMMetadata(workspace.id),
                       metadata.desiredState == .running else { continue }
                 controller(for: workspace).start()
@@ -179,7 +179,8 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
     private var controlListener: VZVirtioSocketListener?
     private var controlDelegate: WorkspaceVMVsockDelegate?
     private var controlConnection: VZVirtioSocketConnection?
-    private var controlParser = WorkspaceVMProtocolParser()
+    private var controlHandle: FileHandle?
+    private var controlParser = WorkspaceVMLogParser()
 
     init(workspace: Workspace, changed: @escaping () -> Void) {
         self.workspace = workspace
@@ -267,7 +268,9 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
 
     func restart() {
         if virtualMachine != nil {
-            sendControlCommand("shutdown")
+            // The first guest integration intentionally has no command
+            // endpoint: stopping the VZ machine is the reliable fallback while
+            // the appliance's ordinary logs are streamed over vsock.
             stop()
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -441,7 +444,7 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
             }
         }
         listener.delegate = delegate
-        socketDevice.setSocketListener(listener, forPort: WorkspaceVMProtocol.controlPort)
+        socketDevice.setSocketListener(listener, forPort: WorkspaceVMProtocol.logPort)
         controlListener = listener
         controlDelegate = delegate
     }
@@ -449,8 +452,9 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
     private func acceptControlConnection(_ connection: VZVirtioSocketConnection) {
         controlConnection?.close()
         controlConnection = connection
-        controlParser = WorkspaceVMProtocolParser()
+        controlParser = WorkspaceVMLogParser()
         let handle = FileHandle(fileDescriptor: connection.fileDescriptor, closeOnDealloc: false)
+        controlHandle = handle
         handle.readabilityHandler = { [weak self, weak handle] _ in
             guard let data = try? handle?.read(upToCount: 64 * 1024),
                   !data.isEmpty else { return }
@@ -461,45 +465,63 @@ private final class WorkspaceVMController: NSObject, ObservableObject, VZVirtual
     private func handleControlData(_ data: Data) {
         switch controlParser.append(data) {
         case .failure(let error):
-            logger.log("VM control protocol error for \(workspaceID): \(error.localizedDescription)")
-        case .success(let events):
-            for event in events { apply(event) }
+            logger.log("VM log stream error for \(workspaceID): \(error.localizedDescription)")
+        case .success(let lines):
+            for line in lines { applyLogLine(line) }
         }
     }
 
-    private func apply(_ event: WorkspaceVMEvent) {
-        switch event.event {
-        case "needs-login":
-            guard let url = event.authURL else { return }
-            status = WorkspaceVMStatus(phase: .waitingForLogin(authURL: url),
-                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
-        case "running":
-            status = WorkspaceVMStatus(phase: .running(hostname: event.hostname,
-                                                       addresses: event.ips ?? []),
-                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
-        case "failed":
-            status = WorkspaceVMStatus(phase: .failed(stage: event.stage ?? "guest",
-                                                      message: event.message ?? "Guest reported failure"),
-                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
-        case "booting", "storage-ready", "installing-appliance":
-            status = WorkspaceVMStatus(phase: .starting,
-                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
-        default:
-            logger.log("VM control: ignored unknown event \(event.event)")
+    private func applyLogLine(_ line: String) {
+        logger.log("VM[\(workspaceID)] \(line)")
+        let lower = line.lowercased()
+        if let range = line.range(of: "or go to: ", options: .caseInsensitive) {
+            let url = String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if isSafeAuthURL(url) {
+                status = WorkspaceVMStatus(phase: .waitingForLogin(authURL: url),
+                                           desiredState: metadata?.desiredState, hasPersistentDisk: true)
+                changed()
+                return
+            }
         }
-        changed()
+        if lower.contains("tsnet server is up") || lower.contains("waiting for ssh connections") {
+            let hostname = value(after: "tsnet hostname:", in: line)
+            let addresses = addresses(after: "tailscale ip:", in: line)
+            status = WorkspaceVMStatus(phase: .running(hostname: hostname, addresses: addresses),
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+            changed()
+            return
+        }
+        if lower.contains("boot failed") || lower.contains("failed to start tsnet") {
+            status = WorkspaceVMStatus(phase: .failed(stage: "guest", message: line),
+                                       desiredState: metadata?.desiredState, hasPersistentDisk: true)
+            changed()
+        }
     }
 
-    private func sendControlCommand(_ command: String) {
-        guard let connection = controlConnection else { return }
-        let message = try? JSONEncoder().encode(WorkspaceVMCommand(command: command))
-        guard var message else { return }
-        message.append(0x0a)
-        let handle = FileHandle(fileDescriptor: connection.fileDescriptor, closeOnDealloc: false)
-        try? handle.write(contentsOf: message)
+    private func isSafeAuthURL(_ string: String) -> Bool {
+        guard let url = URL(string: string),
+              ["https", "http"].contains(url.scheme?.lowercased()),
+              url.host != nil else { return false }
+        return true
+    }
+
+    private func value(after prefix: String, in line: String) -> String? {
+        guard let range = line.lowercased().range(of: prefix) else { return nil }
+        let value = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func addresses(after prefix: String, in line: String) -> [String] {
+        guard let value = value(after: prefix, in: line) else { return [] }
+        return value.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private func cleanupTransport() {
+        controlHandle?.readabilityHandler = nil
+        controlHandle = nil
         controlConnection?.close()
         controlConnection = nil
         controlListener = nil

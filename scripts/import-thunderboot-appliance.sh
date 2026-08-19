@@ -49,6 +49,7 @@ for name in files:
 
 # Stage the complete unit then replace the old one. This prevents an app build
 # from ever seeing a new kernel with an old initramfs (or vice versa).
+destination.parent.mkdir(parents=True, exist_ok=True)
 temporary = pathlib.Path(tempfile.mkdtemp(prefix="Thunderboot.", dir=destination.parent))
 try:
     for name in files:
