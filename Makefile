@@ -106,7 +106,7 @@ mac-app: mac-framework mac-artifacts  ## Build native Aperture for macOS (unsign
 		CODE_SIGNING_ALLOWED=NO | $(XCPRETTIFIER)
 
 .PHONY: test-mac
-test-mac: mac-framework  ## Build, entitlement-check, and launch-smoke-test native macOS app
+test-mac: mac-framework mac-artifacts  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
 .PHONY: build-mac-uitests
@@ -127,7 +127,7 @@ test-mac-ui: mac-framework  ## Run every required native macOS UI test, includin
 	fi
 
 .PHONY: mac-app-signed
-mac-app-signed: mac-framework  ## Development-sign native Mac app and verify virtualization entitlement
+mac-app-signed: mac-framework mac-artifacts  ## Development-sign native Mac app and verify virtualization entitlement
 	@echo
 	@echo "::: Building Apple Development-signed Aperture for macOS :::"
 	$(XCB) build \
@@ -330,7 +330,7 @@ ifneq ($(strip $(MAC_BUILD_NUMBER)),)
 endif
 
 .PHONY: tf-mac-archive
-tf-mac-archive: mac-framework  ## Archive a native macOS Release build for App Store / TestFlight
+tf-mac-archive: mac-framework mac-artifacts  ## Archive a native macOS Release build for App Store / TestFlight
 	@./scripts/unlock-keychain.sh
 	@echo
 	@echo "::: Archiving ApertureMac for App Store distribution (Release, native macOS) :::"
