@@ -31,7 +31,8 @@ struct ApertureVMCLI {
             let localAPI = LocalAPIClient(localNode: parent, logger: nil)
             var parentRunning = false
             for _ in 0..<60 {
-                let state = try? await localAPI.backendStatus().BackendState
+                let parentStatus = try? await localAPI.backendStatus()
+                let state = parentStatus?.BackendState
                 print("parent state: \(state ?? "unknown")")
                 if state == "Running" { parentRunning = true; break }
                 try await Task.sleep(for: .milliseconds(500))
@@ -60,6 +61,10 @@ struct ApertureVMCLI {
                 exit(124)
             }
             var serial = ""
+            var guestIPv4: String?
+            var guestHostname: String?
+            var guestHTTPReady = false
+            var guestNetworkChecked = false
             for await event in controller.events {
                 switch event {
                 case .parentStatus(let status): print("parent status: \(status)")
@@ -67,6 +72,23 @@ struct ApertureVMCLI {
                     serial.append(line)
                     if serial.count > 128_000 { serial.removeFirst(serial.count - 128_000) }
                     print("guest: \(line)")
+                    if let ips = Self.extractIPv4s(from: line), let ip = ips.first {
+                        guestIPv4 = ip
+                    }
+                    if let hostname = Self.value(after: "tsnet hostname:", in: line) {
+                        guestHostname = hostname
+                    }
+                    if line.localizedCaseInsensitiveContains("HTTP server listening on port 7575") {
+                        guestHTTPReady = true
+                    }
+                    if !storageOnly && guestHTTPReady && !guestNetworkChecked,
+                       let target = guestIPv4 ?? guestHostname {
+                        guestNetworkChecked = true
+                        try await verifyGuestNetwork(host: target, parent: parent)
+                        print("guest tailnet HTTP check passed: \(target):7575/metrics")
+                        await controller.stopAndWait()
+                        exit(0)
+                    }
                     if storageOnly && serial.contains("THUNDERBOOT STORAGE OK:") {
                         print("storage check passed")
                         await controller.stopAndWait()
@@ -75,13 +97,8 @@ struct ApertureVMCLI {
                 case .phase(let phase):
                     print("phase: \(phase.description)")
                     if case .running(let hostname, let addresses) = phase,
-                       !storageOnly {
-                        let target = addresses.first ?? hostname
-                        guard let target, !target.isEmpty else { continue }
-                        try await verifyGuestNetwork(host: target, parent: parent)
-                        print("guest tailnet HTTP check passed: \(target):7575/metrics")
-                        await controller.stopAndWait()
-                        exit(0)
+                       !storageOnly, let hostname {
+                        print("guest enrolled: hostname=\(hostname), addresses=\(addresses.joined(separator: ","))")
                     }
                     if case .failed(let stage, let message) = phase {
                         fputs("VM failed at \(stage): \(message)\n", stderr)
@@ -96,37 +113,44 @@ struct ApertureVMCLI {
         }
     }
 
+    private static func extractIPv4s(from line: String) -> [String]? {
+        let values = line.replacingOccurrences(of: "[", with: " ")
+            .replacingOccurrences(of: "]", with: " ")
+            .split(whereSeparator: { $0 == " " || $0 == "," })
+            .map(String.init)
+            .filter { $0.split(separator: ".").count == 4 && $0.allSatisfy { $0.isNumber || $0 == "." } }
+        return values.isEmpty ? nil : values
+    }
+
+    private static func value(after prefix: String, in line: String) -> String? {
+        guard let range = line.lowercased().range(of: prefix) else { return nil }
+        let value = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
     private static func verifyGuestNetwork(host: String, parent: TailscaleNode) async throws {
-        if host.contains(":") {
-            throw CLIError.guestNetwork("IPv6 HTTP target requires URLSession IPv6 proxy support; use the guest IPv4 address")
+        guard !host.contains(":") else {
+            throw CLIError.guestNetwork("IPv6 HTTP target requires a separate IPv6 SOCKS test")
         }
-        let (configuration, proxy) = try await URLSessionConfiguration.tailscaleSession(parent)
-        configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 5
-        configuration.timeoutIntervalForResource = 10
-        let session = URLSession(configuration: configuration)
-        let requestHost = host.contains(":") ? "[\(host)]" : host
-        print("guest HTTP target: http://\(requestHost):7575/metrics via parent SOCKS \(proxy.address)")
-        guard let url = URL(string: "http://\(requestHost):7575/metrics") else {
-            throw CLIError.guestNetwork("invalid guest hostname")
+        let proxy = try await parent.loopback()
+        guard let proxyHost = proxy.ip, let proxyPort = proxy.port else {
+            throw CLIError.guestNetwork("parent loopback proxy unavailable")
         }
+        print("guest HTTP target: http://\(host):7575/metrics via parent SOCKS \(proxyHost):\(proxyPort)")
         var lastError = "no response"
         for attempt in 1...12 {
             do {
-                let request = URLRequest(url: url, timeoutInterval: 5)
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    lastError = "non-HTTP response"
-                    continue
+                let body = try rawSOCKSHTTP(proxyHost: proxyHost,
+                                            proxyPort: proxyPort,
+                                            username: "tsnet",
+                                            password: proxy.proxyCredential,
+                                            targetHost: host,
+                                            targetPort: 7575)
+                guard body.contains("thundersnap") else {
+                    let preview = body.prefix(240).replacingOccurrences(of: "\r", with: "\\r").replacingOccurrences(of: "\n", with: "\\n")
+                    throw CLIError.guestNetwork("metrics response missing thundersnap: \(preview)")
                 }
-                if http.statusCode == 200 {
-                    let body = String(data: data, encoding: .utf8) ?? ""
-                    guard body.contains("thundersnap") else {
-                        throw CLIError.guestNetwork("metrics response did not contain thundersnap")
-                    }
-                    return
-                }
-                lastError = "HTTP \(http.statusCode)"
+                return
             } catch {
                 lastError = error.localizedDescription
             }
@@ -134,6 +158,102 @@ struct ApertureVMCLI {
             try await Task.sleep(for: .seconds(1))
         }
         throw CLIError.guestNetwork(lastError)
+    }
+
+    private static func rawSOCKSHTTP(proxyHost: String, proxyPort: Int,
+                                     username: String, password: String,
+                                     targetHost: String, targetPort: Int) throws -> String {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw CLIError.guestNetwork("socket: \(String(cString: strerror(errno)))") }
+        defer { Darwin.close(fd) }
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(proxyPort).bigEndian)
+        guard inet_pton(AF_INET, proxyHost, &address.sin_addr) == 1 else {
+            throw CLIError.guestNetwork("invalid SOCKS address \(proxyHost)")
+        }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connected == 0 else { throw CLIError.guestNetwork("SOCKS connect: \(String(cString: strerror(errno)))") }
+        func send(_ data: Data) throws {
+            try data.withUnsafeBytes { buffer in
+                var offset = 0
+                while offset < data.count {
+                    let n = Darwin.send(fd, buffer.baseAddress!.advanced(by: offset), data.count - offset, 0)
+                    guard n > 0 else { throw CLIError.guestNetwork("SOCKS write failed") }
+                    offset += n
+                }
+            }
+        }
+        func receive(_ count: Int) throws -> Data {
+            var data = Data()
+            while data.count < count {
+                var chunk = Data(repeating: 0, count: count - data.count)
+                let chunkSize = chunk.count
+                let n = chunk.withUnsafeMutableBytes { Darwin.recv(fd, $0.baseAddress, chunkSize, 0) }
+                guard n > 0 else { throw CLIError.guestNetwork("SOCKS read failed") }
+                data.append(chunk.prefix(n))
+            }
+            return data
+        }
+        try send(Data([5, 1, 2]))
+        let greeting = try receive(2)
+        guard greeting[0] == 5 else { throw CLIError.guestNetwork("SOCKS auth negotiation failed") }
+        if greeting[1] == 2 {
+            let user = Array(username.utf8), pass = Array(password.utf8)
+            try send(Data([1, UInt8(user.count)]) + Data(user) + Data([UInt8(pass.count)]) + Data(pass))
+            let auth = try receive(2)
+            guard auth[1] == 0 else { throw CLIError.guestNetwork("SOCKS authentication rejected") }
+        } else if greeting[1] == 0 {
+            // Some SOCKS implementations do not require credentials.
+        } else {
+            throw CLIError.guestNetwork("SOCKS server selected unsupported auth method \(greeting[1])")
+        }
+        print("SOCKS request target: \(targetHost):\(targetPort)")
+        var targetAddress = in_addr()
+        guard inet_pton(AF_INET, targetHost, &targetAddress) == 1 else {
+            throw CLIError.guestNetwork("guest address is not IPv4")
+        }
+        var request = Data([5, 1, 0, 1])
+        withUnsafeBytes(of: targetAddress.s_addr) { request.append(contentsOf: $0) }
+        request.append(contentsOf: [UInt8(targetPort >> 8), UInt8(targetPort & 255)])
+        try send(request)
+        let response = try receive(4)
+        print("SOCKS CONNECT reply: version=\(response[0]) code=\(response[1])")
+        guard response[1] == 0 else { throw CLIError.guestNetwork("SOCKS CONNECT reply \(response[1])") }
+        let addressLength: Int
+        switch response[3] {
+        case 1: addressLength = 4
+        case 3: addressLength = Int(try receive(1)[0])
+        case 4: addressLength = 16
+        default: throw CLIError.guestNetwork("unknown SOCKS address type")
+        }
+        _ = try receive(addressLength + 2)
+        try send(Data("GET /metrics HTTP/1.1\r\nHost: \(targetHost):\(targetPort)\r\nConnection: close\r\n\r\n".utf8))
+        var result = Data()
+        var buffer = Data(repeating: 0, count: 4096)
+        let bufferSize = buffer.count
+        while true {
+            let n = buffer.withUnsafeMutableBytes { Darwin.recv(fd, $0.baseAddress, bufferSize, 0) }
+            if n <= 0 { break }
+            result.append(buffer.prefix(n))
+            if let text = String(data: result, encoding: .utf8), text.contains("\r\n\r\n") {
+                break
+            }
+            guard result.count < 1_000_000 else { throw CLIError.guestNetwork("HTTP response too large") }
+        }
+        guard let text = String(data: result, encoding: .utf8),
+              (text.hasPrefix("HTTP/1.0 200") || text.hasPrefix("HTTP/1.1 200")) else {
+            let prefix = String(data: result.prefix(80), encoding: .utf8) ?? result.prefix(20).map { String(format: "%02x", $0) }.joined()
+            throw CLIError.guestNetwork("unexpected HTTP response: \(prefix)")
+        }
+        return text
     }
 
     private static func value(for name: String, in arguments: [String]) throws -> String? {
