@@ -123,7 +123,8 @@ test-mac: mac-framework mac-artifacts  ## Build, entitlement-check, and launch-s
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
 .PHONY: build-mac-uitests
-build-mac-uitests: mac-framework  ## Build all native macOS UI tests without running them
+build-mac-uitests: mac-framework mac-artifacts  ## Build all native macOS UI tests without running them
+	@./scripts/unlock-keychain.sh
 	$(XCB) build-for-testing \
 		-project $(PROJECT) -scheme $(MAC_SCHEME) \
 		-configuration Debug \
@@ -132,7 +133,7 @@ build-mac-uitests: mac-framework  ## Build all native macOS UI tests without run
 		-allowProvisioningUpdates | $(XCPRETTIFIER)
 
 .PHONY: test-mac-ui
-test-mac-ui: mac-framework  ## Run every required native macOS UI test, including nullid login
+test-mac-ui: mac-framework mac-artifacts  ## Run every required native macOS UI test, including nullid login
 	@if [ -n "$(AUTHKEY)" ]; then \
 	    APERTURE_TEST_AUTHKEY='$(AUTHKEY)' ./scripts/run-mac-uitests.sh; \
 	else \
@@ -141,6 +142,7 @@ test-mac-ui: mac-framework  ## Run every required native macOS UI test, includin
 
 .PHONY: mac-app-signed
 mac-app-signed: mac-framework mac-artifacts  ## Development-sign native Mac app and verify virtualization entitlement
+	@./scripts/unlock-keychain.sh
 	@echo
 	@echo "::: Building Apple Development-signed Aperture for macOS :::"
 	$(XCB) build \
