@@ -248,11 +248,11 @@ The storage-only form is currently passing and reliably observes:
 THUNDERBOOT STORAGE OK: /dev/vda
 ```
 
-The full form has demonstrated guest enrollment and tailnet/public bootstrap
-traffic. The remaining failure to eliminate is the final host-side HTTP request
-to the guest's port 7575; guest logs show the HTTP server listening and the
-bridge carries traffic, so this is now a focused address/route/HTTP diagnostic
-rather than a VM boot or auth problem.
+The full form now passes guest enrollment and the host-side HTTP reachability
+check. The CLI uses a small raw SOCKS5 diagnostic for the plain-HTTP metrics
+request, avoiding URLSession/App Transport Security policy differences. It
+handles SOCKS authentication, chunked Prometheus responses, transient startup
+failures, and bounded retries.
 
 ## GUI integration
 
@@ -282,7 +282,7 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 
 ### Immediate
 
-1. [ ] Make the full CLI test pass consistently, including the guest HTTP metrics
+1. [DONE] Make the full CLI test pass consistently, including the guest HTTP metrics
    request through the parent Tailscale node.
 2. [DONE] Add a dedicated Makefile target, `make test-aperture-vm`, that:
    - requires/stages the auth key;
@@ -307,7 +307,7 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 
 ### Networking and enrollment
 
-1. [ ] Finish the guest HTTP/MCP/SSH reachability check from the CLI.
+1. [DONE] Finish the guest HTTP/MCP/SSH reachability check from the CLI.
 2. [ ] Verify TCP, UDP, DNS, MTU/large packets, and bridge reconnect behavior.
 3. [ ] Verify the parent workspace can lose/recover tsnet while the VM reports a
    useful state.
