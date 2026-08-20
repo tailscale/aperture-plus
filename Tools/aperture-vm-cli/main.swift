@@ -113,6 +113,20 @@ struct ApertureVMCLI {
         }
     }
 
+    private static func decodeChunked(_ body: String) -> String {
+        var output = ""
+        var remainder = body
+        while let lineEnd = remainder.range(of: "\r\n") {
+            guard let size = Int(remainder[..<lineEnd.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines), radix: 16), size > 0 else { break }
+            let contentStart = lineEnd.upperBound
+            guard remainder.distance(from: contentStart, to: remainder.endIndex) >= size else { break }
+            let contentEnd = remainder.index(contentStart, offsetBy: size)
+            output.append(contentsOf: remainder[contentStart..<contentEnd])
+            remainder = String(remainder[remainder.index(contentEnd, offsetBy: min(2, remainder.distance(from: contentEnd, to: remainder.endIndex)))...])
+        }
+        return output
+    }
+
     private static func extractIPv4s(from line: String) -> [String]? {
         let values = line.replacingOccurrences(of: "[", with: " ")
             .replacingOccurrences(of: "]", with: " ")
@@ -146,9 +160,9 @@ struct ApertureVMCLI {
                                             password: proxy.proxyCredential,
                                             targetHost: host,
                                             targetPort: 7575)
-                guard body.contains("thundersnap") else {
+                guard body.contains("go_gc_duration_seconds") else {
                     let preview = body.prefix(240).replacingOccurrences(of: "\r", with: "\\r").replacingOccurrences(of: "\n", with: "\\n")
-                    throw CLIError.guestNetwork("metrics response missing thundersnap: \(preview)")
+                    throw CLIError.guestNetwork("metrics response missing expected Prometheus metric: \(preview)")
                 }
                 return
             } catch {
@@ -243,15 +257,21 @@ struct ApertureVMCLI {
             let n = buffer.withUnsafeMutableBytes { Darwin.recv(fd, $0.baseAddress, bufferSize, 0) }
             if n <= 0 { break }
             result.append(buffer.prefix(n))
-            if let text = String(data: result, encoding: .utf8), text.contains("\r\n\r\n") {
-                break
-            }
             guard result.count < 1_000_000 else { throw CLIError.guestNetwork("HTTP response too large") }
         }
         guard let text = String(data: result, encoding: .utf8),
               (text.hasPrefix("HTTP/1.0 200") || text.hasPrefix("HTTP/1.1 200")) else {
             let prefix = String(data: result.prefix(80), encoding: .utf8) ?? result.prefix(20).map { String(format: "%02x", $0) }.joined()
             throw CLIError.guestNetwork("unexpected HTTP response: \(prefix)")
+        }
+        // thundersnapd's metrics endpoint uses HTTP chunked transfer coding.
+        // Decode the body before checking for the daemon's own metric names.
+        if let separator = text.range(of: "\r\n\r\n") {
+            let headers = String(text[..<separator.lowerBound])
+            let body = String(text[separator.upperBound...])
+            if headers.localizedCaseInsensitiveContains("transfer-encoding: chunked") {
+                return Self.decodeChunked(body)
+            }
         }
         return text
     }
