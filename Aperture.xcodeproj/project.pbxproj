@@ -11,6 +11,7 @@
 		A10000020000000000000002 /* TailscaleKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = A10000030000000000000003 /* TailscaleKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C20F248B2EF1A0D300F57D67 /* TailscaleKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; };
 		C20F248D2EF1A0DF00F57D67 /* TailscaleKit.xcframework in CopyFiles */ = {isa = PBXBuildFile; fileRef = C20F23E62EF09A7900F57D67 /* TailscaleKit.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D10000020000000000000002 /* ApertureVM in Frameworks */ = {isa = PBXBuildFile; productRef = D10000030000000000000003 /* ApertureVM */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -140,6 +141,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000010000000000000001 /* TailscaleKit.framework in Frameworks */,
+				D10000020000000000000002 /* ApertureVM in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -234,6 +236,7 @@
 			);
 			name = ApertureMac;
 			packageProductDependencies = (
+				D10000030000000000000003 /* ApertureVM */,
 			);
 			productName = AperturePlus;
 			productReference = A10000050000000000000005 /* AperturePlus.app */;
@@ -339,6 +342,9 @@
 			);
 			mainGroup = C213B9822EE8BF80002D0531;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D10000010000000000000001 /* XCLocalSwiftPackageReference "Packages/ApertureVM" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C213B98C2EE8BF80002D0531 /* Products */;
 			projectDirPath = "";
@@ -830,6 +836,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D10000010000000000000001 /* XCLocalSwiftPackageReference "Packages/ApertureVM" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ApertureVM;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D10000030000000000000003 /* ApertureVM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D10000010000000000000001 /* XCLocalSwiftPackageReference "Packages/ApertureVM" */;
+			productName = ApertureVM;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C213B9832EE8BF80002D0531 /* Project object */;
 }
