@@ -194,10 +194,11 @@ It contains:
 - `VMNetworkAttachment`: the dependency-injection seam for the TailscaleKit
   bridge owned by the GUI or diagnostic CLI.
 
-The GUI's existing `WorkspaceVMSupervisor` is still the current app-level owner
-and has parallel implementation code. The next refactoring step is to make it
-use `ApertureVM.VMController` directly, then remove the duplicate controller
-logic from `MacApp/WorkspaceVMSupervisor.swift`.
+The GUI's `WorkspaceVMSupervisor` now uses `ApertureVM.VMController` directly.
+`MacApp/WorkspaceVMAdapter.swift` supplies the workspace-owned TailscaleKit
+network attachment and the native serial console view. The old duplicate VM
+controller, artifact validator, and console implementation have been removed
+from `MacApp/WorkspaceVMSupervisor.swift`.
 
 ## Sandboxed diagnostic CLI
 
@@ -296,12 +297,12 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 
 ### Refactor
 
-1. [ ] Adapt the GUI workspace supervisor to use `ApertureVM.VMController`.
-2. [ ] Implement the GUI's `VMNetworkAttachment` using the owning workspace's
+1. [DONE] Adapt the GUI workspace supervisor to use `ApertureVM.VMController`.
+2. [DONE] Implement the GUI's `VMNetworkAttachment` using the owning workspace's
    `TSNetManager.startVMNetworkBridge`.
 3. [ ] Move the shared workspace VM metadata/path persistence into the package or a
    small shared persistence layer without importing SwiftUI into the package.
-4. [ ] Remove the duplicate controller and artifact-validation implementations.
+4. [DONE] Remove the duplicate controller and artifact-validation implementations.
 5. [ ] Keep all GUI lifecycle operations idempotent and test them independently of
    real enrollment where possible.
 
