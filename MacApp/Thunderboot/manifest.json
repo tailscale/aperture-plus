@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "architecture": "arm64",
   "operatingSystem": "linux",
-  "thundersnapRevision": "2082e1fa38dca7919987cd6b472db00b58276d76",
+  "thundersnapRevision": "5a69c3a757bf6fc7a0c2c8fc6462c297589962c8",
   "kernelVersion": "6.12.8-thunderboot",
-  "builtAt": "2026-08-19T15:28:22Z",
+  "builtAt": "2026-08-21T20:16:57Z",
   "artifacts": {
-    "Image": {"sha256": "b7c29a0e2e2ad7e34d786ce693714e50dd45b41952d5e64568128ef94f54fee5", "size": 71059968},
-    "initramfs.cpio": {"sha256": "40156a097f069e01e98f1260230beb7d7c62e692693e23c0c8e43b421b94515a", "size": 66354176},
+    "Image": {"sha256": "6dc67c33dc2abdc4f472ff077b4725b98204792995a26a5bb3844d070d44ee44", "size": 71059968},
+    "initramfs.cpio": {"sha256": "5e44695b2fc3a6bccdf009a4f2b6b3973d53ce09163b1cf32977c084d37a3fd9", "size": 66419712},
     "kernel.config": {"sha256": "5445aa665b941a698f40581122c0f2a01375ec4de5b28ef0a76f4eb8d669e22d", "size": 299804}
   }
 }
