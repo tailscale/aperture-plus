@@ -36,6 +36,24 @@ struct BrowserView: View {
         // Cover the instant before UIViewRepresentable installs WKWebView with
         // the same adaptive background used by RawWebView itself.
         .background(Color.platformSystemBackground)
+        // While a user-entered navigation is in flight (before commit), hide the
+        // still-rendered previous page so its origin can't be mistaken for the
+        // destination. The entered URL is already shown in the address bar; an
+        // empty page has no phishing danger. Drops on commit/failure/stop.
+        .overlay {
+            if model.blankingContent {
+                ZStack {
+                    Color.platformSystemBackground
+                    if model.isLoading {
+                        ProgressView()
+                            .controlSize(.large)
+                    }
+                }
+                .ignoresSafeArea(.container, edges: .top)
+                .accessibilityIdentifier("user-load-blank")
+                .transition(.opacity)
+            }
+        }
     }
 }
 

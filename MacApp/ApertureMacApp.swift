@@ -150,6 +150,7 @@ struct ApertureMacApp: App {
 private struct WorkspaceWindowRoot: View {
     @ObservedObject var workspaceManager: WorkspaceManager
     @Binding var workspaceID: UUID
+    @Environment(\.dismissWindow) private var dismissWindow
 
     private var resolvedWorkspace: Workspace? {
         workspaceManager.workspace(id: workspaceID) ?? workspaceManager.activeWorkspace
@@ -162,6 +163,14 @@ private struct WorkspaceWindowRoot: View {
                 pinnedWorkspaceID: workspace.id
             )
             .navigationTitle(workspace.identifier)
+            .onAppear {
+                // Closing the last tab closes this workspace's window (and the
+                // workspace persists, reachable from the Window menu) instead of
+                // silently churning a replacement home-page tab. Reopening the
+                // window creates a fresh home-page tab (see `ensureTab` in
+                // `WorkspaceRoot`).
+                workspace.tabManager.onLastTabClosed = { dismissWindow() }
+            }
             .onDisappear {
                 // Closing a native workspace window deletes the workspace when
                 // it was never connected (still at NeedsLogin) and it isn't the
@@ -250,6 +259,13 @@ private struct MacWorkspaceCommands: Commands {
             .keyboardShortcut("t", modifiers: .command)
             .disabled(targetTabManager?.canOpenNewTab != true)
 
+            // Closes the current tab. Closing the last tab closes the workspace
+            // window: `TabManager.closeTab` calls `onLastTabClosed` (set by
+            // `WorkspaceWindowRoot`) which dismisses the window, and reopening
+            // from the Window menu creates a fresh home-page tab. This is the
+            // sole Cmd+W command on macOS (the hidden shortcut buttons in
+            // `BrowserRootContent` are gated to iOS), so it uniquely owns the
+            // shortcut and wins over the system window-close.
             Button("Close Tab") {
                 targetTabManager?.closeCurrentTab()
             }

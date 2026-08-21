@@ -23,6 +23,14 @@ final class BrowserViewModel: NSObject, ObservableObject {
     @Published var navErrorKind: NavErrorKind?
     @Published var navErrorURLString: String?
 
+    /// True while a user-entered address-bar navigation is in flight but has
+    /// not yet committed. While set, `BrowserView` covers the still-rendered
+    /// previous page with a blank sheet so the old origin can't be mistaken
+    /// for the destination (no phishing danger on an empty page). The entered
+    /// URL is shown in the address bar immediately; this flag drops on commit,
+    /// failure, or stop.
+    @Published private(set) var blankingContent = false
+
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
     /// Security-sensitive, user-visible URL. This advances after WebKit commits
@@ -120,6 +128,12 @@ final class BrowserViewModel: NSObject, ObservableObject {
             // later proxy-policy publication must not replace it with initialURL.
             didLoadInitial = true
             loadResolved(pendingLoadURL)
+        } else if let url {
+            // The tab had committed a page but lost its pending-restore URL
+            // (a transient state). Restore the committed page rather than
+            // sending the tab back to its initial/home URL.
+            didLoadInitial = true
+            loadResolved(url)
         } else {
             loadInitial()
         }
@@ -190,6 +204,16 @@ final class BrowserViewModel: NSObject, ObservableObject {
     func loadInitial() {
         guard !didLoadInitial, tsnetModel.state == .Running else { return }
 
+        // A tab that has already committed a page (or has a pending restore
+        // URL captured at unload) must never be sent back to its initial/home
+        // URL. `loadInitial` is only for the very first load of a tab that has
+        // never committed; restoration of an unloaded tab's committed page is
+        // handled by `makeWebView` via `pendingLoadURL`/`url`. Without this
+        // guard, a status/state poll firing on an unloaded (didLoadInitial was
+        // reset) but already-committed tab would reload its home page when the
+        // user next selects it.
+        if url != nil || pendingLoadURL != nil { return }
+
         var target = initialURL
         if isHomePage {
             switch HomePageAvailabilityChecker.initialLoadDecision(
@@ -218,17 +242,42 @@ final class BrowserViewModel: NSObject, ObservableObject {
         load(url: url, isAutomaticStartupLoad: false)
     }
 
-    private func load(url: URL, isAutomaticStartupLoad: Bool) {
+    /// User entered a URL in the address bar. Show the entered URL immediately
+    /// and blank the page content so the previous origin can't be mistaken for
+    /// the destination while the new page loads — no phishing danger on an
+    /// empty page. The blanking flag drops on commit/failure/stop.
+    func loadUserEntered(url: URL) {
+        load(url: url, isAutomaticStartupLoad: false, blankUntilCommit: true)
+    }
+
+    private func load(url requestedURL: URL, isAutomaticStartupLoad: Bool, blankUntilCommit: Bool = false) {
         if !isAutomaticStartupLoad {
             startupRetryTask?.cancel()
             startupRetryTask = nil
             startupLoad = nil
         }
-        guard let target = resolveForTailnet(url) else { return }
+        guard let target = resolveForTailnet(requestedURL) else {
+            // resolveForTailnet already reported the error (unknown/ambiguous
+            // tailnet host) and set navError; drop any in-flight blanking so
+            // the error page is visible.
+            blankingContent = false
+            return
+        }
         if isAutomaticStartupLoad {
             startupLoad = (target, ContinuousClock.now + .seconds(20))
         }
         clearNavError()
+        if blankUntilCommit {
+            // Show the entered destination immediately and hide the old page
+            // until the new one commits. `url` advances now (the user typed
+            // this URL, so showing it is honest); `blankingContent` covers the
+            // still-rendered previous origin.
+            url = target
+            blankingContent = true
+        } else {
+            // A non-blanking load supersedes any prior user-entered blanking.
+            blankingContent = false
+        }
         guard webView != nil else {
             // Preserve an unloaded tab's committed URL. Automatic initial-load
             // attempts must not overwrite it while the tab has no WKWebView.
@@ -287,6 +336,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func reload() {
+        // Cancel any in-flight user-entered blanking: reload re-fetches the
+        // committed page (or retries a failed URL), so the previous-origin
+        // disguise concern no longer applies.
+        blankingContent = false
         // Retry the attempted URL shown in the error overlay. Do not ask
         // WKWebView to reload its still-committed old page: that mismatch is
         // both confusing and dangerous in browser chrome.
@@ -302,7 +355,10 @@ final class BrowserViewModel: NSObject, ObservableObject {
         webView.reload()
     }
 
-    func stopLoading() { webView?.stopLoading() }
+    func stopLoading() {
+        blankingContent = false
+        webView?.stopLoading()
+    }
     func goBack() { if webView?.canGoBack == true { webView?.goBack() } }
     func goForward() { if webView?.canGoForward == true { webView?.goForward() } }
 
@@ -373,6 +429,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func navigationError(_ error: Error, for url: URL) {
+        blankingContent = false
         logger.log("Navigation error for \(url): \(error)")
         navError = (error, url)
         navErrorMessage = Self.describe(error)
@@ -526,6 +583,7 @@ extension BrowserViewModel: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        blankingContent = false
         startupRetryTask?.cancel()
         startupRetryTask = nil
         startupLoad = nil

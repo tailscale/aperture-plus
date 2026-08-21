@@ -99,7 +99,7 @@ struct BrowserNavigator: View {
                             let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
                             urlFieldText = normalized
                             if let url = URL(string: normalized) {
-                                model.load(url: url)
+                                model.loadUserEntered(url: url)
                             } else {
                                 // A normalized string (always has a scheme) is
                                 // essentially always parseable; if it isn't,

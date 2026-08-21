@@ -290,7 +290,7 @@ struct CompactBrowserToolbar: View {
         }
         let normalized = BrowserNavigator.normalizedURLString(from: trimmed)
         if let url = URL(string: normalized) {
-            viewModel.load(url: url)
+            viewModel.loadUserEntered(url: url)
         } else {
             logger.log("Could not parse URL: \(normalized)")
             viewModel.reportURLParseFailure(normalized)

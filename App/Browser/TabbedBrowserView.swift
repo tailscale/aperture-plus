@@ -154,9 +154,11 @@ private struct WorkspaceRoot: View {
         }
         .onAppear {
             if statusViewModel.running { hasConnected = true }
+            ensureFreshTab()
         }
         .onChange(of: statusViewModel.running) { _, running in
             if running { hasConnected = true }
+            ensureFreshTab()
         }
         .onDisappear {
             // Switching workspaces keeps this workspace's lightweight tab
@@ -165,6 +167,17 @@ private struct WorkspaceRoot: View {
         }
         // The workspace's bookmarks container is injected by `TabbedBrowserView`
         // (see the comment there for why it must NOT live on this view).
+    }
+
+    /// On macOS, closing the last tab closes the workspace window and persists
+    /// an empty tab list. When the window is reopened (or when a never-connected
+    /// workspace first connects), ensure there's a fresh home-page tab to show
+    /// instead of rendering an empty browser pane. A no-op when tabs already
+    /// exist (the normal case, including first launch where `TabManager.init`
+    /// already seeded one).
+    private func ensureFreshTab() {
+        guard hasConnected, tabManager.tabCount == 0 else { return }
+        tabManager.openChatTab()
     }
 }
 
@@ -291,9 +304,13 @@ private struct BrowserRootContent: View {
                 initialURLString: tab.viewModel.url?.absoluteString ?? ""
             )
         }
-        // Hidden command targets keep hardware-keyboard shortcuts available
-        // regardless of toolbar placement or focused web content.
+        // Hidden command targets keep hardware-keyboard shortcuts available on
+        // iPad regardless of toolbar placement or focused web content. On macOS
+        // these are owned by the menu commands (`MacWorkspaceCommands`); defining
+        // them here too creates a duplicate-shortcut conflict that leaves Cmd+W
+        // bound to the system window-close instead of the tab close.
         .background {
+#if !os(macOS)
             Group {
                 Button("Focus Address Bar") { addressFocusRequested = true }
                     .keyboardShortcut("l", modifiers: .command)
@@ -304,6 +321,7 @@ private struct BrowserRootContent: View {
                     .disabled(!tabManager.canOpenNewTab)
             }
             .hidden()
+#endif
         }
     }
 

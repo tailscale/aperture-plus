@@ -24,6 +24,12 @@ final class TabManager: ObservableObject {
     private let homePage: HomePage
     private let dataStore: WKWebsiteDataStore
 
+    /// Set by native macOS windows so closing the last tab closes the window
+    /// (and, on reopen, a fresh home-page tab is created) instead of silently
+    /// reopening the home page in place. iOS leaves this nil: the last tab
+    /// closes back to a fresh home-page tab (there's no window to close).
+    var onLastTabClosed: (() -> Void)?
+
     var currentTab: BrowserTab? {
         guard tabs.indices.contains(selectedIndex) else { return nil }
         return tabs[selectedIndex]
@@ -94,6 +100,14 @@ final class TabManager: ObservableObject {
         tabs.remove(at: index)
 
         if tabs.isEmpty {
+            if let onLastTabClosed {
+                // Persist the now-empty tab list so reopening the workspace
+                // window creates a fresh home-page tab rather than restoring
+                // the closed one, then hand the close to the window.
+                persist()
+                onLastTabClosed()
+                return
+            }
             _ = openChatTab(select: true)
             return
         }
