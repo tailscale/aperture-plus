@@ -244,26 +244,45 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     private func observeWebView(_ view: WKWebView) {
         webViewObservations.removeAll()
+        // KVO fires on the main thread during a SwiftUI view update (WKWebView
+        // property churn and SwiftUI renders interleave on main). Extract the
+        // Sendable value and defer the @Published mutation to the next runloop
+        // turn via DispatchQueue.main.async so it never publishes during a
+        // view update (the source of the "publishing changes from within view
+        // updates" runtime warnings). Task { @MainActor } can run inline in the
+        // same turn; a main-queue async block cannot.
         webViewObservations = [
             view.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.acceptSameDocumentURL(from: view) }
+                let candidate = view.url
+                DispatchQueue.main.async { @MainActor in self?.acceptURLCandidate(candidate, from: view) }
             },
             view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.title = view.title ?? "" }
+                let t = view.title
+                DispatchQueue.main.async { @MainActor in self?.title = t ?? "" }
             },
             view.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.isLoading = view.isLoading }
+                let loading = view.isLoading
+                DispatchQueue.main.async { @MainActor in self?.isLoading = loading }
             },
             view.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.estimatedProgress = view.estimatedProgress }
+                let p = view.estimatedProgress
+                DispatchQueue.main.async { @MainActor in self?.estimatedProgress = p }
             },
             view.observe(\.canGoBack, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.canGoBack = view.canGoBack }
+                let v = view.canGoBack
+                DispatchQueue.main.async { @MainActor in self?.canGoBack = v }
             },
             view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
-                Task { @MainActor in self?.canGoForward = view.canGoForward }
+                let v = view.canGoForward
+                DispatchQueue.main.async { @MainActor in self?.canGoForward = v }
             },
         ]
+    }
+
+    /// Same-origin same-document URL KVO handler, deferred onto the main actor.
+    private func acceptURLCandidate(_ candidate: URL?, from view: WKWebView) {
+        guard let candidate else { return }
+        acceptSameDocumentURL(candidate: candidate, from: view)
     }
 
     func applyProxy(_ proxy: ProxyConfiguration) {
@@ -330,7 +349,7 @@ final class BrowserViewModel: NSObject, ObservableObject {
             // resolveForTailnet already reported the error (unknown/ambiguous
             // tailnet host) and set navError; drop any in-flight blanking so
             // the error page is visible.
-            blankingContent = false
+            if blankingContent { blankingContent = false }
             return
         }
         if isAutomaticStartupLoad {
@@ -341,12 +360,15 @@ final class BrowserViewModel: NSObject, ObservableObject {
             // Show the entered destination immediately and hide the old page
             // until the new one commits. `url` advances now (the user typed
             // this URL, so showing it is honest); `blankingContent` covers the
-            // still-rendered previous origin.
-            url = target
-            blankingContent = true
+            // still-rendered previous origin. Guard the sets: this runs on the
+            // synchronous load path (including from makeWebView during a view
+            // update), and @Published fires objectWillChange even for no-op
+            // assignments.
+            if url != target { url = target }
+            if !blankingContent { blankingContent = true }
         } else {
             // A non-blanking load supersedes any prior user-entered blanking.
-            blankingContent = false
+            if blankingContent { blankingContent = false }
         }
         guard webView != nil else {
             // Preserve an unloaded tab's committed URL. Automatic initial-load
@@ -544,10 +566,14 @@ final class BrowserViewModel: NSObject, ObservableObject {
     }
 
     func clearNavError() {
-        navError = nil
-        navErrorMessage = nil
-        navErrorKind = nil
-        navErrorURLString = nil
+        // Guard each set: clearNavError runs on the synchronous load path
+        // (including from makeWebView during a SwiftUI view update), and
+        // @Published fires objectWillChange even when assigning the same value.
+        // Skipping no-op assignments avoids publishing during a view update.
+        if navError != nil { navError = nil }
+        if navErrorMessage != nil { navErrorMessage = nil }
+        if navErrorKind != nil { navErrorKind = nil }
+        if navErrorURLString != nil { navErrorURLString = nil }
     }
 
     /// Accepts URL KVO changes only when they cannot change the security origin
@@ -559,10 +585,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
     /// again here is deliberate defense in depth: URL KVO also participates in
     /// ordinary/provisional navigation, and a cross-origin request must not be
     /// able to spoof the address bar before it commits.
-    private func acceptSameDocumentURL(from view: WKWebView) {
+    private func acceptSameDocumentURL(candidate: URL, from view: WKWebView) {
         guard webView === view,
               let current = url,
-              let candidate = view.url,
               Self.haveSameWebOrigin(current, candidate)
         else { return }
         url = candidate

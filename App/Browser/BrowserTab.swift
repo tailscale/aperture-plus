@@ -95,7 +95,8 @@ final class BrowserTab: Identifiable, ObservableObject {
         pendingTitle = viewModel.title.trimmingCharacters(in: .whitespacesAndNewlines)
         scheduleTitleCommit()
 
-        displayURL = viewModel.url?.absoluteString ?? displayURL
+        let newURL = viewModel.url?.absoluteString ?? displayURL
+        displayURL = newURL
         displayHost = viewModel.url?.host ?? URL(string: displayURL)?.host ?? ""
         refreshConnectionType()
         if displayURL != previousURL {

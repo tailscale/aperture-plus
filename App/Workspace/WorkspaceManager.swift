@@ -188,8 +188,13 @@ final class WorkspaceManager: ObservableObject {
     }
 
     /// A workspace window appeared. Records it as open and, if no window has
-    /// been focused yet, treats it as the current workspace.
+    /// been focused yet, treats it as the current workspace. Idempotent: a
+    /// no-op when the window is already recorded as open, so re-registration
+    /// (e.g. from a SwiftUI view re-render) does not publish.
     func windowDidOpen(windowID: UUID, workspaceID: UUID) {
+        if openWorkspaceWindows[workspaceID] == windowID, lastFocusedWorkspaceID != nil {
+            return
+        }
         openWorkspaceWindows[workspaceID] = windowID
         if lastFocusedWorkspaceID == nil { lastFocusedWorkspaceID = workspaceID }
         selectWorkspace(id: workspaceID)
@@ -199,8 +204,9 @@ final class WorkspaceManager: ObservableObject {
     /// workspace (the Cmd+N target) and mirrors it into the persisted active
     /// workspace. Driven by NSWindow.didBecomeKeyNotification for reliability
     /// (per-scene scenePhase does not reliably fire on macOS when another
-    /// window closes and this one becomes key).
+    /// window closes and this one becomes key). Idempotent.
     func windowBecameKey(windowID: UUID, workspaceID: UUID) {
+        guard lastFocusedWorkspaceID != workspaceID else { return }
         lastFocusedWorkspaceID = workspaceID
         selectWorkspace(id: workspaceID)
     }
@@ -209,7 +215,7 @@ final class WorkspaceManager: ObservableObject {
     /// `lastFocusedWorkspaceID` is intentionally retained so Cmd+N can reopen
     /// the last-focused workspace after all windows are closed.
     func windowDidClose(workspaceID: UUID) {
-        openWorkspaceWindows.removeValue(forKey: workspaceID)
+        guard openWorkspaceWindows.removeValue(forKey: workspaceID) != nil else { return }
     }
 
     /// True if this workspace currently has an open window.

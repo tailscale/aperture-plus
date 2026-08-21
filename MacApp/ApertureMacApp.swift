@@ -100,11 +100,24 @@ private final class MacWindowFocusTracker {
 
     /// Called from `WorkspaceWindowRoot` once its hosting `NSWindow` is known.
     /// Records the open window and, if it is already key, marks it focused.
+    /// Safe to call during a SwiftUI view update: it only mutates this tracker's
+    /// non-published map synchronously, and defers the `@Published` workspace-manager
+    /// mutation to a MainActor task so it never publishes during a view update.
     func register(window: NSWindow, windowID: UUID, workspaceID: UUID) {
-        windowToWorkspace[ObjectIdentifier(window)] = (windowID, workspaceID)
-        workspaceManager?.windowDidOpen(windowID: windowID, workspaceID: workspaceID)
-        if window.isKeyWindow {
-            workspaceManager?.windowBecameKey(windowID: windowID, workspaceID: workspaceID)
+        let key = ObjectIdentifier(window)
+        // Skip the manager call entirely if already registered for this window;
+        // updateNSView fires on every view re-render, so without this guard
+        // every render would re-publish and spin.
+        let already = windowToWorkspace[key]
+        windowToWorkspace[key] = (windowID, workspaceID)
+        let isKey = window.isKeyWindow
+        guard already == nil || already?.workspaceID != workspaceID || already?.windowID != windowID || isKey
+        else { return }
+        Task { @MainActor [weak self] in
+            self?.workspaceManager?.windowDidOpen(windowID: windowID, workspaceID: workspaceID)
+            if isKey {
+                self?.workspaceManager?.windowBecameKey(windowID: windowID, workspaceID: workspaceID)
+            }
         }
     }
 
