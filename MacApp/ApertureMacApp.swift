@@ -62,6 +62,65 @@ private final class WindowOpener {
     }
 }
 
+/// Captures the hosting `NSWindow` of a SwiftUI scene so native window-key
+/// notifications can drive "most recently focused workspace" tracking.
+private struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        onWindow(nsView.window)
+    }
+}
+
+/// Tracks which workspace each open `NSWindow` belongs to and, via
+/// `NSWindow.didBecomeKeyNotification`, which workspace was most recently
+/// focused. Per-scene `scenePhase` does not reliably fire `.active` on macOS
+/// when another window closes and this one becomes key, so the Cmd+N
+/// "reopen last-focused workspace" logic is driven from here instead.
+@MainActor
+private final class MacWindowFocusTracker {
+    static let shared = MacWindowFocusTracker()
+    weak var workspaceManager: WorkspaceManager?
+    /// Maps a live `NSWindow` (by `ObjectIdentifier`) to its `(windowID, workspaceID)`.
+    private var windowToWorkspace: [ObjectIdentifier: (windowID: UUID, workspaceID: UUID)] = [:]
+    private var keyObserver: Any?
+
+    private init() {
+        keyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            // Extract the Sendable window reference before crossing into the
+            // MainActor task (NSNotification itself is not Sendable).
+            let window = note.object as? NSWindow
+            Task { @MainActor in self?.windowBecameKey(window) }
+        }
+    }
+
+    /// Called from `WorkspaceWindowRoot` once its hosting `NSWindow` is known.
+    /// Records the open window and, if it is already key, marks it focused.
+    func register(window: NSWindow, windowID: UUID, workspaceID: UUID) {
+        windowToWorkspace[ObjectIdentifier(window)] = (windowID, workspaceID)
+        workspaceManager?.windowDidOpen(windowID: windowID, workspaceID: workspaceID)
+        if window.isKeyWindow {
+            workspaceManager?.windowBecameKey(windowID: windowID, workspaceID: workspaceID)
+        }
+    }
+
+    /// Called from `WorkspaceWindowRoot.onDisappear` to drop the closed window.
+    func unregister(workspaceID: UUID) {
+        windowToWorkspace = windowToWorkspace.filter { $0.value.workspaceID != workspaceID }
+    }
+
+    private func windowBecameKey(_ window: NSWindow?) {
+        guard let window,
+              let (windowID, workspaceID) = windowToWorkspace[ObjectIdentifier(window)]
+        else { return }
+        workspaceManager?.windowBecameKey(windowID: windowID, workspaceID: workspaceID)
+    }
+}
+
 private final class MacAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
@@ -178,7 +237,6 @@ private struct WorkspaceWindowRoot: View {
     @ObservedObject var workspaceManager: WorkspaceManager
     @Binding var handle: WorkspaceWindowHandle
     @Environment(\.dismissWindow) private var dismissWindow
-    @Environment(\.scenePhase) private var scenePhase
 
     private var workspaceID: UUID { handle.workspaceID }
 
@@ -193,6 +251,15 @@ private struct WorkspaceWindowRoot: View {
                 pinnedWorkspaceID: workspace.id
             )
             .navigationTitle(workspace.identifier)
+            .background(WindowAccessor { window in
+                // Grab the hosting NSWindow so NSWindow key notifications can
+                // drive focus tracking (per-scene scenePhase is unreliable on
+                // macOS for become-key). Registering is idempotent.
+                guard let window else { return }
+                MacWindowFocusTracker.shared.workspaceManager = workspaceManager
+                MacWindowFocusTracker.shared.register(
+                    window: window, windowID: handle.windowID, workspaceID: workspaceID)
+            })
             .onAppear {
                 // Closing the last tab closes this workspace's window (and the
                 // workspace persists, reachable from the Window menu) instead of
@@ -200,19 +267,13 @@ private struct WorkspaceWindowRoot: View {
                 // window creates a fresh home-page tab (see `ensureTab` in
                 // `WorkspaceRoot`).
                 workspace.tabManager.onLastTabClosed = { dismissWindow() }
-                // Mark this window's workspace as the most recently used so
-                // Cmd+N opens the next window in it.
-                workspaceManager.recordFocus(windowID: handle.windowID, workspaceID: workspaceID)
-            }
-            .onChange(of: scenePhase) { _, phase in
-                // Track focus so Cmd+N targets the most recently focused
-                // workspace window. Per-scene scenePhase flips to `.active` when
-                // a window becomes key.
-                if phase == .active {
-                    workspaceManager.recordFocus(windowID: handle.windowID, workspaceID: workspaceID)
-                }
+                MacWindowFocusTracker.shared.workspaceManager = workspaceManager
             }
             .onDisappear {
+                // Drop this window from the open/focus tracker before any
+                // workspace cleanup so the Window menu and Cmd+N see it gone.
+                MacWindowFocusTracker.shared.unregister(workspaceID: workspaceID)
+                workspaceManager.windowDidClose(workspaceID: workspaceID)
                 // Closing a native workspace window deletes the workspace when
                 // it was never connected (still at NeedsLogin) and it isn't the
                 // last one. A fresh Ctrl-Cmd+N workspace that you close right
@@ -281,6 +342,18 @@ private struct MacWorkspaceCommands: Commands {
         workspaceManager.currentWorkspaceID
     }
 
+    /// Cmd+N opens a new window in the current workspace only when it doesn't
+    /// already have one (a second window in the same workspace would share one
+    /// `TabManager` and fight it, so duplicates are refused). So Cmd+N does
+    /// nothing while the current workspace's window is open, and reopens the
+    /// last-focused workspace after ALL windows are closed.
+    private var canNewWindow: Bool {
+        guard let wsID = currentWorkspaceID,
+              !workspaceManager.hasOpenWindow(wsID)
+        else { return false }
+        return true
+    }
+
     var body: some Commands {
         let _ = {
             WindowOpener.shared.openWindow = openWindow
@@ -289,15 +362,18 @@ private struct MacWorkspaceCommands: Commands {
         }()
         CommandGroup(replacing: .newItem) {
             // Cmd+N: a new browser window in the current (most-recently-focused)
-            // workspace, matching other browsers. A fresh windowID produces a
-            // distinct window even if one for this workspace is already open.
+            // workspace — but only if that workspace doesn't already have a
+            // window open (one window per workspace). When a window is already
+            // open this is a no-op; after all windows are closed it reopens the
+            // last-focused one. A fresh windowID produces a distinct window.
             Button("New Window") {
-                guard let wsID = currentWorkspaceID else { return }
+                guard let wsID = currentWorkspaceID,
+                      !workspaceManager.hasOpenWindow(wsID) else { return }
                 openWindow(id: "workspace",
                            value: WorkspaceWindowHandle(windowID: UUID(), workspaceID: wsID))
             }
             .keyboardShortcut("n", modifiers: .command)
-            .disabled(currentWorkspaceID == nil)
+            .disabled(!canNewWindow)
 
             // Ctrl-Cmd+N: a new workspace (a new tsnet identity / window).
             // Shift-Cmd+N is reserved for a future incognito/ephemeral mode.
@@ -368,19 +444,13 @@ private struct MacWorkspaceCommands: Commands {
 
         // The standard Window menu lists only windows that are currently open.
         // Add every persisted workspace so a closed window can be recreated.
-        // Reuse the workspace's last-focused windowID when it matches so an
-        // already-open window is raised (idempotent openWindow); otherwise open
-        // a fresh window for that workspace.
+        // If the workspace already has an open window, reuse its windowID so the
+        // idempotent `openWindow` raises it; otherwise open a fresh window.
         CommandGroup(before: .windowArrangement) {
             Divider()
             ForEach(workspaceManager.workspaces) { workspace in
                 Button(workspace.identifier) {
-                    let windowID: UUID
-                    if workspaceManager.lastFocusedWindow?.workspaceID == workspace.id {
-                        windowID = workspaceManager.lastFocusedWindow!.windowID
-                    } else {
-                        windowID = UUID()
-                    }
+                    let windowID = workspaceManager.openWorkspaceWindows[workspace.id] ?? UUID()
                     openWindow(id: "workspace",
                                value: WorkspaceWindowHandle(windowID: windowID, workspaceID: workspace.id))
                 }

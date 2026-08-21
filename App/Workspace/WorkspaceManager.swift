@@ -24,12 +24,17 @@ final class WorkspaceManager: ObservableObject {
     @Published private(set) var activeWorkspace: Workspace?
 
     private var activeId: UUID?
-    /// The most recently focused workspace window: `(windowID, workspaceID)`.
-    /// Drives Cmd+N ("new window in the current workspace") and lets the Window
-    /// menu raise an already-open window. The workspace half is also mirrored
-    /// into `activeWorkspace` (persisted) so it survives "all windows closed" and
-    /// relaunch. In-memory only; the window id is not persisted.
-    private(set) var lastFocusedWindow: (windowID: UUID, workspaceID: UUID)?
+    /// workspaceID -> windowID for currently open workspace windows. At most
+    /// one window per workspace is allowed (a second window in the same
+    /// workspace would share one `TabManager` and fight it, so Cmd+N refuses
+    /// to open one). In-memory only.
+    @Published private(set) var openWorkspaceWindows: [UUID: UUID] = [:]
+    /// The most recently focused (key) workspace window's workspace. Retained
+    /// when its window closes so Cmd+N can reopen it after ALL windows are
+    /// gone (the last workspace to have focus is the one to reopen). Mirrored
+    /// into the persisted `activeWorkspace` on each focus. In-memory only; on
+    /// relaunch it falls back to the persisted active workspace.
+    private(set) var lastFocusedWorkspaceID: UUID?
     /// Native macOS installs a supervisor here. It is nil on iOS and keeps
     /// workspace deletion independent of any VM console window.
     weak var vmManager: (any WorkspaceVMManaging)?
@@ -182,19 +187,45 @@ final class WorkspaceManager: ObservableObject {
         persist()
     }
 
-    /// Record that a workspace window became focused. Updates `lastFocusedWindow`
-    /// and mirrors the workspace into the persisted `activeWorkspace` (the
-    /// "most recently used" workspace), so Cmd+N targets it even after all
-    /// windows are closed or the app is relaunched.
-    func recordFocus(windowID: UUID, workspaceID: UUID) {
-        lastFocusedWindow = (windowID, workspaceID)
+    /// A workspace window appeared. Records it as open and, if no window has
+    /// been focused yet, treats it as the current workspace.
+    func windowDidOpen(windowID: UUID, workspaceID: UUID) {
+        openWorkspaceWindows[workspaceID] = windowID
+        if lastFocusedWorkspaceID == nil { lastFocusedWorkspaceID = workspaceID }
         selectWorkspace(id: workspaceID)
     }
 
+    /// A workspace window became key. Updates the most-recently-focused
+    /// workspace (the Cmd+N target) and mirrors it into the persisted active
+    /// workspace. Driven by NSWindow.didBecomeKeyNotification for reliability
+    /// (per-scene scenePhase does not reliably fire on macOS when another
+    /// window closes and this one becomes key).
+    func windowBecameKey(windowID: UUID, workspaceID: UUID) {
+        lastFocusedWorkspaceID = workspaceID
+        selectWorkspace(id: workspaceID)
+    }
+
+    /// A workspace window closed. Removes it from the open set. The
+    /// `lastFocusedWorkspaceID` is intentionally retained so Cmd+N can reopen
+    /// the last-focused workspace after all windows are closed.
+    func windowDidClose(workspaceID: UUID) {
+        openWorkspaceWindows.removeValue(forKey: workspaceID)
+    }
+
+    /// True if this workspace currently has an open window.
+    func hasOpenWindow(_ workspaceID: UUID) -> Bool {
+        openWorkspaceWindows[workspaceID] != nil
+    }
+
     /// The workspace Cmd+N / "new window" should target: the most recently
-    /// focused one, falling back to the persisted active workspace.
+    /// focused one that still exists, falling back to the persisted active
+    /// workspace. Returns nil only if there are no workspaces at all.
     var currentWorkspaceID: UUID? {
-        lastFocusedWindow?.workspaceID ?? activeId ?? activeWorkspace?.id
+        let candidate = lastFocusedWorkspaceID ?? activeId ?? activeWorkspace?.id
+        if let candidate, workspaces.contains(where: { $0.id == candidate }) {
+            return candidate
+        }
+        return activeWorkspace?.id ?? workspaces.first?.id
     }
 
     /// Removes a session rather than leaving a logged-out shell behind. If it
@@ -217,7 +248,11 @@ final class WorkspaceManager: ObservableObject {
             if workspaces.isEmpty { workspaces.append(replacement) }
             activeWorkspace = replacement
             activeId = replacement.id
+            // If the deleted workspace was the most-recently-focused one, hand
+            // that role to the replacement so Cmd+N still has a valid target.
+            if lastFocusedWorkspaceID == id { lastFocusedWorkspaceID = replacement.id }
         }
+        openWorkspaceWindows.removeValue(forKey: id)
         persist()
 
         // Publish the replacement/removal immediately, then tear down and
