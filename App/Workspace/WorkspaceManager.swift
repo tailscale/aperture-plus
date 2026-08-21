@@ -211,11 +211,22 @@ final class WorkspaceManager: ObservableObject {
         selectWorkspace(id: workspaceID)
     }
 
-    /// A workspace window closed. Removes it from the open set. The
-    /// `lastFocusedWorkspaceID` is intentionally retained so Cmd+N can reopen
-    /// the last-focused workspace after all windows are closed.
-    func windowDidClose(workspaceID: UUID) {
-        guard openWorkspaceWindows.removeValue(forKey: workspaceID) != nil else { return }
+    /// A workspace window closed. Removes it from the open set only when the
+    /// closing window is the one currently recorded as open for this workspace.
+    /// Keying the removal on `windowID` (not just `workspaceID`) is what makes
+    /// the close→reopen sequence correct: the dismissed window's `onDisappear`
+    /// fires asynchronously (SwiftUI tears the window down whenever it gets
+    /// around to it), and a Cmd+N issued right after Cmd+W opens the
+    /// replacement window *before* the old view's `onDisappear` runs. If that
+    /// late cleanup were keyed only by `workspaceID` it would wipe the new
+    /// window's entry, `hasOpenWindow` would report false, and the next Cmd+N
+    /// would open a second window on the same workspace. Matching the windowID
+    /// makes the stale cleanup a no-op. `lastFocusedWorkspaceID` is
+    /// intentionally retained so Cmd+N can reopen the last-focused workspace
+    /// after all windows are closed.
+    func windowDidClose(windowID: UUID, workspaceID: UUID) {
+        guard openWorkspaceWindows[workspaceID] == windowID else { return }
+        openWorkspaceWindows.removeValue(forKey: workspaceID)
     }
 
     /// True if this workspace currently has an open window.

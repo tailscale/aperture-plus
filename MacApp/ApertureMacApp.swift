@@ -121,9 +121,13 @@ private final class MacWindowFocusTracker {
         }
     }
 
-    /// Called from `WorkspaceWindowRoot.onDisappear` to drop the closed window.
-    func unregister(workspaceID: UUID) {
-        windowToWorkspace = windowToWorkspace.filter { $0.value.workspaceID != workspaceID }
+    /// Called from `WorkspaceWindowRoot.onDisappear` to drop the closed
+    /// window. Filters by `windowID` (not `workspaceID`) so a late
+    /// `onDisappear` from the *previous* window of the same workspace doesn't
+    /// evict the newly-opened window's entry — see
+    /// `WorkspaceManager.windowDidClose(windowID:workspaceID:)` for the race.
+    func unregister(windowID: UUID) {
+        windowToWorkspace = windowToWorkspace.filter { $0.value.windowID != windowID }
     }
 
     private func windowBecameKey(_ window: NSWindow?) {
@@ -281,12 +285,41 @@ private struct WorkspaceWindowRoot: View {
                 // `WorkspaceRoot`).
                 workspace.tabManager.onLastTabClosed = { dismissWindow() }
                 MacWindowFocusTracker.shared.workspaceManager = workspaceManager
+                // Record this window as open for its workspace NOW, from onAppear,
+                // rather than relying on `WindowAccessor`/`updateNSView` below.
+                // `WindowAccessor.onWindow` bails while `nsView.window` is nil,
+                // which is the case on the first `updateNSView` (the NSView isn't
+                // attached to its window yet). Registration then only happens if a
+                // later SwiftUI re-render retries `updateNSView` once the view is
+                // attached — and that retry is driven by `@Published` churn.
+                // At first launch / a `NeedsLogin` workspace, tsnet status
+                // transitions re-render the view, so the retry fires and the
+                // window registers. But when a *connected* workspace's window is
+                // closed (Cmd+W) and then reopened (Cmd+N), the workspace state is
+                // stable, so nothing re-renders: `updateNSView` is never retried
+                // with a non-nil window, the window is never recorded as open,
+                // `hasOpenWindow` stays false, and the very next Cmd+N opens a
+                // SECOND window on the same workspace. `onAppear` fires reliably
+                // when the window's content appears regardless of NSWindow
+                // availability, so registering here makes the open-set accurate
+                // in the stable-state reopen case. `windowDidOpen` is idempotent,
+                // so the later `WindowAccessor`-driven call (if it ever fires) is a
+                // harmless no-op; that path remains for focus tracking.
+                workspaceManager.windowDidOpen(
+                    windowID: handle.windowID, workspaceID: workspace.id)
             }
             .onDisappear {
                 // Drop this window from the open/focus tracker before any
                 // workspace cleanup so the Window menu and Cmd+N see it gone.
-                MacWindowFocusTracker.shared.unregister(workspaceID: workspaceID)
-                workspaceManager.windowDidClose(workspaceID: workspaceID)
+                // Key the removal by `windowID` (not just `workspaceID`): this
+                // window's `onDisappear` can fire *after* a freshly-opened
+                // replacement window of the same workspace has already
+                // registered itself (SwiftUI dismisses asynchronously), and a
+                // workspaceID-keyed cleanup here would wipe the new window's
+                // entry — re-enabling Cmd+N and letting a second window open on
+                // the same workspace.
+                MacWindowFocusTracker.shared.unregister(windowID: handle.windowID)
+                workspaceManager.windowDidClose(windowID: handle.windowID, workspaceID: workspaceID)
                 // Closing a native workspace window deletes the workspace when
                 // it was never connected (still at NeedsLogin) and it isn't the
                 // last one. A fresh Ctrl-Cmd+N workspace that you close right
