@@ -75,7 +75,6 @@ struct WorkspaceVMSettingsSection: View {
                 .accessibilityIdentifier("thundersnap-vm-start")
             Button("Delete VM", role: .destructive) { showingDeleteConfirmation = true }
                 .accessibilityIdentifier("thundersnap-vm-delete")
-                .accessibilityIdentifier("thundersnap-vm-delete")
         case .creating, .starting, .stopping:
             ProgressView()
             Button("Open Console") { manager?.openVMConsole(for: workspace) }
