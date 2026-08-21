@@ -77,7 +77,12 @@ func TsnetSetupLogs(dir *C.char) C.int {
 		Collection:          cfg.Collection,
 		PrivateID:           cfg.PrivateID,
 		BaseURL:             logpolicy.LogURL(),
-		Stderr:              buf.OrigStderr,
+		// Do NOT echo old filch logs (from prior runs) to stderr. They are
+		// still uploaded to logtail via the buffer drain, but echoing them to
+		// the original stderr floods the Xcode/console with stale warnings
+		// (e.g. SwiftUI "publishing changes" faults from the previous launch)
+		// that look like a live problem. io.Discard suppresses only the echo.
+		Stderr:              io.Discard,
 		Buffer:              buf,
 		CompressLogs:        true,
 		IncludeProcID:       true,
