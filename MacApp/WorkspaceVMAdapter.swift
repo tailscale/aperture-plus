@@ -2,13 +2,13 @@ import AppKit
 import Combine
 import Foundation
 import SwiftUI
-import TailscaleKit
 import Virtualization
 import ApertureVM
 
 /// Adapts the reusable package controller to the app's workspace lifecycle
-/// protocol. The GUI owns the workspace and its parent tsnet node; the package
-/// owns the actual VZ machine, disk, serial stream, and guest log state.
+/// protocol. The package owns the actual VZ machine, disk, serial stream, and
+/// guest log state. The GUI currently uses Virtualization.framework's standard
+/// NAT rather than the experimental workspace-owned vmnet bridge.
 @MainActor
 final class ManagedWorkspaceVMController: NSObject, ObservableObject {
     let workspace: Workspace
@@ -22,12 +22,11 @@ final class ManagedWorkspaceVMController: NSObject, ObservableObject {
     init(workspace: Workspace, changed: @escaping () -> Void) {
         self.workspace = workspace
         self.changed = changed
-        let network = WorkspaceVMNetworkAttachment(workspace: workspace)
         let config = VMConfiguration(
             workspaceID: workspace.id,
             workspaceDirectory: WorkspaceStore.workspaceDir(workspace.id),
             artifactRoots: ApplianceArtifacts.defaultRoots(),
-            networkAttachment: network
+            networkMode: .nat
         )
         core = ApertureVM.VMController(configuration: config)
         status = Self.map(core.status)
@@ -84,103 +83,6 @@ final class ManagedWorkspaceVMController: NSObject, ObservableObject {
         case .stopped: return .stopped
         case .failed(let stage, let message): return .failed(stage: stage, message: message)
         }
-    }
-}
-
-/// The GUI-side owner of the existing workspace network bridge. It creates no
-/// Tailscale identity of its own; the workspace's TSNetManager remains the
-/// single owner of the parent node.
-@MainActor
-private final class WorkspaceVMNetworkAttachment: VMNetworkAttachment {
-    private let workspace: Workspace
-    private let token: String
-    private var bridge: TailscaleKit.VMNetworkBridge?
-    private var client: FileHandle?
-    private var clientURL: URL?
-
-    init(workspace: Workspace) {
-        self.workspace = workspace
-        token = String(workspace.id.uuidString.prefix(12)).lowercased()
-    }
-
-    func open() async throws -> (FileHandle, AnyObject) {
-        if let client, let bridge { return (client, bridge) }
-        let temporary = FileManager.default.temporaryDirectory
-        let serverURL = temporary.appending(path: "ap-gui-vm-\(token)-s")
-        let clientURL = temporary.appending(path: "ap-gui-vm-\(token)-c")
-        let bridge = try await workspace.manager.startVMNetworkBridge(socketURL: serverURL)
-        do {
-            let client = try Self.connectedUnixDatagram(clientURL: clientURL, serverURL: serverURL)
-            self.bridge = bridge
-            self.client = client
-            self.clientURL = clientURL
-            return (client, bridge)
-        } catch {
-            try? await bridge.close()
-            throw error
-        }
-    }
-
-    func close() async {
-        client?.closeFile()
-        client = nil
-        if let clientURL { unlink(clientURL.path) }
-        clientURL = nil
-        try? await bridge?.close()
-        bridge = nil
-    }
-
-    private static func connectedUnixDatagram(clientURL: URL, serverURL: URL) throws -> FileHandle {
-        let descriptor = Darwin.socket(AF_UNIX, SOCK_DGRAM, 0)
-        guard descriptor >= 0 else {
-            throw VMNetworkAttachmentError.socket(String(cString: strerror(errno)))
-        }
-        var closeDescriptor = true
-        defer { if closeDescriptor { Darwin.close(descriptor) } }
-        unlink(clientURL.path)
-
-        func address(_ path: String) throws -> sockaddr_un {
-            guard path.utf8.count < MemoryLayout<sockaddr_un>.size - 1 else {
-                throw VMNetworkAttachmentError.socket("Unix socket path is too long")
-            }
-            var result = sockaddr_un()
-            result.sun_family = sa_family_t(AF_UNIX)
-            path.withCString { source in
-                withUnsafeMutablePointer(to: &result.sun_path.0) {
-                    _ = strcpy($0, source)
-                }
-            }
-            return result
-        }
-
-        var local = try address(clientURL.path)
-        let bound = withUnsafePointer(to: &local) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bound == 0 else {
-            throw VMNetworkAttachmentError.socket("bind: \(String(cString: strerror(errno)))")
-        }
-
-        var remote = try address(serverURL.path)
-        let connected = withUnsafePointer(to: &remote) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else {
-            throw VMNetworkAttachmentError.socket("connect: \(String(cString: strerror(errno)))")
-        }
-        closeDescriptor = false
-        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-    }
-}
-
-private enum VMNetworkAttachmentError: LocalizedError {
-    case socket(String)
-    var errorDescription: String? {
-        switch self { case .socket(let message): return "VM network socket: \(message)" }
     }
 }
 

@@ -70,6 +70,16 @@ public protocol VMNetworkAttachment: AnyObject, Sendable {
     func close() async
 }
 
+/// Selects how Virtualization.framework connects the guest's virtio network
+/// device. Apple's NAT is the normal, unrestricted Internet path. The custom
+/// file-handle attachment remains available for callers that need to supply a
+/// packet bridge or isolation boundary.
+public enum VMNetworkMode: Sendable {
+    case none
+    case nat
+    case custom(VMNetworkAttachment)
+}
+
 public struct VMConfiguration: @unchecked Sendable {
     public var workspaceID: UUID
     public var workspaceDirectory: URL
@@ -79,14 +89,14 @@ public struct VMConfiguration: @unchecked Sendable {
     public var memory: UInt64
     public var storageOnly: Bool
     public var guestAuthKey: String?
-    public var networkAttachment: VMNetworkAttachment?
+    public var networkMode: VMNetworkMode
 
     public init(workspaceID: UUID, workspaceDirectory: URL,
                 artifactRoots: [URL], diskSize: UInt64 = VMMetadata.defaultDiskSize,
                 cpus: Int = 2, memory: UInt64 = 2 * 1024 * 1024 * 1024,
                 storageOnly: Bool = false,
                 guestAuthKey: String? = nil,
-                networkAttachment: VMNetworkAttachment? = nil) {
+                networkMode: VMNetworkMode = .none) {
         self.workspaceID = workspaceID
         self.workspaceDirectory = workspaceDirectory
         self.artifactRoots = artifactRoots
@@ -95,6 +105,6 @@ public struct VMConfiguration: @unchecked Sendable {
         self.memory = memory
         self.storageOnly = storageOnly
         self.guestAuthKey = guestAuthKey
-        self.networkAttachment = networkAttachment
+        self.networkMode = networkMode
     }
 }

@@ -13,15 +13,16 @@ appliance VM. The appliance is an ARM64 Linux guest booted directly by Apple's
 
 - its own persistent raw btrfs disk;
 - its own guest Tailscale identity and state;
-- a host-supplied Ethernet bridge using the owning workspace's TailscaleKit
-  node for transport;
+- ordinary Internet access through Apple's Virtualization.framework NAT;
+- an experimental custom Ethernet bridge retained for future isolation;
 - a host/guest diagnostic channel over virtio-vsock;
 - no runtime download requirement for the kernel, initramfs, or appliance
   userspace.
 
-The parent workspace's Tailscale node is transport and bootstrap infrastructure,
-not the guest's identity. The guest enrolls separately and appears as a
-separate node on the tailnet.
+The GUI guest enrolls separately and appears as a separate node on the tailnet.
+Its network currently follows the Mac's normal route rather than the parent
+workspace's embedded Tailscale node. The diagnostic CLI still exercises the
+custom parent-node transport.
 
 The first version targets native Apple-silicon macOS only. It is not Catalyst.
 The Mac target is sandboxed and has the virtualization entitlement.
@@ -146,7 +147,21 @@ is expected behavior, not an auth-key failure.
 
 ## Networking
 
-The intended packet path is:
+The native Mac GUI currently uses Apple's standard networking path:
+
+```text
+Guest virtio-net
+  -> VZNATNetworkDeviceAttachment
+  -> Virtualization.framework DHCP/NAT
+  -> normal Mac network path
+```
+
+This provides ordinary Internet access and allows the guest's own Tailscale
+node to reach control, DERP, STUN, and peers through NAT. It deliberately does
+not route packets through the owning Aperture workspace's embedded tsnet node
+and is not an AI-containment boundary.
+
+The custom path remains available to the sandboxed diagnostic CLI:
 
 ```text
 Guest virtio-net
@@ -154,27 +169,12 @@ Guest virtio-net
   -> Unix datagram Ethernet socket
   -> TailscaleKit VMNetworkBridge
   -> owning workspace Tailscale node
-  -> tailnet/public transport
 ```
 
-The bridge supplies DHCP, DNS, TCP, and UDP handling. The guest currently
-receives a private address from the bridge and uses the bridge for both
-bootstrap traffic and tailnet traffic. The parent node's MagicDNS information
-is supplied to the bridge.
-
-The public bootstrap requirement is important: before the guest has its own
-identity, it must reach Tailscale control/DERP and external identity providers.
-The final bridge policy must keep the split-routing distinction clear:
-
-- tailnet destinations use the owning workspace's Tailscale transport;
-- public destinations use direct host networking;
-- public traffic follows the owning workspace's exit-node policy only when an
-  exit node is deliberately enabled;
-- DNS resolves both public and tailnet names.
-
-The current TailscaleKit bridge path is proven to carry guest DNS, TCP, UDP,
-Tailscale control traffic, DERP/STUN traffic, and public HTTPS bootstrap. A
-formal direct-host dial seam and complete MTU/reconnect test matrix remain.
+It is retained as the foundation for future packet policy and isolation, but
+its UDP receive/session lifecycle is currently unsuitable as the GUI default.
+See [`TODO.vmnet.md`](TODO.vmnet.md) for the observed multi-second latency,
+probable root cause, required repair, and test matrix.
 
 ## Reusable Swift package
 
@@ -191,14 +191,16 @@ It contains:
 - `VMMetadata`, `VMConfiguration`, `VMStatus`, and lifecycle phases;
 - `VMController`: direct Linux boot, sparse disk creation, serial capture,
   bounded log parsing, guest log state detection, and lifecycle management;
-- `VMNetworkAttachment`: the dependency-injection seam for the TailscaleKit
-  bridge owned by the GUI or diagnostic CLI.
+- `VMNetworkMode`: a choice between no network, Apple's standard NAT, and a
+  custom `VMNetworkAttachment`;
+- `VMNetworkAttachment`: the dependency-injection seam used by the diagnostic
+  CLI's TailscaleKit bridge.
 
 The GUI's `WorkspaceVMSupervisor` now uses `ApertureVM.VMController` directly.
-`MacApp/WorkspaceVMAdapter.swift` supplies the workspace-owned TailscaleKit
-network attachment and the native serial console view. The old duplicate VM
-controller, artifact validator, and console implementation have been removed
-from `MacApp/WorkspaceVMSupervisor.swift`.
+`MacApp/WorkspaceVMAdapter.swift` selects Apple NAT and supplies the native
+serial console view. The old duplicate VM controller, artifact validator, and
+console implementation have been removed from
+`MacApp/WorkspaceVMSupervisor.swift`.
 
 ## Sandboxed diagnostic CLI
 
@@ -275,9 +277,9 @@ These controls have stable accessibility identifiers, labels, and hints. The
 native serial console is bounded and can be reopened without changing VM
 lifetime.
 
-The GUI still needs to be migrated onto `ApertureVM.VMController` and its
-network attachment adapter. That migration should preserve the existing app
-supervisor behavior and make CLI and GUI execution use the same code path.
+The GUI and CLI both use `ApertureVM.VMController`. They intentionally select
+different network modes for now: Apple NAT in the GUI and the custom
+TailscaleKit bridge in the diagnostic CLI.
 
 ## Remaining plan
 
@@ -298,8 +300,8 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 ### Refactor
 
 1. [DONE] Adapt the GUI workspace supervisor to use `ApertureVM.VMController`.
-2. [DONE] Implement the GUI's `VMNetworkAttachment` using the owning workspace's
-   `TSNetManager.startVMNetworkBridge`.
+2. [DONE] Add selectable Apple NAT and custom `VMNetworkAttachment` modes; use
+   NAT in the GUI and retain `TSNetManager.startVMNetworkBridge` for the CLI.
 3. [ ] Move the shared workspace VM metadata/path persistence into the package or a
    small shared persistence layer without importing SwiftUI into the package.
 4. [DONE] Remove the duplicate controller and artifact-validation implementations.
@@ -309,9 +311,10 @@ supervisor behavior and make CLI and GUI execution use the same code path.
 ### Networking and enrollment
 
 1. [DONE] Finish the guest HTTP/MCP/SSH reachability check from the CLI.
-2. [ ] Verify TCP, UDP, DNS, MTU/large packets, and bridge reconnect behavior.
-3. [ ] Verify the parent workspace can lose/recover tsnet while the VM reports a
-   useful state.
+2. [ ] Repair and verify custom-bridge TCP, UDP, DNS, MTU/large-packet, and
+   reconnect behavior per `TODO.vmnet.md`.
+3. [ ] Before restoring the custom bridge in the GUI, verify that the parent
+   workspace can lose/recover tsnet while the VM reports a useful state.
 4. [ ] Add interactive enrollment UI using the auth URL detected from guest logs.
 5. [ ] Show the guest hostname and addresses distinctly from the parent workspace
    identity.

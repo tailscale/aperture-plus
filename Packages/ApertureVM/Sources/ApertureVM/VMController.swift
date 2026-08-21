@@ -145,7 +145,14 @@ public final class VMController: NSObject, ObservableObject, VZVirtualMachineDel
         config.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
         let attachment = try VZDiskImageStorageDeviceAttachment(url: diskURL, readOnly: false)
         config.storageDevices = [VZVirtioBlockDeviceConfiguration(attachment: attachment)]
-        if let networkAttachment = configuration.networkAttachment {
+        switch configuration.networkMode {
+        case .none:
+            break
+        case .nat:
+            let network = VZVirtioNetworkDeviceConfiguration()
+            network.attachment = VZNATNetworkDeviceAttachment()
+            config.networkDevices = [network]
+        case .custom(let networkAttachment):
             let (fileHandle, owner) = try await networkAttachment.open()
             self.networkAttachment = networkAttachment
             networkAttachmentObject = owner

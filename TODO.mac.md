@@ -57,9 +57,9 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Boot a cached ARM64 Alpine Linux ISO with EFI and display it in `VZVirtualMachineView`.
 - [x] Stop the VM and delete its temporary EFI state when its window closes; provide no persistent guest disk.
 - [x] Validate multiple independent VM windows can be created and that Alpine reaches `localhost login:`.
-- [x] Replace the prototype `VZNATNetworkDeviceAttachment` with tailvisor's Ethernet/DHCP/DNS/gVisor bridge and `VZFileHandleNetworkDeviceAttachment`.
-- [x] Put that bridge in `TailscaleKit` and use the owning workspace's existing tsnet node. It is compiled into libtailscale's single Go archive, borrows the existing `tsnet.Server.Dial`, and is stopped before its owning node; no standalone tailvisor archive, duplicate Go runtime, or second identity is linked.
-- [x] Decide whether each VM should share its workspace's tailnet identity or deliberately receive a distinct tailnet identity: share the owning workspace's existing node. The VM request/window is now explicitly bound to that workspace; only the packet bridge remains.
+- [x] Prototype tailvisor's Ethernet/DHCP/DNS/gVisor bridge with `VZFileHandleNetworkDeviceAttachment`.
+- [x] Put that bridge in `TailscaleKit` and make it borrow the owning workspace's existing tsnet node without adding a second Go runtime or identity.
+- [x] Temporarily restore `VZNATNetworkDeviceAttachment` as the GUI default after diagnosing the custom bridge's broken UDP receive lifecycle. The bridge remains available to the diagnostic CLI and for future isolation work; see `TODO.vmnet.md`.
 
 ## Automated testing
 
@@ -87,6 +87,7 @@ Working checklist for adding a native macOS version of Aperture. Keep this file 
 - [x] Do not implement until the native app foundation and entitlement distribution check are complete (the native TestFlight upload now proves distribution signing).
 - [x] Design the first prototype's Linux boot artifacts, storage lifecycle, and CPU architecture handling: cached ARM64 Alpine ISO; disposable EFI state; Apple silicon only; no persistent guest disk.
 - [x] Implement the first userspace packet transport: tailvisor Ethernet + DHCP + DNS + gVisor TCP/UDP proxy, carried over a Unix datagram `VZFileHandleNetworkDeviceAttachment` and the owning workspace node.
+- [x] Use Virtualization.framework NAT for GUI VMs until the experimental userspace transport's UDP model is repaired and hardened.
 - [ ] Decide whether VM state should remain intentionally disposable or gain persistence, and add guest-network recovery/diagnostics beyond deterministic bridge teardown.
 
 ## Questions to batch for the owner

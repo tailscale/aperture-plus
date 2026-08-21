@@ -47,7 +47,7 @@ struct ApertureVMCLI {
                 artifactRoots: ApplianceArtifacts.defaultRoots(bundle: Bundle.main),
                 storageOnly: storageOnly,
                 guestAuthKey: authKey,
-                networkAttachment: attachment
+                networkMode: .custom(attachment)
             ))
             print("workspace container: \(workspace.path)")
             print("bundled appliance: app bundle Contents/Resources")

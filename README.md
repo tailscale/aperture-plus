@@ -33,10 +33,11 @@ See **Settings → Routing** in the app to view the live rules and test any host
   Remaining polish is tracked in [`TODO.mac.md`](TODO.mac.md).
 - The native Mac app is sandboxed and carries the
   `com.apple.security.virtualization` entitlement. An explicitly experimental,
-  disposable ARM64 Alpine VM is available from File → New VM. Its virtual
-  Ethernet device uses an embedded DHCP/DNS/gVisor bridge inside TailscaleKit
-  and shares the owning workspace's existing tsnet identity—there is no second
-  Go runtime or Tailscale node.
+  disposable ARM64 Alpine VM is available from File → New VM, and workspace
+  Settings can run the persistent Thundersnap appliance. GUI VMs currently use
+  Virtualization.framework's standard DHCP/NAT attachment for ordinary Internet
+  access. The experimental TailscaleKit userspace bridge is retained for future
+  isolation work and the diagnostic CLI; see [`TODO.vmnet.md`](TODO.vmnet.md).
 
 ## Requirements
 
