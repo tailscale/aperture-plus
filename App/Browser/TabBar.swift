@@ -46,6 +46,11 @@ struct TabBar: View {
             .accessibilityIdentifier("new-chat-tab-button")
             .accessibilityLabel("New Chat Tab")
         }
+        // Fill the bar width and pack the chips + "+" against the leading edge
+        // so leftover space (e.g. a single tab) collects on the right instead of
+        // centering the row. The VStack that hosts this bar centers its children
+        // by default; without this the narrow row would be centered.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .frame(height: 36)
