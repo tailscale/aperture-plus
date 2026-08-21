@@ -31,6 +31,14 @@ final class BrowserViewModel: NSObject, ObservableObject {
     /// failure, or stop.
     @Published private(set) var blankingContent = false
 
+    /// True while an app-chrome input (the address bar) has keyboard focus.
+    /// While set, programmatic `focus()` calls from web content are suppressed
+    /// so a page that focuses its own input on load can't steal focus from the
+    /// field the user is actively typing in. The toolbar updates this via
+    /// `setChromeInputFocus(_:)`; it's re-asserted on each navigation so a
+    /// freshly committed document can't grab focus mid-edit.
+    @Published private(set) var chromeInputFocused = false
+
     // Raw WKWebView state consumed by browser chrome.
     @Published private(set) var title = ""
     /// Security-sensitive, user-visible URL. This advances after WebKit commits
@@ -116,6 +124,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
         // hand-built blur/gradient overlay.
         view.scrollView.topEdgeEffect.style = .soft
 #endif
+        // Install the focus-suppression user script before any navigation so
+        // it runs at every document start, ahead of the page's own scripts.
+        installFocusSuppressionScript(into: configuration.userContentController)
         // Keep UIKit's default automatic adjustment. With the WKWebView laid
         // out beneath the notch, WebKit can then distinguish ordinary pages
         // (safe rectangular viewport) from viewport-fit=cover pages (edge to
@@ -161,6 +172,9 @@ final class BrowserViewModel: NSObject, ObservableObject {
         canGoBack = false
         canGoForward = false
         didLoadInitial = false
+        // A hidden tab's page can't steal focus, and its address bar isn't
+        // shown; reset so the next makeWebView bakes the default as off.
+        chromeInputFocused = false
     }
 
     /// Keeps delegates/observation attached if SwiftUI reuses the view.
@@ -170,6 +184,62 @@ final class BrowserViewModel: NSObject, ObservableObject {
         view.navigationDelegate = self
         view.uiDelegate = self
         observeWebView(view)
+    }
+
+    // MARK: - Chrome focus suppression
+
+    /// Called by the address bar when it gains/loses keyboard focus. While a
+    /// chrome input is focused, web content's programmatic `focus()` calls are
+    /// suppressed so a page that focuses its own input on load can't steal the
+    /// focus the user is actively typing in. Reinstalls the suppression user
+    /// script (so the current state is baked in for the next navigation) and
+    /// patches the live document immediately.
+    func setChromeInputFocus(_ focused: Bool) {
+        guard chromeInputFocused != focused else { return }
+        chromeInputFocused = focused
+        applyFocusSuppressionToCurrentDocument()
+        reinstallFocusSuppressionScript()
+    }
+
+    /// Patches the live document's suppression flag so the already-installed
+    /// `focus()` wrapper takes effect (or clears) without a navigation.
+    private func applyFocusSuppressionToCurrentDocument() {
+        let value = chromeInputFocused ? "true" : "false"
+        webView?.evaluateJavaScript("window.__apertureSuppressFocus = \(value);")
+    }
+
+    /// Re-adds the document-start user script with the current suppression
+    /// state baked in as the default, so a freshly committed document can't
+    /// grab focus before native gets a chance to re-assert the flag.
+    private func reinstallFocusSuppressionScript() {
+        guard let controller = webView?.configuration.userContentController else { return }
+        installFocusSuppressionScript(into: controller)
+    }
+
+    /// Installs (replacing any prior) a document-start script that wraps
+    /// `HTMLElement.prototype.focus` to no-op while
+    /// `window.__apertureSuppressFocus` is true. The baked default reflects the
+    /// current `chromeInputFocused` so the very first `focus()` a new page
+    /// makes (before any native callback) is already suppressed when the
+    /// address bar is being edited.
+    private func installFocusSuppressionScript(into controller: WKUserContentController) {
+        let value = chromeInputFocused ? "true" : "false"
+        let source = """
+        (function(){
+          window.__apertureSuppressFocus = \(value);
+          if (window.__apertureFocusWrapped) return;
+          window.__apertureFocusWrapped = true;
+          var f = HTMLElement.prototype.focus;
+          HTMLElement.prototype.focus = function(){
+            if (window.__apertureSuppressFocus) return;
+            return f.apply(this, arguments);
+          };
+        })();
+        """
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(source: source,
+                                               injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: false))
     }
 
     private func observeWebView(_ view: WKWebView) {
@@ -283,6 +353,14 @@ final class BrowserViewModel: NSObject, ObservableObject {
             // attempts must not overwrite it while the tab has no WKWebView.
             if pendingLoadURL == nil { pendingLoadURL = target }
             return
+        }
+        if blankUntilCommit {
+            // A user-entered navigation cancels any in-flight load so the new URL
+            // takes precedence immediately (a slow page the user is leaving
+            // must not keep them waiting). WKWebView.load would cancel the
+            // prior provisional load too, but be explicit; the cancelled error
+            // is ignored in didFail.
+            webView?.stopLoading()
         }
         loadResolved(target)
     }
@@ -589,6 +667,10 @@ extension BrowserViewModel: WKNavigationDelegate {
         startupLoad = nil
         refreshState(from: webView, includeCommittedURL: true)
         failedInitialURL = nil
+        // A freshly committed document resets its JS context, so re-assert the
+        // suppression flag before the page's focus scripts run while the address
+        // bar is being edited.
+        if chromeInputFocused { applyFocusSuppressionToCurrentDocument() }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -614,6 +696,13 @@ extension BrowserViewModel: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         refreshState(from: webView, includeCommittedURL: true)
         maybeDumpLoadedPage(webView)
+        // Backstop: if a page still managed to focus an element while the
+        // address bar was being edited (e.g. a deferred setTimeout focus that
+        // slipped past the wrapper), blur it so the chrome field keeps focus.
+        if chromeInputFocused {
+            webView.evaluateJavaScript(
+                "if (window.__apertureSuppressFocus && document.activeElement && document.activeElement !== document.body) document.activeElement.blur();")
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

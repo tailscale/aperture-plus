@@ -183,6 +183,10 @@ struct BrowserNavigator: View {
             if !isEditingURL {
                 urlFieldText = currentURLString
             }
+            model.setChromeInputFocus(isEditingURL)
+        }
+        .onChange(of: isEditingURL) { editing in
+            model.setChromeInputFocus(editing)
         }
         .onChange(of: model.url) {
             if !isEditingURL {

@@ -95,7 +95,11 @@ struct CompactBrowserToolbar: View {
                 urlFieldFocused = false
                 urlFieldText = ""
             }
+            // Suppress web-content focus stealing while the address bar is
+            // being edited, and allow it again once editing ends.
+            viewModel.setChromeInputFocus(editing)
         }
+        .onAppear { viewModel.setChromeInputFocus(isEditing) }
     }
 
     // MARK: - Compact (non-editing) bar
