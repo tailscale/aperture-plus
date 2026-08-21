@@ -243,14 +243,19 @@ struct BrowserNavigator: View {
             if s == "http" || s == "https" {
                 return input
             }
-            // Parsed with a non-http(s) scheme (e.g. autocorrect mangled
-            // "https" into "httpd"). Strip the "scheme://" and treat the rest
-            // as a host/path under https.
+            // A non-http scheme WITH "://" is treated as autocorrect-mangled
+            // input (e.g. "httpd://host"); strip the scheme and re-home under
+            // https.
             if let r = input.range(of: "://") {
                 return "https://\(input[r.upperBound...])"
             }
-            // Scheme but no "://" (e.g. "mailto:foo"); prepend https to the lot.
-            return "https://\(input)"
+            // A non-http scheme WITHOUT "://" — including a bare
+            // "host:port[/path]" which URL(string:) mis-parses as
+            // "scheme:opaque" (scheme = the host) — is scheme-less browser
+            // input. Fall through to the default-scheme logic below so a
+            // tailnet bare host defaults to HTTP ("randomhost" and
+            // "randomhost:7575" both use http, matching each other) and an
+            // internet host to HTTPS.
         }
         let scheme = TailnetHostnameQualifier.defaultScheme(forSchemeLessInput: input)
         return "\(scheme)://\(input)"

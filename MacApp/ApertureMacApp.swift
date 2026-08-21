@@ -4,11 +4,24 @@ import AppIntents
 import AppKit
 import TailscaleKit
 
-/// Native macOS entry point. Each persisted Tailscale workspace is represented
-/// by one value-addressed native window. Closing a window releases only that
-/// window; the workspace/node/session remains available from the Window menu.
-/// Experimental disposable Linux VM windows are separate scenes and currently
-/// use Apple's NAT while the workspace-owned userspace bridge is developed.
+/// Native macOS entry point. A persisted Tailscale workspace can have several
+/// browser windows open at once (Cmd+N opens a new one in the current
+/// workspace). Each window is value-addressed by a `WorkspaceWindowHandle`;
+/// the windowID keeps windows distinct while the workspaceID pins a window to
+/// its tailnet identity. Closing a window releases only that window; the
+/// workspace/node/session remains available from the Window menu. Experimental
+/// disposable Linux VM windows are separate scenes and currently use Apple's
+/// NAT while the workspace-owned userspace bridge is developed.
+
+/// Value carried by a workspace browser window. `windowID` keeps every window
+/// independent so a workspace can have several windows open at once: the
+/// value-based `WindowGroup` dedupes by this whole struct, so distinct
+/// windowIDs produce distinct windows while the same handle raises its
+/// existing window. `workspaceID` pins the window to its tailnet identity.
+struct WorkspaceWindowHandle: Codable, Hashable {
+    let windowID: UUID
+    let workspaceID: UUID
+}
 
 /// Ensures a workspace window is open on launch even when the app is launched
 /// non-frontmost (XCUITest's `app.launch()`, `open -g`), where SwiftUI scenes
@@ -17,15 +30,16 @@ import TailscaleKit
 /// test timed out at its first `app.windows` wait. `applicationDidFinishLaunching`
 /// (which AppKit calls regardless of activation) drives this: it captures
 /// `openWindow` from `MacWorkspaceCommands` (the menu bar is always built at
-/// launch) into this shared holder, then calls it for the active workspace.
+/// launch) into this shared holder, then calls it for the launch handle.
 /// `openWindow(id:value:)` is idempotent — opening an already-open value raises
-/// that window instead of duplicating — so it composes safely with the
-/// `.presented` frontmost-launch path.
+/// that window instead of duplicating — so using the SAME handle as
+/// `defaultValue`/`.presented` composes safely (no duplicate launch window).
 @MainActor
 private final class WindowOpener {
     static let shared = WindowOpener()
     var openWindow: OpenWindowAction?
     var workspaceManager: WorkspaceManager?
+    var launchHandle: WorkspaceWindowHandle?
     private var attempts = 0
     func openWorkspaceWindow() {
         guard let action = openWindow, let wm = workspaceManager else {
@@ -38,8 +52,13 @@ private final class WindowOpener {
             }
             return
         }
-        let id = wm.activeWorkspace?.id ?? wm.addWorkspace().id
-        action(id: "workspace", value: id)
+        // Reuse the launch handle (the same value `.presented`/`defaultValue`
+        // uses) so the fallback opens/raises the same window instead of a
+        // duplicate. Fall back to a fresh handle if it was never set.
+        let handle = launchHandle ?? WorkspaceWindowHandle(
+            windowID: UUID(),
+            workspaceID: wm.activeWorkspace?.id ?? wm.addWorkspace().id)
+        action(id: "workspace", value: handle)
     }
 }
 
@@ -58,6 +77,11 @@ struct ApertureMacApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var workspaceManager: WorkspaceManager
     @State private var vmSupervisor: WorkspaceVMSupervisor
+    /// The handle for the single launch window. Shared by `defaultValue`/
+    /// `.presented` and `WindowOpener` so both launch paths produce the SAME
+    /// value — `openWindow(id:value:)` is idempotent, so the fallback raises
+    /// the `.presented` window instead of opening a duplicate.
+    @State private var launchHandle: WorkspaceWindowHandle
 
     init() {
         let manager = WorkspaceManager()
@@ -65,6 +89,9 @@ struct ApertureMacApp: App {
         manager.vmManager = supervisor
         _workspaceManager = State(initialValue: manager)
         _vmSupervisor = State(initialValue: supervisor)
+        _launchHandle = State(initialValue: WorkspaceWindowHandle(
+            windowID: UUID(),
+            workspaceID: manager.activeWorkspace?.id ?? manager.addWorkspace().id))
         supervisor.startDesiredVMs()
     }
 
@@ -72,15 +99,15 @@ struct ApertureMacApp: App {
         WindowGroup(
             "Aperture+",
             id: "workspace",
-            for: UUID.self
-        ) { workspaceID in
+            for: WorkspaceWindowHandle.self
+        ) { handle in
             WorkspaceWindowRoot(
                 workspaceManager: workspaceManager,
-                workspaceID: workspaceID
+                handle: handle
             )
             .frame(minWidth: 720, minHeight: 480)
         } defaultValue: {
-            workspaceManager.activeWorkspace?.id ?? workspaceManager.addWorkspace().id
+            launchHandle
         }
         .defaultSize(width: 1100, height: 760)
         // A value-based WindowGroup does not auto-present a window on launch
@@ -109,7 +136,7 @@ struct ApertureMacApp: App {
         // for both users and the test harness.
         .restorationBehavior(.disabled)
         .commands {
-            MacWorkspaceCommands(workspaceManager: workspaceManager)
+            MacWorkspaceCommands(workspaceManager: workspaceManager, launchHandle: launchHandle)
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -149,8 +176,11 @@ struct ApertureMacApp: App {
 
 private struct WorkspaceWindowRoot: View {
     @ObservedObject var workspaceManager: WorkspaceManager
-    @Binding var workspaceID: UUID
+    @Binding var handle: WorkspaceWindowHandle
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var workspaceID: UUID { handle.workspaceID }
 
     private var resolvedWorkspace: Workspace? {
         workspaceManager.workspace(id: workspaceID) ?? workspaceManager.activeWorkspace
@@ -170,17 +200,28 @@ private struct WorkspaceWindowRoot: View {
                 // window creates a fresh home-page tab (see `ensureTab` in
                 // `WorkspaceRoot`).
                 workspace.tabManager.onLastTabClosed = { dismissWindow() }
+                // Mark this window's workspace as the most recently used so
+                // Cmd+N opens the next window in it.
+                workspaceManager.recordFocus(windowID: handle.windowID, workspaceID: workspaceID)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Track focus so Cmd+N targets the most recently focused
+                // workspace window. Per-scene scenePhase flips to `.active` when
+                // a window becomes key.
+                if phase == .active {
+                    workspaceManager.recordFocus(windowID: handle.windowID, workspaceID: workspaceID)
+                }
             }
             .onDisappear {
                 // Closing a native workspace window deletes the workspace when
                 // it was never connected (still at NeedsLogin) and it isn't the
-                // last one. A fresh Cmd+N workspace that you close right away
-                // shouldn't linger in the Window menu — it has no session data
-                // worth keeping. Connected workspaces are preserved (closing a
-                // window keeps the workspace, reachable from the Window menu),
-                // and the last workspace is never auto-deleted, so closing the
-                // final window just leaves the app running with no windows
-                // rather than churning a replacement node.
+                // last one. A fresh Ctrl-Cmd+N workspace that you close right
+                // away shouldn't linger in the Window menu — it has no session
+                // data worth keeping. Connected workspaces are preserved
+                // (closing a window keeps the workspace, reachable from the
+                // Window menu), and the last workspace is never auto-deleted,
+                // so closing the final window just leaves the app running with
+                // no windows rather than churning a replacement node.
                 if let ws = workspaceManager.workspace(id: workspaceID),
                    ws.statusViewModel.needsAuth,
                    workspaceManager.workspaces.count > 1 {
@@ -224,6 +265,7 @@ extension FocusedValues {
 
 private struct MacWorkspaceCommands: Commands {
     @ObservedObject var workspaceManager: WorkspaceManager
+    let launchHandle: WorkspaceWindowHandle
     @Environment(\.openWindow) private var openWindow
     @FocusedBinding(\.focusAddressRequested) private var focusAddressRequested
     @FocusedBinding(\.showLogsRequested) private var showLogsRequested
@@ -233,17 +275,38 @@ private struct MacWorkspaceCommands: Commands {
         focusedTabManager ?? workspaceManager.activeWorkspace?.tabManager
     }
 
+    /// The workspace a new window (Cmd+N) should open in: the most recently
+    /// focused workspace, falling back to the persisted active one.
+    private var currentWorkspaceID: UUID? {
+        workspaceManager.currentWorkspaceID
+    }
+
     var body: some Commands {
         let _ = {
             WindowOpener.shared.openWindow = openWindow
             WindowOpener.shared.workspaceManager = workspaceManager
+            WindowOpener.shared.launchHandle = launchHandle
         }()
         CommandGroup(replacing: .newItem) {
-            Button("New Workspace") {
-                let workspace = workspaceManager.addWorkspace()
-                openWindow(id: "workspace", value: workspace.id)
+            // Cmd+N: a new browser window in the current (most-recently-focused)
+            // workspace, matching other browsers. A fresh windowID produces a
+            // distinct window even if one for this workspace is already open.
+            Button("New Window") {
+                guard let wsID = currentWorkspaceID else { return }
+                openWindow(id: "workspace",
+                           value: WorkspaceWindowHandle(windowID: UUID(), workspaceID: wsID))
             }
             .keyboardShortcut("n", modifiers: .command)
+            .disabled(currentWorkspaceID == nil)
+
+            // Ctrl-Cmd+N: a new workspace (a new tsnet identity / window).
+            // Shift-Cmd+N is reserved for a future incognito/ephemeral mode.
+            Button("New Workspace") {
+                let workspace = workspaceManager.addWorkspace()
+                openWindow(id: "workspace",
+                           value: WorkspaceWindowHandle(windowID: UUID(), workspaceID: workspace.id))
+            }
+            .keyboardShortcut("n", modifiers: [.command, .control])
 
             // Thundersnap is managed from workspace Settings. Its lifecycle is
             // intentionally not tied to a disposable console window.
@@ -304,14 +367,22 @@ private struct MacWorkspaceCommands: Commands {
         }
 
         // The standard Window menu lists only windows that are currently open.
-        // Add every persisted workspace so a closed window can be recreated;
-        // passing the same value raises an already-open window instead.
+        // Add every persisted workspace so a closed window can be recreated.
+        // Reuse the workspace's last-focused windowID when it matches so an
+        // already-open window is raised (idempotent openWindow); otherwise open
+        // a fresh window for that workspace.
         CommandGroup(before: .windowArrangement) {
             Divider()
             ForEach(workspaceManager.workspaces) { workspace in
                 Button(workspace.identifier) {
-                    workspaceManager.selectWorkspace(id: workspace.id)
-                    openWindow(id: "workspace", value: workspace.id)
+                    let windowID: UUID
+                    if workspaceManager.lastFocusedWindow?.workspaceID == workspace.id {
+                        windowID = workspaceManager.lastFocusedWindow!.windowID
+                    } else {
+                        windowID = UUID()
+                    }
+                    openWindow(id: "workspace",
+                               value: WorkspaceWindowHandle(windowID: windowID, workspaceID: workspace.id))
                 }
             }
             Divider()
