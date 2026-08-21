@@ -185,15 +185,15 @@ struct BrowserNavigator: View {
             }
             model.setChromeInputFocus(isEditingURL)
         }
-        .onChange(of: isEditingURL) { editing in
+        .onChange(of: isEditingURL) { _, editing in
             model.setChromeInputFocus(editing)
         }
-        .onChange(of: model.url) {
+        .onChange(of: model.url) { _, _ in
             if !isEditingURL {
                 urlFieldText = model.url?.absoluteString ?? ""
             }
         }
-        .onChange(of: model.failedInitialURL) {
+        .onChange(of: model.failedInitialURL) { _, _ in
             if let url = model.failedInitialURL, !isEditingURL {
                 urlFieldText = url.absoluteString
             }

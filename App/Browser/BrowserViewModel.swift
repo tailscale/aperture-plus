@@ -244,45 +244,26 @@ final class BrowserViewModel: NSObject, ObservableObject {
 
     private func observeWebView(_ view: WKWebView) {
         webViewObservations.removeAll()
-        // KVO fires on the main thread during a SwiftUI view update (WKWebView
-        // property churn and SwiftUI renders interleave on main). Extract the
-        // Sendable value and defer the @Published mutation to the next runloop
-        // turn via DispatchQueue.main.async so it never publishes during a
-        // view update (the source of the "publishing changes from within view
-        // updates" runtime warnings). Task { @MainActor } can run inline in the
-        // same turn; a main-queue async block cannot.
         webViewObservations = [
             view.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
-                let candidate = view.url
-                DispatchQueue.main.async { @MainActor in self?.acceptURLCandidate(candidate, from: view) }
+                Task { @MainActor [weak self] in self?.acceptSameDocumentURL(candidate: view.url) }
             },
             view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
-                let t = view.title
-                DispatchQueue.main.async { @MainActor in self?.title = t ?? "" }
+                Task { @MainActor [weak self] in self?.title = view.title ?? "" }
             },
             view.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
-                let loading = view.isLoading
-                DispatchQueue.main.async { @MainActor in self?.isLoading = loading }
+                Task { @MainActor [weak self] in self?.isLoading = view.isLoading }
             },
             view.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
-                let p = view.estimatedProgress
-                DispatchQueue.main.async { @MainActor in self?.estimatedProgress = p }
+                Task { @MainActor [weak self] in self?.estimatedProgress = view.estimatedProgress }
             },
             view.observe(\.canGoBack, options: [.initial, .new]) { [weak self] view, _ in
-                let v = view.canGoBack
-                DispatchQueue.main.async { @MainActor in self?.canGoBack = v }
+                Task { @MainActor [weak self] in self?.canGoBack = view.canGoBack }
             },
             view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
-                let v = view.canGoForward
-                DispatchQueue.main.async { @MainActor in self?.canGoForward = v }
+                Task { @MainActor [weak self] in self?.canGoForward = view.canGoForward }
             },
         ]
-    }
-
-    /// Same-origin same-document URL KVO handler, deferred onto the main actor.
-    private func acceptURLCandidate(_ candidate: URL?, from view: WKWebView) {
-        guard let candidate else { return }
-        acceptSameDocumentURL(candidate: candidate, from: view)
     }
 
     func applyProxy(_ proxy: ProxyConfiguration) {
@@ -585,8 +566,8 @@ final class BrowserViewModel: NSObject, ObservableObject {
     /// again here is deliberate defense in depth: URL KVO also participates in
     /// ordinary/provisional navigation, and a cross-origin request must not be
     /// able to spoof the address bar before it commits.
-    private func acceptSameDocumentURL(candidate: URL, from view: WKWebView) {
-        guard webView === view,
+    private func acceptSameDocumentURL(candidate: URL?) {
+        guard let candidate,
               let current = url,
               Self.haveSameWebOrigin(current, candidate)
         else { return }
