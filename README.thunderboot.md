@@ -41,28 +41,41 @@ thunderboot-out/
   thunderboot-appliance-linux-arm64.tar.zst
 ```
 
-Aperture+ ships the immutable runtime inputs in the Mac app resources:
+Aperture+ consumes the immutable runtime inputs from `MacApp/Thunderboot/`.
+The kernel (`Image`) and `initramfs.cpio` are large binaries and are **not
+committed** to this repository; developers import a verified appliance into the
+working tree with the targets below. Only `manifest.json` — the pinned
+hash/size reference the import script verifies against — is committed:
 
 ```text
-MacApp/Thunderboot/
-  Image
+MacApp/Thunderboot/      # Image + initramfs.cpio are gitignored; import them
+  Image                  #   make stage-thunderboot-mac-app-artifacts
   initramfs.cpio
-  manifest.json
+  manifest.json          # committed; records expected sha256/size
 ```
 
 The `.tar.zst` is build/import transport and is not needed at runtime. The
 manifest is schema 1 and records architecture, source revision, kernel version,
 artifact sizes, and SHA-256 hashes.
 
-Import and verify artifacts with:
+For local development staging only (the `build/Thunderboot` fallback, **not**
+the Xcode-built Mac app), run:
 
 ```bash
-make import-thunderboot-appliance \
+make stage-thunderboot-development-artifacts \
   THUNDERBOOT_SOURCE=../thundersnap/thunderboot-out
 ```
 
-`make mac-artifacts` stages the verified files into `MacApp/Thunderboot`.
-Normal application runtime is download-free.
+To update the appliance that Xcode copies into `AperturePlus.app` — and thus
+what Cmd-R boots — run:
+
+```bash
+make stage-thunderboot-mac-app-artifacts \
+  THUNDERBOOT_SOURCE=../thundersnap/thunderboot-out
+```
+
+The old `import-thunderboot-appliance` and `mac-artifacts` targets remain as
+compatibility aliases. Normal application runtime is download-free.
 
 The guest initramfs contains `thunderboot-init`, `thundersnapd`, `ts`, `vshd`,
 BusyBox, btrfs and storage tools, the policy, dynamic libraries, and the CA

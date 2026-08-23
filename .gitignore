@@ -5,6 +5,12 @@
 *.xcuserstate
 .DS_Store
 /build
+
+# Thunderboot kernel/initramfs are large binaries imported into the
+# working tree via `make stage-thunderboot-mac-app-artifacts` (or the
+# `mac-artifacts` alias). Only manifest.json is committed (hash reference).
+/MacApp/Thunderboot/Image
+/MacApp/Thunderboot/initramfs.cpio
 Packages/**/.build/
 Packages/**/.swiftpm/
 TODO.md

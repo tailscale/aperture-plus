@@ -83,19 +83,29 @@ app: framework  ## Build the Aperture app for the simulator
 		-destination 'platform=iOS Simulator,name=$(SIM_NAME)' \
 		-derivedDataPath $(DERIVED) | $(XCPRETTIFIER)
 
-.PHONY: import-thunderboot-appliance
-import-thunderboot-appliance:  ## Import and verify a release Thunderboot artifact unit
-	@test -n "$(THUNDERBOOT_SOURCE)" || (echo 'usage: make import-thunderboot-appliance THUNDERBOOT_SOURCE=../thundersnap/thunderboot-out [THUNDERBOOT_DEST=...]' >&2; exit 2)
-	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(or $(THUNDERBOOT_DEST),build/Thunderboot)"
-
+# Thunderboot has two intentionally separate staging locations:
+# build/Thunderboot is for local development/runtime overrides; MacApp/Thunderboot
+# is copied into AperturePlus.app by Xcode and therefore is what Cmd-R boots.
 THUNDERBOOT_SOURCE ?= ../thundersnap/thunderboot-out
-THUNDERBOOT_BUNDLE_DIR := MacApp/Thunderboot
-.PHONY: mac-artifacts
-mac-artifacts:  ## Verify and stage the immutable ARM64 appliance into the Mac app bundle
-	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(THUNDERBOOT_BUNDLE_DIR)"
+THUNDERBOOT_DEVELOPMENT_DIR ?= build/Thunderboot
+THUNDERBOOT_MAC_APP_DIR := MacApp/Thunderboot
+
+.PHONY: stage-thunderboot-development-artifacts
+stage-thunderboot-development-artifacts:  ## Verify/stage appliance in build/Thunderboot for local development (not Xcode's Mac app)
+	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(or $(THUNDERBOOT_DEST),$(THUNDERBOOT_DEVELOPMENT_DIR))"
+
+.PHONY: stage-thunderboot-mac-app-artifacts
+stage-thunderboot-mac-app-artifacts:  ## Verify/stage appliance in MacApp/Thunderboot for the Xcode-built Mac app
+	scripts/import-thunderboot-appliance.sh "$(THUNDERBOOT_SOURCE)" "$(THUNDERBOOT_MAC_APP_DIR)"
+
+# Compatibility aliases. Keep these out of `make help`: their old names obscure
+# whether artifacts are merely locally staged or embedded in the Mac app.
+.PHONY: import-thunderboot-appliance mac-artifacts
+import-thunderboot-appliance: stage-thunderboot-development-artifacts
+mac-artifacts: stage-thunderboot-mac-app-artifacts
 
 .PHONY: mac-app
-mac-app: mac-framework mac-artifacts  ## Build native Aperture for macOS (unsigned)
+mac-app: mac-framework stage-thunderboot-mac-app-artifacts  ## Build native Aperture for macOS (unsigned)
 	@echo
 	@echo "::: Building native Aperture for macOS :::"
 	$(XCB) build \
@@ -119,11 +129,11 @@ test-aperture-vm: aperture-vm-cli  ## Run the full sandboxed guest enrollment/ne
 	    --workspace-id "$$id" --timeout "$${VM_TIMEOUT:-90}"
 
 .PHONY: test-mac
-test-mac: mac-framework mac-artifacts  ## Build, entitlement-check, and launch-smoke-test native macOS app
+test-mac: mac-framework stage-thunderboot-mac-app-artifacts  ## Build, entitlement-check, and launch-smoke-test native macOS app
 	@MAC_DERIVED="$(MAC_DERIVED)" ./scripts/test-mac-foundation.sh
 
 .PHONY: build-mac-uitests
-build-mac-uitests: mac-framework mac-artifacts  ## Build all native macOS UI tests without running them
+build-mac-uitests: mac-framework stage-thunderboot-mac-app-artifacts  ## Build all native macOS UI tests without running them
 	@./scripts/unlock-keychain.sh
 	$(XCB) build-for-testing \
 		-project $(PROJECT) -scheme $(MAC_SCHEME) \
@@ -133,7 +143,7 @@ build-mac-uitests: mac-framework mac-artifacts  ## Build all native macOS UI tes
 		-allowProvisioningUpdates | $(XCPRETTIFIER)
 
 .PHONY: test-mac-ui
-test-mac-ui: mac-framework mac-artifacts  ## Run every required native macOS UI test, including nullid login
+test-mac-ui: mac-framework stage-thunderboot-mac-app-artifacts  ## Run every required native macOS UI test, including nullid login
 	@if [ -n "$(AUTHKEY)" ]; then \
 	    APERTURE_TEST_AUTHKEY='$(AUTHKEY)' ./scripts/run-mac-uitests.sh; \
 	else \
@@ -141,7 +151,7 @@ test-mac-ui: mac-framework mac-artifacts  ## Run every required native macOS UI 
 	fi
 
 .PHONY: mac-app-signed
-mac-app-signed: mac-framework mac-artifacts  ## Development-sign native Mac app and verify virtualization entitlement
+mac-app-signed: mac-framework stage-thunderboot-mac-app-artifacts  ## Development-sign native Mac app and verify virtualization entitlement
 	@./scripts/unlock-keychain.sh
 	@echo
 	@echo "::: Building Apple Development-signed Aperture for macOS :::"
@@ -345,7 +355,7 @@ ifneq ($(strip $(MAC_BUILD_NUMBER)),)
 endif
 
 .PHONY: tf-mac-archive
-tf-mac-archive: mac-framework mac-artifacts  ## Archive a native macOS Release build for App Store / TestFlight
+tf-mac-archive: mac-framework stage-thunderboot-mac-app-artifacts  ## Archive a native macOS Release build for App Store / TestFlight
 	@./scripts/unlock-keychain.sh
 	@echo
 	@echo "::: Archiving ApertureMac for App Store distribution (Release, native macOS) :::"
