@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Command logcatcher is Aperture's minimal test log service. It accepts the
 // logtail upload protocol and writes every entry to stdout before acknowledging
 // the request, giving integration tests a deterministic durability boundary.

@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 import Foundation
 
 public enum VMDesiredState: String, Codable, Sendable, Equatable {

@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 //  Created by Jonathan Nobels on 2025-12-16.
 
 import SwiftUI

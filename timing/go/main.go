@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Command timing-go measures the cold latency of the core tsnet lifecycle
 // operations against the real Tailscale control plane, using the SAME
 // tailscale.com version the Aperture app embeds (pinned in go.mod):

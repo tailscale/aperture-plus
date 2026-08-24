@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Command register is a deliberately tiny extraction of tsnet's interactive
 // auth-URL path. It constructs only a controlclient.Direct and calls TryLogin;
 // there is no LocalBackend, wgengine, netstack, magicsock, LocalAPI, IPN bus,

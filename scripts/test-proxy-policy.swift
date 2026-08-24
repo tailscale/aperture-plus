@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Unit tests for TailnetProxyPolicy — the split-tunnel rule builder that fixes
 // the iPad -1000 ("invalid URL") bug. See TSNet/TailnetProxyPolicy.swift.
 //

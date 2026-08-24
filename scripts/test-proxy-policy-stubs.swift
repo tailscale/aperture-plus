@@ -1,3 +1,6 @@
+// Copyright (c) Tailscale Inc & contributors
+// SPDX-License-Identifier: BSD-3-Clause
+
 // Minimal stand-ins for the TailscaleKit types TailnetProxyPolicy reads, so
 // the real policy source can be compiled and unit-tested on the host without
 // the TailscaleKit.xcframework (which requires a Go toolchain to build) or a
